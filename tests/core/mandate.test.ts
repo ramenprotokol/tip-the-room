@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { initialCampaign, reduce } from "../../src/core/campaign";
 import {
   MandateDraftError,
   buildMandate,
   canonicalJSON,
+  deadlineMs,
+  mandateSignedEvent,
   signMandate,
   validateDraft,
   validateMandate,
@@ -116,6 +119,59 @@ describe("validateDraft", () => {
     const problems = validateDraft({ ...draft, deadline: "soon" });
     expect(problems).toContain("The launch time and deadline must be real dates.");
     expect(problems).not.toContain(SHOW_DATE);
+  });
+});
+
+describe("strict timestamps", () => {
+  const REAL = "The launch time and deadline must be real dates.";
+  it("rejects a timestamp with no offset", () => {
+    expect(validateDraft({ ...draft, deadline: "2026-11-19T02:00:00" })).toContain(REAL);
+    expect(validateDraft({ ...draft, launchedAt: "2026-11-04T18:00:00" })).toContain(REAL);
+  });
+  it("rejects a timestamp whose calendar date is not real", () => {
+    expect(validateDraft({ ...draft, deadline: "2026-02-30T00:00:00Z" })).toContain(REAL);
+  });
+  it("accepts a timestamp with a numeric offset", () => {
+    expect(validateDraft({ ...draft, deadline: "2026-11-19T02:00:00-08:00" })).not.toContain(REAL);
+  });
+});
+
+describe("payout order and roles", () => {
+  const ROLE = "Each payee must be the room, an opener, a host or the artist.";
+  const ORDER = "Payees must be listed as room, opener, host, then the artist.";
+  it("rejects an unknown role", () => {
+    const parties = [{ ...draft.parties[0], role: "venue" as never }, draft.parties[1], draft.parties[2]];
+    expect(validateDraft({ ...draft, parties })).toContain(ROLE);
+  });
+  it("rejects payees out of order", () => {
+    const parties = [draft.parties[1], draft.parties[0], draft.parties[2]];
+    expect(validateDraft({ ...draft, parties })).toContain(ORDER);
+  });
+  it("rejects the artist listed before another payee", () => {
+    const parties = [draft.parties[0], draft.parties[2], draft.parties[1]];
+    expect(validateDraft({ ...draft, parties })).toContain(ORDER);
+  });
+  it("accepts room, opener, host, artist in order", () => {
+    const host = { role: "host" as const, label: "Host", paypalEmail: "host@example.com", fixed: 100 };
+    const parties = [draft.parties[0], draft.parties[1], host, draft.parties[2]];
+    expect(validateDraft({ ...draft, parties })).not.toContain(ORDER);
+  });
+});
+
+describe("mandate and campaign helpers", () => {
+  it("normalises the time zone to UTC when none is given", () => {
+    expect(buildMandate(draft).timeZone).toBe("UTC");
+    expect(buildMandate({ ...draft, timeZone: "America/Los_Angeles" }).timeZone).toBe("America/Los_Angeles");
+  });
+  it("turns a mandate into a signed event that makes a live campaign", () => {
+    const m = buildMandate(draft);
+    expect(deadlineMs(m)).toBe(Date.parse(draft.deadline));
+    const event = mandateSignedEvent(m);
+    expect(event).toEqual({ type: "mandate_signed", threshold: m.threshold, deadline: Date.parse(draft.deadline) });
+    const { campaign } = reduce(initialCampaign(), event);
+    expect(campaign.state).toBe("live");
+    expect(campaign.threshold).toBe(m.threshold);
+    expect(campaign.deadline).toBe(Date.parse(draft.deadline));
   });
 });
 

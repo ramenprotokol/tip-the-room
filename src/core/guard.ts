@@ -104,9 +104,9 @@ export function guard(action: AgentAction, ctx: GuardContext): GuardDecision {
       if (c.extensionsUsed >= m.maxExtensions) return deny("rule-5-ask-first", "The one allowed extension is already used.");
       if (!Number.isFinite(action.newDeadline)) return deny("rule-5-ask-first", "That isn't a real deadline.");
       if (action.newDeadline <= c.deadline) return deny("rule-5-ask-first", "An extension must move the deadline later.");
-      if (action.newDeadline - c.deadline > MAX_EXTENSION_DAYS * DAY_MS) return deny("rule-5-ask-first", "An extension can add at most 7 days.");
+      if (action.newDeadline - c.deadline > MAX_EXTENSION_DAYS * DAY_MS) return deny("rule-5-ask-first", `An extension can add at most ${MAX_EXTENSION_DAYS} days.`);
       if (action.newDeadline - Date.parse(m.launchedAt) > MAX_CAMPAIGN_DAYS * DAY_MS) {
-        return deny("rule-5-ask-first", "Holds can't be kept longer than 21 days in total.");
+        return deny("rule-5-ask-first", `Holds can't be kept longer than ${MAX_CAMPAIGN_DAYS} days in total.`);
       }
       return approvals.has(key) ? allow("rule-5-ask-first", "The artist approved this extension.") : ask(key, "Extending the deadline needs the artist's OK.");
     }

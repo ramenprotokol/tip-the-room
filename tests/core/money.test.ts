@@ -7,6 +7,13 @@ describe("dollarsToCents", () => {
     expect(dollarsToCents(0.1 + 0.2)).toBe(30);
     expect(dollarsToCents(19.99)).toBe(1999);
   });
+  it("never returns negative zero", () => {
+    expect(Object.is(dollarsToCents(-0), 0)).toBe(true);
+    expect(formatUSD(dollarsToCents(-0))).toBe("$0.00");
+  });
+  it("rejects amounts too big to be a safe integer of cents", () => {
+    expect(() => dollarsToCents(1e307)).toThrow(RangeError);
+  });
   it("rejects negative and non-finite amounts", () => {
     expect(() => dollarsToCents(-1)).toThrow(RangeError);
     expect(() => dollarsToCents(Number.NaN)).toThrow(RangeError);

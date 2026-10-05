@@ -102,7 +102,7 @@ export function reduce(c: Campaign, e: CampaignEvent): Step {
 
     case "deadline_reached":
       if (!Number.isFinite(e.now)) throw new IllegalTransition(c.state, e.type, "the time must be a real time");
-      if (FINAL_OR_PAYING.includes(c.state)) return same(c);
+      if (c.state === "draft" || FINAL_OR_PAYING.includes(c.state)) return same(c);
       if (e.now < c.deadline) return same(c);
       if (c.state === "live") return same({ ...c, state: "missed" }, [{ type: "void_all_held" }]);
       // Only send payouts once the amount is final (no captures still pending).

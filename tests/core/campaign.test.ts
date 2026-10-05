@@ -82,6 +82,15 @@ function deepFreeze<T>(o: T): T {
   return o;
 }
 
+describe("campaign reducer: draft deadline", () => {
+  it("ignores deadline_reached on a draft with no effects", () => {
+    const draft = initialCampaign();
+    const step = reduce(draft, { type: "deadline_reached", now: DEADLINE + 1 });
+    expect(step.campaign).toEqual(draft);
+    expect(step.effects).toEqual([]);
+  });
+});
+
 describe("campaign reducer: money paths", () => {
   it("ignores an early deadline event on a live show", () => {
     const live = run([signed, held]).c;

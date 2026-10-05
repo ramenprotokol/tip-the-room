@@ -9,9 +9,11 @@ export const MAX_CAMPAIGN_DAYS = 21;
 export const MAX_EXTENSION_DAYS = 7;
 
 export function needsReauthorization(authorizedAt: number, now: number): boolean {
+  if (!Number.isFinite(authorizedAt) || !Number.isFinite(now)) return true;
   return now - authorizedAt >= HONOR_PERIOD_MS;
 }
 
 export function isAuthorizationExpired(authorizedAt: number, now: number): boolean {
+  if (!Number.isFinite(authorizedAt) || !Number.isFinite(now)) return true;
   return now - authorizedAt >= AUTH_VALID_MS;
 }

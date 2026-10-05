@@ -16,4 +16,10 @@ describe("hold timing", () => {
     expect(isAuthorizationExpired(t0, t0 + 29 * DAY_MS - 1)).toBe(false);
     expect(isAuthorizationExpired(t0, t0 + 29 * DAY_MS)).toBe(true);
   });
+  it("treats a non-finite timestamp as unsafe", () => {
+    expect(needsReauthorization(Number.NaN, t0)).toBe(true);
+    expect(needsReauthorization(t0, Number.NaN)).toBe(true);
+    expect(isAuthorizationExpired(Number.NaN, t0)).toBe(true);
+    expect(isAuthorizationExpired(t0, Number.NaN)).toBe(true);
+  });
 });

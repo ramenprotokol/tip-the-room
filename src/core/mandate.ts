@@ -1,5 +1,6 @@
 import type { Cents } from "./money";
 import { DAY_MS, MAX_CAMPAIGN_DAYS, MAX_EXTENSION_DAYS } from "./holds";
+import type { CampaignEvent } from "./campaign";
 import { artistMinimum, type Party } from "./split";
 import { thresholdPledges } from "./threshold";
 
@@ -52,7 +53,13 @@ function isRealDate(text: string): boolean {
   return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
-const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T/;
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+function isStrictTimestamp(text: string): boolean {
+  return typeof text === "string" && ISO_TIMESTAMP.test(text) && isRealDate(text.slice(0, 10)) && !Number.isNaN(Date.parse(text));
+}
+
+const ROLE_ORDER: readonly string[] = ["room", "opener", "host", "artist"];
 
 /** Plain-English problems with a draft. Pure checks only: never throws, never does threshold math. */
 export function validateDraft(draft: MandateDraft): string[] {
@@ -66,6 +73,9 @@ export function validateDraft(draft: MandateDraft): string[] {
   }
   const parties = draft.parties ?? [];
   if (parties.filter((p) => p.role === "artist").length !== 1) problems.push("The split needs exactly one artist.");
+  const ranks = parties.map((p) => ROLE_ORDER.indexOf(p.role));
+  if (ranks.some((r) => r === -1)) problems.push("Each payee must be the room, an opener, a host or the artist.");
+  else if (ranks.some((r, i) => i > 0 && r < ranks[i - 1])) problems.push("Payees must be listed as room, opener, host, then the artist.");
   for (const p of parties) {
     const named = Boolean(p.label?.trim());
     const label = named ? p.label : "A payee";
@@ -83,11 +93,7 @@ export function validateDraft(draft: MandateDraft): string[] {
 
   const launched = Date.parse(draft.launchedAt);
   const deadline = Date.parse(draft.deadline);
-  const timestampsOk =
-    !Number.isNaN(launched) &&
-    !Number.isNaN(deadline) &&
-    ISO_TIMESTAMP.test(draft.launchedAt) &&
-    ISO_TIMESTAMP.test(draft.deadline);
+  const timestampsOk = isStrictTimestamp(draft.launchedAt) && isStrictTimestamp(draft.deadline);
   if (!timestampsOk) {
     problems.push("The launch time and deadline must be real dates.");
     return problems;
@@ -125,7 +131,17 @@ export function buildMandate(draft: MandateDraft): Mandate {
     ticketPrice: draft.ticketPrice,
     feeBufferBps: draft.feeBufferBps,
   });
-  return { ...draft, version: 1, threshold, maxExtensions: 1, maxExtensionDays: MAX_EXTENSION_DAYS };
+  return { ...draft, timeZone: draft.timeZone ?? "UTC", version: 1, threshold, maxExtensions: 1, maxExtensionDays: MAX_EXTENSION_DAYS };
+}
+
+/** The mandate's deadline as epoch milliseconds, the form the campaign reducer uses. */
+export function deadlineMs(m: Mandate): number {
+  return Date.parse(m.deadline);
+}
+
+/** The event that takes a campaign from draft to live once the artist signs this mandate. */
+export function mandateSignedEvent(m: Mandate): CampaignEvent {
+  return { type: "mandate_signed", threshold: m.threshold, deadline: deadlineMs(m) };
 }
 
 export function validateMandate(m: Mandate): string[] {
