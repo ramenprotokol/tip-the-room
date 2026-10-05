@@ -9,3 +9,7 @@ Built for the PayPal AI Hackathon (2026). Work in progress.
     npm install
     npm test
     npm run dev
+
+## Visual parity
+
+The Marquee look is locked to `reference/v2/`. `npm run test:gpu` (local, needs a GPU) freezes the reference and the app at the same moments and fails if more than 0.5% of pixels differ.
