@@ -182,6 +182,56 @@ describe("campaign reducer: money paths", () => {
     expect(reduce(resolved, { type: "payouts_sent" }).campaign.state).toBe("settled");
   });
 
+  it("rejects a charge with nothing held in a legal state", () => {
+    const noHeld = run([charged, charged, charged], tippedStart()).c;
+    expect(noHeld.pledges.held).toBe(0);
+    expect(() => reduce(noHeld, charged)).toThrow(/no hold to charge/);
+    const payingNoHeld = run([deadline], noHeld).c;
+    expect(payingNoHeld.state).toBe("paying_out");
+    expect(() => reduce(payingNoHeld, charged)).toThrow(IllegalTransition);
+    const allFailed = run([failed, failed, failed, deadline], tippedStart()).c;
+    expect(() => reduce(allFailed, charged)).toThrow(IllegalTransition);
+  });
+
+  it("rejects non-finite extension deadlines", () => {
+    const live = run([signed]).c;
+    expect(() => reduce(live, { type: "deadline_extended", newDeadline: Infinity })).toThrow(IllegalTransition);
+    expect(() => reduce(live, { type: "deadline_extended", newDeadline: NaN })).toThrow(IllegalTransition);
+    expect(live.extensionsUsed).toBe(0);
+  });
+  it("rejects a deadline event with a non-finite time", () => {
+    const live = run([signed]).c;
+    expect(() => reduce(live, { type: "deadline_reached", now: NaN })).toThrow(IllegalTransition);
+    expect(() => reduce(tippedStart(), { type: "deadline_reached", now: NaN })).toThrow(IllegalTransition);
+  });
+
+  it("holds payouts at the deadline while captures are pending, then sends them once on the last capture", () => {
+    const step = reduce(tippedStart(), deadline);
+    expect(step.campaign.state).toBe("paying_out");
+    expect(step.campaign.pledges.held).toBe(3);
+    expect(step.effects).toEqual([]);
+    let c = step.campaign;
+    const sends: number[] = [];
+    [charged, failed, charged].forEach((e, i) => {
+      const r = reduce(c, e);
+      c = r.campaign;
+      if (r.effects.some((x) => x.type === "send_payouts")) sends.push(i);
+      expect(r.effects).toEqual(i === 2 ? [{ type: "send_payouts" }] : []);
+    });
+    expect(c.pledges.held).toBe(0);
+    expect(sends).toEqual([2]);
+  });
+  it("sends payouts when the last pending capture fails", () => {
+    const paying = run([deadline, charged, charged], tippedStart()).c;
+    expect(reduce(paying, failed).effects).toEqual([{ type: "send_payouts" }]);
+  });
+  it("sends payouts at the deadline straight away when nothing is held", () => {
+    const settledCaptures = run([charged, failed, charged], tippedStart()).c;
+    const step = reduce(settledCaptures, deadline);
+    expect(step.campaign.state).toBe("paying_out");
+    expect(step.effects).toEqual([{ type: "send_payouts" }]);
+  });
+
   it("rejects a mandate with a bad threshold or deadline", () => {
     const start = initialCampaign();
     expect(() => reduce(start, { type: "mandate_signed", threshold: 0, deadline: DEADLINE })).toThrow(IllegalTransition);
@@ -194,14 +244,23 @@ describe("campaign reducer: money paths", () => {
     const events: CampaignEvent[] = [
       signed, held, held, held, charged, failed, charged, deadline, { type: "payouts_sent" },
     ];
-    let c = initialCampaign();
-    for (const e of events) {
-      const frozen = deepFreeze(structuredClone(c));
-      const snapshot = structuredClone(c);
-      const step = reduce(frozen, e);
-      expect(frozen).toEqual(snapshot);
-      c = step.campaign;
-    }
+    const check = (start: Campaign, evs: CampaignEvent[]) => {
+      let c = start;
+      for (const e of evs) {
+        const frozen = deepFreeze(structuredClone(c));
+        const snapshot = structuredClone(c);
+        const step = reduce(frozen, e);
+        expect(frozen).toEqual(snapshot);
+        c = step.campaign;
+      }
+      return c;
+    };
+    check(initialCampaign(), events);
+    // deadline_extended, show_cancelled, holds_released, refunds_sent
+    check(initialCampaign(), [signed, { type: "deadline_extended", newDeadline: DEADLINE + 1000 }]);
+    check(initialCampaign(), [signed, held, held, held, charged, { type: "show_cancelled" }, { type: "holds_released", count: 2 }, { type: "refunds_sent", count: 1 }]);
+    // pending-capture deadline and the capture that triggers send_payouts
+    check(initialCampaign(), [signed, held, held, held, deadline, charged, failed, charged]);
     const cancelled = deepFreeze(cancelledStart());
     expect(() => reduce(cancelled, charged)).not.toThrow();
   });

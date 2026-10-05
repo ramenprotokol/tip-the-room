@@ -43,7 +43,7 @@ export interface Step {
 }
 
 export class IllegalTransition extends Error {
-  constructor(state: CampaignState, event: CampaignEvent["type"], why = "not allowed") {
+  constructor(state: CampaignState, event: string, why = "not allowed") {
     super(`Cannot apply ${event} while ${state}: ${why}`);
     this.name = "IllegalTransition";
   }
@@ -85,21 +85,27 @@ export function reduce(c: Campaign, e: CampaignEvent): Step {
       if (p.held <= 0) throw new IllegalTransition(c.state, e.type, "no hold to charge");
       const next = { ...c, pledges: { ...p, held: p.held - 1, charged: p.charged + 1 } };
       // A capture that lands after cancellation must be refunded too.
-      return same(next, c.state === "cancelled" ? [{ type: "refund_all_charged" }] : []);
+      if (c.state === "cancelled") return same(next, [{ type: "refund_all_charged" }]);
+      // The last pending capture settling makes the payout amount final.
+      return same(next, c.state === "paying_out" && next.pledges.held === 0 ? [{ type: "send_payouts" }] : []);
     }
 
-    case "pledge_capture_failed":
+    case "pledge_capture_failed": {
       if (c.state !== "tipped" && c.state !== "paying_out" && c.state !== "cancelled") {
         throw new IllegalTransition(c.state, e.type, "captures only happen after the show tips");
       }
       if (p.held <= 0) throw new IllegalTransition(c.state, e.type, "no hold to fail");
-      return same({ ...c, pledges: { ...p, held: p.held - 1, failed: p.failed + 1 } });
+      const next = { ...c, pledges: { ...p, held: p.held - 1, failed: p.failed + 1 } };
+      return same(next, c.state === "paying_out" && next.pledges.held === 0 ? [{ type: "send_payouts" }] : []);
+    }
 
     case "deadline_reached":
+      if (!Number.isFinite(e.now)) throw new IllegalTransition(c.state, e.type, "the time must be a real time");
       if (FINAL_OR_PAYING.includes(c.state)) return same(c);
       if (e.now < c.deadline) return same(c);
       if (c.state === "live") return same({ ...c, state: "missed" }, [{ type: "void_all_held" }]);
-      if (c.state === "tipped") return same({ ...c, state: "paying_out" }, [{ type: "send_payouts" }]);
+      // Only send payouts once the amount is final (no captures still pending).
+      if (c.state === "tipped") return same({ ...c, state: "paying_out" }, p.held === 0 ? [{ type: "send_payouts" }] : []);
       throw new IllegalTransition(c.state, e.type);
 
     case "payouts_sent":
@@ -113,6 +119,7 @@ export function reduce(c: Campaign, e: CampaignEvent): Step {
       return same({ ...c, pledges: { ...p, held: p.held - e.count, released: p.released + e.count } });
 
     case "deadline_extended":
+      if (!Number.isFinite(e.newDeadline)) throw new IllegalTransition(c.state, e.type, "the new deadline must be a real time");
       if (c.state !== "live") throw new IllegalTransition(c.state, e.type);
       if (c.extensionsUsed >= 1) throw new IllegalTransition(c.state, e.type, "only one extension is allowed");
       if (e.newDeadline <= c.deadline) throw new IllegalTransition(c.state, e.type, "an extension must move the deadline later");
@@ -127,7 +134,9 @@ export function reduce(c: Campaign, e: CampaignEvent): Step {
       if (!Number.isInteger(e.count) || e.count < 0 || e.count > p.charged) throw new IllegalTransition(c.state, e.type, "count out of range");
       return same({ ...c, pledges: { ...p, charged: p.charged - e.count, refunded: p.refunded + e.count } });
 
-    default:
-      throw new IllegalTransition(c.state, (e as { type: string }).type as CampaignEvent["type"], "unknown event");
+    default: {
+      const unknownEvent: never = e;
+      throw new IllegalTransition(c.state, (unknownEvent as { type: string }).type, "unknown event");
+    }
   }
 }
