@@ -33,6 +33,17 @@ describe("splitPayout", () => {
     expect(() => splitPayout(100, [...juniper, { ...juniper[2] }])).toThrow(/exactly one artist/);
     expect(() => splitPayout(100, [{ role: "room", label: "R", paypalEmail: "r@example.com" }, juniper[2]])).toThrow(/fixed amount/);
   });
+  it("rejects a collected amount that is negative, fractional or NaN", () => {
+    for (const bad of [-100, 100.5, NaN]) {
+      expect(() => splitPayout(bad, juniper)).toThrow(RangeError);
+    }
+  });
+  it("rejects an artist minimum that is negative or fractional", () => {
+    for (const bad of [-1, 10.5]) {
+      const parties: Party[] = [juniper[0], juniper[1], { ...juniper[2], minimum: bad }];
+      expect(() => splitPayout(100, parties)).toThrow(/minimum in whole cents/);
+    }
+  });
   it("never pays out more than was collected, and pays it all (property)", () => {
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 5_000_000 }), fc.integer({ min: 0, max: 200_000 }), fc.integer({ min: 0, max: 200_000 }), (collected, room, opener) => {

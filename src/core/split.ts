@@ -30,6 +30,10 @@ export interface SplitResult {
 function checkParties(parties: Party[]): void {
   const artists = parties.filter((p) => p.role === "artist");
   if (artists.length !== 1) throw new Error("A split needs exactly one artist");
+  const { minimum } = artists[0];
+  if (minimum !== undefined && (!Number.isInteger(minimum) || minimum < 0)) {
+    throw new Error(`${artists[0].label} needs a minimum in whole cents`);
+  }
   for (const p of parties) {
     if (p.role !== "artist" && (p.fixed === undefined || !Number.isInteger(p.fixed) || p.fixed < 0)) {
       throw new Error(`${p.label} needs a fixed amount in whole cents`);
@@ -47,6 +51,9 @@ export function artistMinimum(parties: Party[]): Cents {
 
 /** Pays fixed parties in order while money remains, then gives the artist everything left. */
 export function splitPayout(collectedNet: Cents, parties: Party[]): SplitResult {
+  if (!Number.isInteger(collectedNet) || collectedNet < 0) {
+    throw new RangeError("collectedNet must be a non-negative whole number of cents");
+  }
   checkParties(parties);
   let remaining = collectedNet;
   const fixedLines: PayoutLine[] = [];
