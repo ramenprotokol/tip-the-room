@@ -221,5 +221,5 @@ window.__marquee = { page: 'demo', ctls, views: [], host: null, ready: false };
 // 3D layer (optional): one shared WebGL renderer for both signs
 let host: SignHost | null = null;
 try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { /* 3D is optional: host stays null, the flat SVG signs remain */ }
-if (host) { const h = host; ctls.forEach(c => c.attach(h)); Ticker.add(now => h.tick(now)); window.__marquee.views = h.views; window.__marquee.host = h; }
+if (host) { ctls.forEach(c => c.attach(host)); Ticker.add(now => host.tick(now)); window.__marquee.views = host.views; window.__marquee.host = host; }
 window.__marquee.ready = true;

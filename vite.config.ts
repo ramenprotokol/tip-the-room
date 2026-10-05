@@ -7,16 +7,16 @@ export default defineConfig({
   server: { hmr: false, host: "127.0.0.1" },
   optimizeDeps: { entries: ["index.html", "start.html", "pledge.html", "manage.html"] },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         main: resolve(root, "index.html"),
         start: resolve(root, "start.html"),
         pledge: resolve(root, "pledge.html"),
         manage: resolve(root, "manage.html"),
       },
-      // gsap-global must evaluate before ui.ts so its module-load GSAP config (lagSmoothing, force3D) runs;
-      // keeping gsap in its own chunk makes the entry import it before the shared ui chunk.
-      output: { codeSplitting: { groups: [{ name: "gsap", test: /node_modules\/gsap|gsap-global/ }] } },
+      // Guarantees module-evaluation order across chunks, so gsap-global (window.gsap) runs before ui.ts's
+      // module-load GSAP config. Without it the shared ui chunk can evaluate first in the production build.
+      output: { strictExecutionOrder: true },
     },
   },
   test: {
