@@ -1,0 +1,19 @@
+# Tip the Room — build roadmap
+
+Spec: `docs/superpowers/specs/2026-10-03-tip-the-room-design.md`. Deadline: PayPal AI Hackathon, **2026-11-12 12:00 PT**. Target: feature-complete Nov 1, submit Nov 10.
+
+**Who builds what:**
+- **Implementers:** Sonnet 5.5 subagents, one task each.
+- **Opus** reviews every task (spec compliance, then code quality). It takes over any task where Sonnet's output is wrong twice or where the visual result doesn't match the reference.
+- **Visual source of truth:** `reference/v2/`, the Marquee reference pack. The app must match it exactly (visual parity tests).
+
+| Plan | What it delivers | Depends on | Status |
+|---|---|---|---|
+| 1 · Foundation + money core | Repo scaffold (Vite, TS, Vitest, ESLint, CI). Pure-TS money rules: cents, fan target, payout split, hold timing, mandate build/validate/sign, campaign state machine, rule guard with property tests | none | **ready** |
+| 2 · Marquee port + visual parity | `reference/v2` ported into `src/web/` as TS modules: shared WebGL renderer, demo page `/` running fully client-side, Playwright fake-clock parity tests against the reference | reference pack v2 (being built by the Opus designer), Plan 1 | written after the reference pack lands |
+| 3 · PayPal sandbox | Day-1 spikes: authorize, capture, void, reauthorize, Payouts toggle, simulated-fan method, agent toolkit on Workers. Then the PayPal REST client with idempotency, webhooks with signature verification, and a sandbox integration script | owner's sandbox app credentials in `.dev.vars` | blocked on credentials |
+| 4 · Agent runtime | Cloudflare Worker API. Campaign agent as a Durable Object (Agents SDK, alarms). D1 ledger. Workers AI for the sentence-to-draft step, pace proposals and plain-English notes, with a hard daily budget and template fallback | Plans 1, 3 | |
+| 5 · Product surfaces | `/start` (artist: describe → draft → hold-to-sign → share link + QR), `/s/:id` (fan pledge with the real PayPal button), `/s/:id/manage` (artist: marquee, proposals, AG Grid ledger themed to the reference, agent log). Demo page wired to real sandbox calls | Plans 2, 3, 4 | |
+| 6 · Ship | Cloudflare deploy via `ramen-deploy.sh`, privacy gate (`/privacyramen`), README (sources, Qloo-free, production path), build log crediting models (no session IDs), voice-free video under 3 min, Devpost submission | Plans 1–5 | |
+
+Plans 1 and the reference pack run in parallel now. Plan 3 starts the day the sandbox credentials are in place.

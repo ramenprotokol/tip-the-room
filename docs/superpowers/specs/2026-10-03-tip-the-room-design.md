@@ -20,6 +20,56 @@ Fans pledge with a **PayPal hold, not a charge**. The show only happens, and nob
 
 Sources for the facts above are listed in the README when it is written; every figure must link to its source.
 
+## 2b. Who uses it, step by step (added 2026-10-04)
+
+Three people touch the site, in this order.
+
+1. **The artist (e.g. Maya) starts a show.**
+   - **Page:** "Start a show".
+   - **She enters:**
+     - one sentence, e.g. "Acoustic set at Lucky's Café, Nov 20, $15 tickets, café wants $100, I need $200";
+     - the pledge deadline;
+     - a PayPal email for each person who gets paid (room, opener, host if any, herself).
+   - The AI fills a draft. **Code** computes the fan target. She reads the split in plain words ("Lucky's Café gets $100 · You get the rest, at least $200") and **holds to sign** it. That signature is the mandate.
+   - **She gets:** a share link (plus a QR code) and her **show page**, a lit marquee with her agent panel.
+2. **Fans pledge from the share link.**
+   - The **pledge page** shows her marquee ("12 of 20 fans · 8 more to make it happen"), the date, the room, and one button: **"Hold my spot · $15"**.
+   - PayPal's real button opens. PayPal **holds** the $15 on the fan's PayPal account (like a hotel deposit), and nothing is charged.
+   - Their bulb screws in with their initials, and the page says: "You're on hold. You'll only be charged if 20 fans join by Thu 6pm. If not, the hold is cancelled automatically."
+3. **The agent settles.**
+   - **Target reached:** it charges every hold at once and pays everyone per the signed split.
+   - **Deadline missed:** it cancels every hold.
+   - **Anything outside the signed rules** waits on Maya's page for her approval.
+
+**Judges** also get a **"Try the demo"** page with two sample shows side by side (one tips, one misses), with plain controls.
+
+No accounts or passwords in the demo. An artist's show is reached by its own private manage link, which is kept in the browser and shown once to copy. Fans need only PayPal (sandbox buyer accounts for judges).
+
+## 2c. Plain-English rules (layman-first UX)
+
+- **No jargon on screen.** Use "on hold", not "authorized"; "charged" for captured; "cancelled, nobody paid" for voided; "money rules you signed" for mandate. Technical words appear only in the agent log's small print and the ledger's "PayPal ref" column.
+- **Every screen answers "what do I do next?"** with one primary button in plain words: "Hold my spot · $15", "Sign the money rules", "Share your show", "Add 5 fans", "Skip to the deadline", "Start over".
+- **A 3-step strip** on the demo and pledge pages: "1 · Fans hold a spot, PayPal holds the money · 2 · Enough fans by the deadline, everyone is charged and paid · 3 · Not enough, every hold is cancelled, nobody pays".
+- **Counts are sentences:** "29 of 34 fans · 5 more to make it happen". Money is a sentence too: "$435 on hold · $0 charged".
+- **Status words:** Waiting for fans → It's on! → Everyone's paid; or Called off · nobody paid.
+- **Sign key in words:** "Dim bulb = a fan on hold · Lit bulb = charged · Light floating away = hold cancelled".
+- **Readability:** at least 16 px for body text, 4.5:1 contrast, 44 px tap targets. Every state is shown as word + colour + motion. Sound is off by default.
+
+## 2d. Design direction: Marquee (locked 2026-10-04)
+
+- **Visual source of truth:** the approved preview, `reference/marquee.html` in this repo (a copy of the "Marquee" preview, revised as `reference/v2/` with the 2c copy changes, the new screens and the fixes below).
+- **What it looks like:** two lacquered red theatre signs with brass trim on a warm paper page. Each fan is a border bulb, and the show name is a dot-grid of glass bulbs.
+  - **Tip:** chaser → flare → the name bursts into sparks that spell IT'S ON → three payout signs drop on brass rods.
+  - **Miss:** bulbs switch off in a wave and each fan's light floats home.
+- **Fonts:** Big Shoulders Display, Doto, IBM Plex Sans and IBM Plex Mono, self-hosted with `@fontsource`.
+- **The app must match the reference exactly.** Visual parity tests (section 9) compare the app against the reference at frozen clock times, and a failing parity test blocks the merge.
+- **Fixes over the preview:**
+  1. Capture happens **at tipping**, not at the deadline (section 6.2).
+  2. Tame the 0.2 s flare so stills aren't washed out.
+  3. Remove the pink cast bloom puts on the red lacquer.
+  4. One shared WebGL renderer for both signs.
+  5. Keep the "$" on the small payout signs at phone width.
+
 ## 3. How a campaign works
 
 ```
@@ -97,7 +147,8 @@ Real artists would be onboarded through PayPal's multiparty platform so money go
 
 ## 7. Architecture (all free tier)
 
-- **Front end:** React + Vite + TypeScript on Cloudflare Pages. AG Grid Community for the ledger.
+- **Front end:** vanilla TypeScript + Vite (no UI framework, so the reference's DOM and CSS port over unchanged), with three.js and GSAP from npm, on Cloudflare Pages. AG Grid Community (vanilla API) for the ledger.
+- **Pages:** `/` (Try the demo), `/start` (Start a show), `/s/:id` (fan pledge page), `/s/:id/manage#key` (artist's show page).
 - **API:** Cloudflare Worker.
 - **Campaign agent:** Cloudflare Agents SDK, one Durable Object (SQLite-backed) per campaign. Alarms for the pace checks and the deadline; no cron triggers.
 - **Ledger and campaigns:** Cloudflare D1 (append-only ledger events). No pledge state in KV (its free tier allows only 1,000 writes a day).
@@ -133,6 +184,13 @@ Real artists would be onboarded through PayPal's multiparty platform so money go
   - Webhook mapping.
 - **Sandbox integration:** a scripted run of authorize → reauthorize → capture → payout → refund, and authorize → void, against the PayPal sandbox.
 - **End to end:** Playwright against the deployed site: the full judge flow on both campaigns, including the real sandbox popup.
+- **Visual parity (GPU, local):** Playwright's fake clock (`page.clock`) freezes the reference page and the app at the same checkpoints:
+  - rest
+  - tip at 0.7 / 2.4 / 3.1 / 4.8 s
+  - miss at 1.0 / 3.2 s
+  - the phone layout
+
+  It screenshots each stage and diffs it with pixelmatch. Fail if more than 0.5% of pixels differ.
 - **Release gate:** Ramen privacy check before every push. The live judge flow must be green on the deployed URL before submitting.
 
 ## 10. Day-1 spikes (go / no-go before building on them)
