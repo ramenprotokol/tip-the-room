@@ -17,6 +17,7 @@ interface MarqueeWindow { __marquee?: { ready?: boolean; views?: MarqueeView[] }
 export interface Frozen {
   page: Page;
   errors: string[];
+  viewCount: number;
   run(ms: number): Promise<void>;
   toAnim(view: number, t: number): Promise<void>;
   close(): Promise<void>;
@@ -33,24 +34,32 @@ export async function openFrozen(browser: Browser, url: string, viewport: Viewpo
   await page.clock.install({ time: new Date("2026-11-16T10:19:00") });
   await page.clock.pauseAt(new Date("2026-11-16T10:19:01"));
   await page.goto(url, { waitUntil: "networkidle" });
-  for (let i = 0; i < 80; i++) {
-    if (await page.evaluate(() => Boolean((window as MarqueeWindow).__marquee?.ready))) break;
-    await sleep(100);
+  let ready = false;
+  for (let i = 0; i < 80 && !ready; i++) {
+    ready = await page.evaluate(() => Boolean((window as MarqueeWindow).__marquee?.ready));
+    if (!ready) await sleep(100);
   }
+  if (!ready) {
+    await ctx.close();
+    throw new Error(`openFrozen: window.__marquee.ready never became true within 8 s at ${url} (page not loaded, script error, or no WebGL?)`);
+  }
+  const viewCount = await page.evaluate(() => (window as MarqueeWindow).__marquee?.views?.length ?? 0);
   await page.clock.runFor(1200);
   const run = (ms: number) => page.clock.runFor(ms);
   const toAnim = async (view: number, t: number) => {
     const ms = await page.evaluate(([i, tt]) => {
       const v = (window as MarqueeWindow).__marquee?.views?.[i];
-      return v?.anim ? v.anim.t0 + tt * 1000 - performance.now() : 0;
+      return v?.anim ? v.anim.t0 + tt * 1000 - performance.now() : null;
     }, [view, t] as const);
+    if (ms === null) throw new Error(`toAnim: window.__marquee.views[${view}] or its anim is missing (no WebGL, or the animation never started)`);
     if (ms > 0) await page.clock.runFor(Math.ceil(ms));
   };
-  return { page, errors, run, toAnim, close: () => ctx.close() };
+  return { page, errors, viewCount, run, toAnim, close: () => ctx.close() };
 }
 
 export async function shoot(f: Frozen, fullPage: boolean): Promise<Buffer> {
   await f.page.evaluate(() => scrollTo(0, 0));
+  await f.page.evaluate(() => document.fonts.ready);
   await sleep(300);
   return f.page.screenshot({ fullPage, mask: [f.page.locator("[data-ref-only]")], maskColor: "#FF00FF" });
 }
@@ -71,30 +80,37 @@ export async function expectParity(
   refPath: string,
   appPath: string,
   scenario: Scenario,
-  opts: { viewport: Viewport; fullPage: boolean; slug: string },
+  opts: { viewport: Viewport; fullPage: boolean; slug: string; expectSigns?: boolean },
 ): Promise<number> {
-  const ref = await openFrozen(browser, REF_BASE + refPath, opts.viewport);
-  const app = await openFrozen(browser, APP_BASE + appPath, opts.viewport);
+  let ref: Frozen | undefined;
+  let app: Frozen | undefined;
   try {
+    ref = await openFrozen(browser, REF_BASE + refPath, opts.viewport);
+    app = await openFrozen(browser, APP_BASE + appPath, opts.viewport);
+    if (opts.expectSigns ?? true) {
+      expect(ref.viewCount, `${opts.slug}: reference rendered no signs (WebGL unavailable?), so nothing real would be compared`).toBeGreaterThan(0);
+      expect(app.viewCount, `${opts.slug}: app sign count differs from the reference`).toBe(ref.viewCount);
+    }
     await scenario(ref);
     await scenario(app);
     const a = await shoot(ref, opts.fullPage);
     const b = await shoot(app, opts.fullPage);
-    expect(ref.errors, "reference page errors").toEqual([]);
-    expect(app.errors, "app page errors").toEqual([]);
     const A = PNG.sync.read(a);
     const diff = new PNG({ width: A.width, height: A.height });
     const ratio = diffRatio(a, b, diff);
-    if (ratio > MAX_DIFF_RATIO) {
+    const errorsFound = ref.errors.length > 0 || app.errors.length > 0;
+    if (errorsFound || ratio > MAX_DIFF_RATIO) {
       mkdirSync("test-results/parity", { recursive: true });
       writeFileSync(`test-results/parity/${opts.slug}-ref.png`, a);
       writeFileSync(`test-results/parity/${opts.slug}-app.png`, b);
       writeFileSync(`test-results/parity/${opts.slug}-diff.png`, PNG.sync.write(diff));
     }
+    expect(ref.errors, "reference page errors").toEqual([]);
+    expect(app.errors, "app page errors").toEqual([]);
     expect(ratio, `${opts.slug}: ${(ratio * 100).toFixed(3)}% of pixels differ`).toBeLessThanOrEqual(MAX_DIFF_RATIO);
     return ratio;
   } finally {
-    await ref.close();
-    await app.close();
+    await ref?.close();
+    await app?.close();
   }
 }

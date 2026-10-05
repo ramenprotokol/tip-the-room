@@ -1,3 +1,5 @@
+// NOTE: parity runs need internet (the reference pages load fonts, three and gsap from CDNs) and a local GPU
+// (WebGL via Metal). Without them the harness fails loudly instead of passing.
 import { defineConfig } from "@playwright/test";
 
 // GPU parity tests: local only (hosted CI has no GPU). The reference is served as plain static files,
