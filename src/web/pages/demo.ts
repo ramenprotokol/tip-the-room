@@ -2,6 +2,7 @@ import "../shared/gsap-global";
 import "../shared/styles.css";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
+import type { MarqueeHooks } from "../shared/hooks";
 
 interface SplitPart { label: string; who: string; fixed: number | null }
 interface ShowCfg {
@@ -199,9 +200,7 @@ class ShowCtl {
   demoMiss() { if (this.phase !== 'open' || this.busy || this.tipped) { this.reset(); log.clear(this.cfg.key); } this.fastForward(); }
 }
 
-declare global {
-  interface Window { __marquee: { page: string; ctls: ShowCtl[]; views: SignView[]; host: SignHost | null; ready: boolean } }
-}
+interface DemoHooks extends MarqueeHooks { ctls: ShowCtl[]; host: SignHost | null }
 
 resetLog();
 const ctls = SHOWS.map(cfg => new ShowCtl(cfg)); const [A, B] = ctls;
@@ -216,7 +215,7 @@ addEventListener('keydown', e => {
   else if (k === 'm') { B.demoMiss(); e.preventDefault(); }
   else if (k === 'r') { ctls.forEach(c => c.reset()); resetLog(); e.preventDefault(); }
 });
-window.__marquee = { page: 'demo', ctls, views: [], host: null, ready: false };
+window.__marquee = { page: 'demo', ctls, views: [], host: null, ready: false } as DemoHooks;
 
 // 3D layer (optional): one shared WebGL renderer for both signs
 let host: SignHost | null = null;

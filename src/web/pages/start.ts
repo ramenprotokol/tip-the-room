@@ -2,6 +2,7 @@ import "../shared/gsap-global";
 import "../shared/styles.css";
 import { $, Ticker, Snd, soundToggle, Placeholder, HoldButton, drawQR, copyText, enter, usd } from "../shared/ui";
 import type { SignHost, SignView, SignModel } from "../shared/sign";
+import type { MarqueeHooks } from "../shared/hooks";
 import { DEFAULT_FEE_BUFFER_BPS, dollarsToCents, thresholdPledges } from "../../core";
 
 interface PayeeRow { role: string; who: string; amount: number; optional?: boolean; me?: boolean; email?: string }
@@ -104,14 +105,13 @@ const holdBtn = new HoldButton(els.sign, { ms: 1500, onDone: () => { $('[data-si
 soundToggle($('#sound'));
 ph.update('held', 0);
 
-interface StartHooks { page: string; ready: boolean; views: SignView[]; host?: SignHost; readonly data: Draft | null; fill(): void; setEmails(): void; holdTo(p: number): void; sign(): void }
-// demo.ts declares its own Window.__marquee shape, so this page keeps its hooks in a local typed object and publishes it through a cast.
+interface StartHooks extends MarqueeHooks { readonly data: Draft | null; fill(): void; setEmails(): void; holdTo(p: number): void; sign(): void }
 const hooks: StartHooks = {
   page: 'start', ready: false, views: [], get data() { return D; },
   fill, setEmails() { const mails: Record<string, string> = { Room: 'luckys-cafe@example.com', You: 'maya@example.com' }; D!.payees.forEach((p, i) => { if (mails[p.role]) { p.email = mails[p.role]; const el = $<HTMLInputElement>('#mail-' + i); if (el) el.value = p.email; } }); update(true); },
   holdTo(p) { holdBtn.set(p); }, sign: () => { holdBtn.done = true; els.sign.classList.add('is-done'); $('[data-sign-label]').textContent = 'Signed'; goLive(); },
 };
-(window as unknown as { __marquee: StartHooks }).__marquee = hooks;
+window.__marquee = hooks;
 let host: SignHost | null = null;
 try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ }
 if (host) {
