@@ -1,0 +1,114 @@
+import type { Cents } from "./money";
+import type { Mandate } from "./mandate";
+import type { Campaign } from "./campaign";
+import { DAY_MS, MAX_CAMPAIGN_DAYS, MAX_EXTENSION_DAYS } from "./holds";
+import { fixedTotal, splitPayout, type PayoutLine } from "./split";
+import type { RuleId } from "./rules";
+
+export { RULES, type RuleId } from "./rules";
+
+export type AgentAction =
+  | { kind: "capture_all_held" }
+  | { kind: "capture_new_pledge" }
+  | { kind: "void_all_held" }
+  | { kind: "reauthorize" }
+  | { kind: "send_payouts"; lines: PayoutLine[] }
+  | { kind: "extend_deadline"; newDeadline: number }
+  | { kind: "lower_threshold"; newThreshold: number }
+  | { kind: "refund_all_charged" };
+
+export interface GuardContext {
+  mandate: Mandate;
+  campaign: Campaign;
+  /** Approval keys the artist has granted (see approvalKeyFor). */
+  approvals: ReadonlySet<string>;
+  /** Money actually received after PayPal fees, in cents. */
+  collectedNet: Cents;
+}
+
+export interface GuardDecision {
+  allowed: boolean;
+  needsApproval: boolean;
+  rule: RuleId;
+  reason: string;
+  approvalKey?: string;
+}
+
+export function approvalKeyFor(action: AgentAction): string | undefined {
+  switch (action.kind) {
+    case "extend_deadline":
+      return `extend:${action.newDeadline}`;
+    case "lower_threshold":
+      return `lower:${action.newThreshold}`;
+    case "refund_all_charged":
+      return "refund";
+    default:
+      return undefined;
+  }
+}
+
+const allow = (rule: RuleId, reason: string): GuardDecision => ({ allowed: true, needsApproval: false, rule, reason });
+const deny = (rule: RuleId, reason: string): GuardDecision => ({ allowed: false, needsApproval: false, rule, reason });
+const ask = (key: string, reason: string): GuardDecision => ({ allowed: false, needsApproval: true, rule: "rule-5-ask-first", reason, approvalKey: key });
+
+function sameLines(a: PayoutLine[], b: PayoutLine[]): boolean {
+  return a.length === b.length && a.every((l, i) => l.role === b[i].role && l.paypalEmail === b[i].paypalEmail && l.amount === b[i].amount);
+}
+
+export function guard(action: AgentAction, ctx: GuardContext): GuardDecision {
+  const { campaign: c, mandate: m, approvals } = ctx;
+  switch (action.kind) {
+    case "capture_all_held":
+    case "capture_new_pledge":
+      return c.state === "tipped"
+        ? allow("rule-2-capture-at-tip", "The target is reached, so every hold is charged.")
+        : deny("rule-1-hold-only", "The target isn't reached, so fans stay on hold.");
+
+    case "void_all_held":
+      return c.state === "missed" || c.state === "cancelled"
+        ? allow("rule-3-void-on-miss", "The show didn't happen, so every hold is cancelled.")
+        : deny("rule-3-void-on-miss", "Holds are only cancelled after a miss or a cancellation.");
+
+    case "reauthorize":
+      return ["live", "tipped", "paying_out"].includes(c.state)
+        ? allow("rule-1-hold-only", "Refreshing holds keeps them valid; nobody is charged.")
+        : deny("rule-1-hold-only", "This show has no open holds to refresh.");
+
+    case "send_payouts": {
+      if (c.state !== "paying_out") return deny("rule-4-pay-the-split", "Payouts happen only after the deadline of a show that tipped.");
+      const expected = splitPayout(ctx.collectedNet, m.parties);
+      if (!sameLines(action.lines, expected.lines)) return deny("rule-4-pay-the-split", "These payouts don't match the signed split.");
+      if (expected.shortfall > 0 && !approvals.has("payout-shortfall")) {
+        return ask("payout-shortfall", "The money is short of the signed amounts, so the artist decides.");
+      }
+      return allow("rule-4-pay-the-split", "Paying everyone the split the artist signed.");
+    }
+
+    case "extend_deadline": {
+      const key = approvalKeyFor(action) as string;
+      if (c.state !== "live") return deny("rule-5-ask-first", "Only an open show can be extended.");
+      if (c.extensionsUsed >= m.maxExtensions) return deny("rule-5-ask-first", "The one allowed extension is already used.");
+      if (action.newDeadline <= c.deadline) return deny("rule-5-ask-first", "An extension must move the deadline later.");
+      if (action.newDeadline - c.deadline > MAX_EXTENSION_DAYS * DAY_MS) return deny("rule-5-ask-first", "An extension can add at most 7 days.");
+      if (action.newDeadline - Date.parse(m.launchedAt) > MAX_CAMPAIGN_DAYS * DAY_MS) {
+        return deny("rule-5-ask-first", "Holds can't be kept longer than 21 days in total.");
+      }
+      return approvals.has(key) ? allow("rule-5-ask-first", "The artist approved this extension.") : ask(key, "Extending the deadline needs the artist's OK.");
+    }
+
+    case "lower_threshold": {
+      const key = approvalKeyFor(action) as string;
+      if (c.state !== "live") return deny("rule-5-ask-first", "Only an open show's target can change.");
+      if (action.newThreshold >= c.threshold || action.newThreshold < 1) return deny("rule-5-ask-first", "A new target must be lower and at least 1.");
+      if (action.newThreshold * m.ticketPrice < fixedTotal(m.parties)) {
+        return deny("rule-5-ask-first", "That target wouldn't cover the room and the other fixed costs.");
+      }
+      return approvals.has(key) ? allow("rule-5-ask-first", "The artist approved the lower target.") : ask(key, "Lowering the target needs the artist's OK.");
+    }
+
+    case "refund_all_charged": {
+      if (c.state !== "cancelled") return deny("rule-5-ask-first", "Refunds happen only when a show is called off.");
+      return approvals.has("refund") ? allow("rule-5-ask-first", "The artist called the show off, so everyone is refunded.") : ask("refund", "Refunding needs the artist's OK.");
+    }
+  }
+}
