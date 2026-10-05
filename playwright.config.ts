@@ -29,7 +29,7 @@ export default defineConfig({
     {
       command: "npx vite build && npx vite preview --port 5200 --strictPort --host 127.0.0.1",
       url: "http://127.0.0.1:5200/",
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       timeout: 120_000,
     },
   ],

@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { PROD_BASE } from "./parity";
 
 // The parity harness only sees the dev server. This runs the built site (vite build + preview) so
 // production-only problems (chunk evaluation order, minification) are caught.
-const PROD_BASE = "http://127.0.0.1:5200/";
 
-interface ProdWindow { __marquee?: { ready?: boolean; views?: unknown[] }; gsap?: { config(): { force3D?: unknown } } }
+interface ProdWindow { __marquee?: { ready?: boolean; views?: unknown[]; ctls?: { phase: string }[] }; gsap?: { config(): { force3D?: unknown } } }
 
 // Opens a built page, waits for window.__marquee.ready and checks the sign count and the GSAP config.
 // ui.ts sets force3D:false at module load; seeing it proves window.gsap existed when ui.ts evaluated.
@@ -24,11 +24,13 @@ async function openProdPage(page: Page, path: string, expectedViews: number): Pr
 test("production build: / loads, GSAP config ran, demo keys run clean", async ({ page }) => {
   const errors = await openProdPage(page, "", 2);
 
+  const phases = () => page.evaluate(() => (window as unknown as ProdWindow).__marquee?.ctls?.map((c) => c.phase).join(","));
+
   await page.keyboard.press("t");
-  await page.waitForTimeout(8000);
+  await expect.poll(phases, { timeout: 30_000 }).toBe("tipped,open");
   await page.keyboard.press("p");
   await page.keyboard.press("m");
-  await page.waitForTimeout(6000);
+  await expect.poll(phases, { timeout: 30_000 }).toBe("paid,released");
 
   expect(errors).toEqual([]);
 });

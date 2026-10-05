@@ -5,6 +5,7 @@ import { PNG } from "pngjs";
 
 export const REF_BASE = "http://127.0.0.1:5198/v2/";
 export const APP_BASE = "http://127.0.0.1:5199/";
+export const PROD_BASE = "http://127.0.0.1:5200/";
 export const MAX_DIFF_RATIO = 0.005;
 export const DESKTOP = { width: 1440, height: 900 };
 export const PHONE = { width: 400, height: 860 };
@@ -64,6 +65,32 @@ export async function shoot(f: Frozen, fullPage: boolean): Promise<Buffer> {
   return f.page.screenshot({ fullPage, mask: [f.page.locator("[data-ref-only]")], maskColor: "#FF00FF" });
 }
 
+// Visible text of the page, for comparing what the pixels cannot (a wrong digit, a changed sentence).
+// Reads document.body.innerText with [data-ref-only] elements hidden for the read (they are masked in the
+// screenshot too). The odometer's visual digit strips (span.odo, aria-hidden) are hidden too: they hold the
+// digits 0-9 over and over, and the real value is carried by the sibling span.sr, which stays in the text.
+// Whitespace runs collapse to one space per line and blank lines are dropped.
+export async function visibleText(page: Page): Promise<string> {
+  const raw = await page.evaluate(() => {
+    const refOnly = Array.from(document.querySelectorAll<HTMLElement>("[data-ref-only], .odo"));
+    const saved = refOnly.map((el) => el.style.display);
+    refOnly.forEach((el) => { el.style.display = "none"; });
+    const text = document.body.innerText;
+    refOnly.forEach((el, i) => { el.style.display = saved[i] ?? ""; });
+    return text;
+  });
+  return raw.split("\n").map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+}
+
+export function firstTextDifference(refText: string, appText: string): string {
+  const r = refText.split("\n");
+  const a = appText.split("\n");
+  for (let i = 0; i < Math.max(r.length, a.length); i++) {
+    if (r[i] !== a[i]) return `line ${i + 1}: reference ${JSON.stringify(r[i] ?? "(missing)")} vs app ${JSON.stringify(a[i] ?? "(missing)")}`;
+  }
+  return "(no difference)";
+}
+
 export function diffRatio(a: Buffer, b: Buffer, diffOut?: PNG): number {
   const A = PNG.sync.read(a);
   const B = PNG.sync.read(b);
@@ -80,13 +107,13 @@ export async function expectParity(
   refPath: string,
   appPath: string,
   scenario: Scenario,
-  opts: { viewport: Viewport; fullPage: boolean; slug: string; expectSigns?: boolean },
+  opts: { viewport: Viewport; fullPage: boolean; slug: string; expectSigns?: boolean; appBase?: string },
 ): Promise<number> {
   let ref: Frozen | undefined;
   let app: Frozen | undefined;
   try {
     ref = await openFrozen(browser, REF_BASE + refPath, opts.viewport);
-    app = await openFrozen(browser, APP_BASE + appPath, opts.viewport);
+    app = await openFrozen(browser, (opts.appBase ?? APP_BASE) + appPath, opts.viewport);
     if (opts.expectSigns ?? true) {
       expect(ref.viewCount, `${opts.slug}: reference rendered no signs (WebGL unavailable?), so nothing real would be compared`).toBeGreaterThan(0);
       expect(app.viewCount, `${opts.slug}: app sign count differs from the reference`).toBe(ref.viewCount);
@@ -95,18 +122,25 @@ export async function expectParity(
     await scenario(app);
     const a = await shoot(ref, opts.fullPage);
     const b = await shoot(app, opts.fullPage);
+    const refText = await visibleText(ref.page);
+    const appText = await visibleText(app.page);
+    const textEqual = refText === appText;
     const A = PNG.sync.read(a);
     const diff = new PNG({ width: A.width, height: A.height });
     const ratio = diffRatio(a, b, diff);
     const errorsFound = ref.errors.length > 0 || app.errors.length > 0;
-    if (errorsFound || ratio > MAX_DIFF_RATIO) {
+    if (errorsFound || ratio > MAX_DIFF_RATIO || !textEqual) {
       mkdirSync("test-results/parity", { recursive: true });
       writeFileSync(`test-results/parity/${opts.slug}-ref.png`, a);
       writeFileSync(`test-results/parity/${opts.slug}-app.png`, b);
       writeFileSync(`test-results/parity/${opts.slug}-diff.png`, PNG.sync.write(diff));
+      writeFileSync(`test-results/parity/${opts.slug}-ref.txt`, refText + "\n");
+      writeFileSync(`test-results/parity/${opts.slug}-app.txt`, appText + "\n");
     }
     expect(ref.errors, "reference page errors").toEqual([]);
     expect(app.errors, "app page errors").toEqual([]);
+    expect(refText.length, `${opts.slug}: reference page has no visible text, so the text check would prove nothing`).toBeGreaterThan(50);
+    expect(textEqual, `${opts.slug}: visible text differs, first at ${firstTextDifference(refText, appText)}`).toBe(true);
     expect(ratio, `${opts.slug}: ${(ratio * 100).toFixed(3)}% of pixels differ`).toBeLessThanOrEqual(MAX_DIFF_RATIO);
     return ratio;
   } finally {
