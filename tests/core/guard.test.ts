@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import fc from "fast-check";
 import { buildMandate, type MandateDraft } from "../../src/core/mandate";
-import { initialCampaign, reduce, type Campaign } from "../../src/core/campaign";
+import { initialCampaign, reduce, type Campaign, type CampaignEvent } from "../../src/core/campaign";
 import { splitPayout } from "../../src/core/split";
 import { approvalKeyFor, guard, RULES, type AgentAction, type GuardContext } from "../../src/core/guard";
 import { DAY_MS } from "../../src/core/holds";
@@ -89,8 +88,7 @@ describe("guard", () => {
     for (const collectedNet of [Number.NaN, -1, 100.5, Number.POSITIVE_INFINITY, 51001]) {
       let d: ReturnType<typeof guard> | undefined;
       expect(() => { d = guard({ kind: "send_payouts", lines }, ctx(paying, { collectedNet })); }).not.toThrow();
-      expect(d).toMatchObject({ allowed: false, needsApproval: false, rule: "rule-4-pay-the-split" });
-      expect(d?.reason.length).toBeGreaterThan(0);
+      expect(d).toMatchObject({ allowed: false, needsApproval: false, rule: "rule-4-pay-the-split", reason: "That payout amount doesn't match what the fans actually paid." });
     }
   });
   it("asks first when the money falls short of the signed minimums, tied to that amount", () => {
@@ -179,36 +177,66 @@ describe("guard", () => {
     expect(guard({ kind: "reauthorize" }, ctx(campaignIn("missed", 3))).allowed).toBe(false);
     expect(guard({ kind: "reauthorize" }, ctx(campaignIn("cancelled", 3))).allowed).toBe(false);
   });
-  it("agrees with the reducer on every money action in every state (property)", () => {
-    const collectedNet = 34 * mandate.ticketPrice;
+  it("denies the capture with a reason that fits the moment", () => {
+    for (const kind of ["capture_all_held", "capture_new_pledge"] as const) {
+      for (const state of ["live", "draft"] as const) {
+        expect(guard({ kind }, ctx(campaignIn(state, 20))).reason).toBe("The target isn't reached, so fans stay on hold.");
+      }
+      for (const state of ["paying_out", "settled", "missed", "cancelled"] as const) {
+        expect(guard({ kind }, ctx(campaignIn(state, 0, 34)))).toMatchObject({ allowed: false, reason: "There are no open holds to charge right now." });
+      }
+    }
+  });
+  it("denies an action it does not know, without throwing", () => {
+    const unknown = { kind: "wire_money_to_agent" } as unknown as AgentAction;
+    let d: ReturnType<typeof guard> | undefined;
+    expect(() => { d = guard(unknown, ctx(campaignIn("tipped", 34))); }).not.toThrow();
+    expect(d).toMatchObject({ allowed: false, needsApproval: false, rule: "rule-1-hold-only", reason: "That isn't an action the agent is allowed to take." });
+  });
+  it("agrees with the reducer on every campaign state, action kind and held count", () => {
+    const charged = 34;
+    const collectedNet = charged * mandate.ticketPrice; // valid for the campaign: no shortfall, not above what fans paid
     const lines = splitPayout(collectedNet, mandate.parties).lines;
+    const newDeadline = deadline + 4 * DAY_MS; // valid fixture extension
+    const newThreshold = 30; // lower than the fixture target and above the fee-aware floor of 13
     const actionFor = (kind: (typeof allKinds)[number]): AgentAction => {
       switch (kind) {
         case "send_payouts": return { kind, lines };
-        case "extend_deadline": return { kind, newDeadline: deadline + 4 * DAY_MS };
-        case "lower_threshold": return { kind, newThreshold: 30 };
+        case "extend_deadline": return { kind, newDeadline };
+        case "lower_threshold": return { kind, newThreshold };
         default: return { kind };
       }
     };
-    fc.assert(
-      fc.property(fc.constantFrom(...states), fc.constantFrom(...allKinds), fc.integer({ min: 0, max: 80 }), (state, kind, held) => {
-        const c = campaignIn(state, held, 34);
-        const action = actionFor(kind);
-        const approvals = new Set(["refund", `payout-shortfall:${collectedNet}`, approvalKeyFor(action) ?? "none"]);
-        const allowed = guard(action, ctx(c, { approvals, collectedNet })).allowed;
-        const reducerWaits = {
-          capture_all_held: state === "tipped" || (state === "paying_out" && held > 0),
-          capture_new_pledge: state === "tipped" || (state === "paying_out" && held > 0),
-          void_all_held: state === "missed" || state === "cancelled",
-          reauthorize: undefined,
-          send_payouts: state === "paying_out" && held === 0,
-          refund_all_charged: state === "cancelled",
-          extend_deadline: state === "live",
-          lower_threshold: state === "live",
-        }[kind];
-        // Money-moving actions are allowed exactly where the reducer can record them.
-        if (reducerWaits !== undefined) expect(allowed).toBe(reducerWaits);
-      }),
-    );
+    const accepts = (c: Campaign, event: CampaignEvent): boolean => {
+      try { reduce(c, event); return true; } catch { return false; }
+    };
+    let checked = 0;
+    for (const state of states) {
+      for (const kind of allKinds) {
+        for (const held of [0, 1, 5]) {
+          const c = campaignIn(state, held, charged);
+          const action = actionFor(kind);
+          const approvals = new Set(["refund", `payout-shortfall:${collectedNet}`, approvalKeyFor(action) ?? "none"]);
+          const expected = ((): boolean | undefined => {
+            switch (kind) {
+              case "void_all_held": return accepts(c, { type: "holds_released", count: 0 });
+              case "send_payouts": return accepts(c, { type: "payouts_sent" });
+              case "refund_all_charged": return accepts(c, { type: "refunds_sent", count: 0 });
+              case "extend_deadline": return accepts(c, { type: "deadline_extended", newDeadline });
+              case "lower_threshold": return accepts(c, { type: "threshold_lowered", newThreshold });
+              // Excluding cancelled is policy: captures are never started after a cancellation.
+              // A late one is still recorded by the reducer, and then refunded.
+              case "capture_all_held":
+              case "capture_new_pledge": return state === "tipped" || (accepts(c, { type: "pledge_charged" }) && state !== "cancelled");
+              case "reauthorize": return ["live", "tipped", "paying_out"].includes(state);
+            }
+          })();
+          const d = guard(action, ctx(c, { approvals, collectedNet }));
+          expect(d.allowed, `${kind} in ${state} with ${held} held`).toBe(expected);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBe(states.length * allKinds.length * 3);
   });
 });

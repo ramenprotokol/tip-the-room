@@ -56,15 +56,22 @@ function sameLines(a: PayoutLine[], b: PayoutLine[]): boolean {
   return a.length === b.length && a.every((l, i) => l.role === b[i].role && l.paypalEmail === b[i].paypalEmail && l.amount === b[i].amount);
 }
 
+/**
+ * Decides whether the agent may take an action.
+ * Callers must evaluate an effect against the campaign returned by `reduce` (after the event), not the one before it.
+ */
 export function guard(action: AgentAction, ctx: GuardContext): GuardDecision {
   const { campaign: c, mandate: m, approvals } = ctx;
   switch (action.kind) {
     case "capture_all_held":
     case "capture_new_pledge":
       // Captures may finish after the deadline, while any hold is still waiting.
-      return c.state === "tipped" || (c.state === "paying_out" && c.pledges.held > 0)
-        ? allow("rule-2-capture-at-tip", "The target is reached, so every hold is charged.")
-        : deny("rule-1-hold-only", "The target isn't reached, so fans stay on hold.");
+      if (c.state === "tipped" || (c.state === "paying_out" && c.pledges.held > 0)) {
+        return allow("rule-2-capture-at-tip", "The target is reached, so every hold is charged.");
+      }
+      return c.state === "live" || c.state === "draft"
+        ? deny("rule-1-hold-only", "The target isn't reached, so fans stay on hold.")
+        : deny("rule-1-hold-only", "There are no open holds to charge right now.");
 
     case "void_all_held":
       return c.state === "missed" || c.state === "cancelled"
@@ -80,7 +87,7 @@ export function guard(action: AgentAction, ctx: GuardContext): GuardDecision {
       if (c.state !== "paying_out") return deny("rule-4-pay-the-split", "Payouts happen only after the deadline of a show that tipped.");
       if (c.pledges.held !== 0) return deny("rule-4-pay-the-split", "Some fans' charges are still going through, so payouts wait until they settle.");
       if (!Number.isInteger(ctx.collectedNet) || ctx.collectedNet < 0 || ctx.collectedNet > c.pledges.charged * m.ticketPrice) {
-        return deny("rule-4-pay-the-split", "The amount to pay out isn't more than the fans actually paid.");
+        return deny("rule-4-pay-the-split", "That payout amount doesn't match what the fans actually paid.");
       }
       const expected = splitPayout(ctx.collectedNet, m.parties);
       if (!sameLines(action.lines, expected.lines)) return deny("rule-4-pay-the-split", "These payouts don't match the signed split.");
@@ -125,6 +132,12 @@ export function guard(action: AgentAction, ctx: GuardContext): GuardDecision {
     case "refund_all_charged": {
       if (c.state !== "cancelled") return deny("rule-5-ask-first", "Refunds happen only when a show is called off.");
       return approvals.has("refund") ? allow("rule-5-ask-first", "The artist called the show off, so everyone is refunded.") : ask("refund", "Refunding needs the artist's OK.");
+    }
+
+    default: {
+      const unknownAction: never = action;
+      void unknownAction;
+      return deny("rule-1-hold-only", "That isn't an action the agent is allowed to take.");
     }
   }
 }

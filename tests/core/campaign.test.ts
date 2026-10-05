@@ -259,6 +259,7 @@ describe("campaign reducer: money paths", () => {
     // deadline_extended, show_cancelled, holds_released, refunds_sent
     check(initialCampaign(), [signed, { type: "deadline_extended", newDeadline: DEADLINE + 1000 }]);
     check(initialCampaign(), [signed, held, held, held, charged, { type: "show_cancelled" }, { type: "holds_released", count: 2 }, { type: "refunds_sent", count: 1 }]);
+    check(initialCampaign(), [{ type: "mandate_signed", threshold: 5, deadline: DEADLINE }, held, held, { type: "threshold_lowered", newThreshold: 4 }, { type: "threshold_lowered", newThreshold: 2 }]);
     // pending-capture deadline and the capture that triggers send_payouts
     check(initialCampaign(), [signed, held, held, held, deadline, charged, failed, charged]);
     const cancelled = deepFreeze(cancelledStart());
