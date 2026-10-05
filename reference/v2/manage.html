@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tip the Room · Your show</title>
+<meta name="description" content="Maya's show page: the sign, the countdown, the agent and every money move.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="shared/styles.css">
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="demo.html">
+    <span class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</span>
+    <span class="tagline">Nobody's charged unless the show happens.</span>
+  </a>
+  <p class="mode">Your show page · sample show</p>
+  <div class="bar-right">
+    <button class="sound" id="sound" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      <span data-label>Sound off</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <div class="manage-hero">
+    <div class="stage" data-stage role="img" aria-label="Your marquee sign">
+      <svg class="ph" data-ph aria-hidden="true"></svg>
+      <div class="bulb-tip" data-tip hidden></div>
+    </div>
+    <div class="panel">
+      <div class="row-top">
+        <p class="eyebrow">Your show · Fri Nov 20, 8pm · Lucky’s Café</p>
+        <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>Waiting for fans</b><span data-said>· $0 charged</span></p>
+      </div>
+      <h1 class="title">Acoustic Set</h1>
+      <p class="status-sentence" data-sentence aria-live="polite"></p>
+      <dl class="stats">
+        <div class="stat clock"><dt data-deadline-label>Deadline · Thu Nov 12, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
+        <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>12</span><span data-of>of 21 fans</span></span><span class="sub" data-fans-sub>9 more to make it happen</span></dd></div>
+        <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>180</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span></dd></div>
+      </dl>
+      <div class="demo-controls" data-ref-only>
+        <p class="eyebrow">Demo controls · sample show only</p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="add">Add 5 fans</button>
+          <button class="btn btn-red" type="button" data-act="ff">Skip to the deadline</button>
+          <button class="btn btn-ghost" type="button" data-act="reset">Start over</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="manage-grid">
+    <section class="agent" aria-labelledby="h-agent">
+      <h2 class="section-title" id="h-agent">Your agent</h2>
+      <div class="ask" id="ask" role="group" aria-labelledby="ask-q">
+        <p class="ask-k">Ask me first</p>
+        <p>Lucky’s Café is at <b>12 of 21</b> with 3 days left. At this pace it lands near 17.</p>
+        <p id="ask-q"><b>Extend the deadline 4 days, to Mon Nov 16, 6pm?</b></p>
+        <p class="why">Your money rules allow one extension of up to 7 days. The show is Fri Nov 20, so fans still get 4 days’ notice.</p>
+        <div class="actions">
+          <button class="btn btn-hold" type="button" id="approve" aria-describedby="approve-hint" style="min-height:48px;padding:0 18px;font-size:16px"><span class="lbl"><span data-approve-label>Hold to approve</span></span></button>
+          <button class="btn btn-ghost" type="button" id="decline">Not now</button>
+        </div>
+        <p class="hold-hint" id="approve-hint">Press and hold for 1.5 seconds, or hold Space or Enter.</p>
+      </div>
+      <ol class="log" id="log" aria-live="polite"></ol>
+    </section>
+    <section aria-labelledby="h-share" style="display:grid;gap:12px;align-content:start">
+      <h2 class="section-title" id="h-share">Share your show</h2>
+      <div class="field">
+        <span class="label" id="l-share">Your share link</span>
+        <div class="share-link"><output class="linkbox" id="share-url" aria-labelledby="l-share">https://tiptheroom.example/s/acoustic-set-nov20</output><button class="btn" type="button" id="copy">Copy link</button></div>
+        <span class="hint" data-copied aria-live="polite">Fans hold a spot from this link.</span>
+      </div>
+      <figure class="qr" style="margin:6px 0 0;justify-items:start"><canvas id="qr" width="132" height="132"></canvas><figcaption>Print it for the door or the café counter</figcaption></figure>
+    </section>
+  </div>
+
+  <section class="block payout" id="payout" aria-labelledby="h-pay">
+    <h2 class="section-title" id="h-pay">Who gets paid</h2>
+    <div class="strip"></div>
+    <p class="pay-note" data-pay-note data-idle="Paid at the deadline once the show is on: Lucky’s Café first, then you get the rest.">Paid at the deadline once the show is on: Lucky’s Café first, then you get the rest.</p>
+  </section>
+
+  <section class="block" aria-labelledby="h-ledger">
+    <h2 class="section-title" id="h-ledger">Every money move</h2>
+    <div class="ag-root-wrapper ag-theme-marquee" role="grid" aria-labelledby="h-ledger">
+      <div class="ag-body-viewport" tabindex="0">
+        <div class="ag-header" role="rowgroup"><div class="ag-header-row ag-header-row-column" role="row">
+          <div class="ag-header-cell" role="columnheader" col-id="when">When</div>
+          <div class="ag-header-cell" role="columnheader" col-id="what">What happened</div>
+          <div class="ag-header-cell" role="columnheader" col-id="who">Who</div>
+          <div class="ag-header-cell num" role="columnheader" col-id="amount">Amount</div>
+          <div class="ag-header-cell" role="columnheader" col-id="ref">PayPal ref</div>
+          <div class="ag-header-cell ag-pinned-right" role="columnheader" col-id="status">Status</div>
+        </div></div>
+        <div class="ag-center-cols-container" role="rowgroup" id="rows"></div>
+      </div>
+    </div>
+    <p class="grid-note">Newest first. Sample refs: the live app shows real PayPal sandbox IDs. Sort, filter and export to CSV there.</p>
+  </section>
+</main>
+<footer class="key" aria-label="What the sign shows">
+  <ul>
+    <li><i class="sw sw-held" aria-hidden="true"></i>Dim bulb = a fan on hold</li>
+    <li><i class="sw sw-lit" aria-hidden="true"></i>Lit bulb = charged</li>
+    <li><i class="sw sw-rel" aria-hidden="true"></i>Light floating away = hold cancelled</li>
+    <li><i class="sw sw-paid" aria-hidden="true"><b></b><b></b></i>Signs drop below = everyone's paid</li>
+  </ul>
+</footer>
+<nav class="ref-nav" data-ref-only aria-label="Reference pages">Reference pages: <a href="demo.html">Try the demo</a><a href="start.html">Start a show</a><a href="pledge.html">Fan page</a><a href="manage.html">Artist's show page</a></nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
+<script type="module">
+import { $, $$, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, HoldButton, setStatus, countdownHTML, drawQR, copyText, enter, pop, usd, clamp, pad2 } from './shared/ui.js';
+
+// fixed sample: Maya's show, "now" is Mon Nov 9, 9:00am (2026 calendar)
+const SHOW = { name: 'Acoustic Set', crest: 'LUCKY’S CAFÉ', target: 21, start: 12, pledge: 15, remain: 291600, seed: 31, yaw: .16,
+  payees: [{ label: 'Room', who: 'Lucky’s Café', fixed: 100 }, { label: 'You', who: 'You (Maya)', fixed: null }] };
+const INITIALS = ['JR', 'AK', 'LM', 'TD', 'SO', 'PB', 'NV', 'CH', 'EW', 'RG', 'MI', 'BF', 'OT', 'KS', 'DL', 'HY', 'QA', 'UZ', 'WN', 'XE', 'GP', 'VC', 'IB', 'FM', 'YJ', 'ZR'];
+const STAMPS = ['Nov 3 · 7:12pm', 'Nov 3 · 9:40pm', 'Nov 4 · 8:05am', 'Nov 4 · 6:31pm', 'Nov 5 · 12:17pm', 'Nov 5 · 10:02pm', 'Nov 6 · 7:48pm', 'Nov 7 · 11:26am', 'Nov 7 · 4:53pm', 'Nov 8 · 2:15pm', 'Nov 8 · 9:37pm', 'Nov 9 · 8:41am'];
+const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6 }, MISS: { release: .12, msg: 2.05, wave: .9 } };
+const splitOf = fans => { let rest = fans * SHOW.pledge; return SHOW.payees.map(p => { const v = p.fixed == null ? rest : Math.min(p.fixed, rest); rest -= v; return v; }); };
+const PILL = { 'On hold': 'on-hold', Charged: 'charged', Paid: 'paid', Cancelled: 'cancelled' };
+
+/* ---- ledger: static, but shaped like AG Grid rows so the real grid can be themed to match ---- */
+const Ledger = {
+  el: $('#rows'), rows: [],
+  reset() { this.rows = []; for (let i = 0; i < SHOW.start; i++) this.rows.unshift({ when: STAMPS[i], what: 'Fan held a spot', who: `Fan ${pad2(i + 1)} · ${INITIALS[i]}`, amount: SHOW.pledge, ref: `SAMPLE-AUTH-${String(i + 1).padStart(3, '0')}`, status: 'On hold', hold: true }); this.render(); },
+  add(row) { this.rows.unshift(row); this.render(1); },
+  setHolds(status) { this.rows.forEach(r => { if (r.hold) r.status = status; }); this.render(); },
+  render(fresh = 0) {
+    this.el.innerHTML = this.rows.map((r, i) => `<div class="ag-row ${i % 2 ? 'ag-row-odd' : 'ag-row-even'}" role="row" row-index="${i}">
+      <div class="ag-cell when" role="gridcell" col-id="when">${r.when}</div><div class="ag-cell" role="gridcell" col-id="what" title="${r.what}">${r.what}</div>
+      <div class="ag-cell" role="gridcell" col-id="who">${r.who}</div><div class="ag-cell num" role="gridcell" col-id="amount">$${r.amount.toFixed(2)}</div>
+      <div class="ag-cell ref" role="gridcell" col-id="ref">${r.ref}</div>
+      <div class="ag-cell ag-pinned-right" role="gridcell" col-id="status"><span class="pill ${PILL[r.status]}"><i aria-hidden="true"></i>${r.status}</span></div></div>`).join('');
+    for (let i = 0; i < fresh; i++) enter(this.el.children[i], 6, 400);
+  },
+};
+
+const el = { stage: $('[data-stage]'), status: $('[data-status]'), sentence: $('[data-sentence]'), clock: $('[data-clock]'), dl: $('[data-deadline-label]'), sub: $('[data-fans-sub]'), of: $('[data-of]'), add: $('[data-act=add]'), ff: $('[data-act=ff]'), ask: $('#ask') };
+const odoFans = new Odo($('[data-fans]')), odoHeld = new Odo($('[data-held]')), odoCharged = new Odo($('[data-charged]'));
+const ph = new Placeholder($('[data-ph]'), { name: SHOW.name, target: SHOW.target });
+const log = new AgentLog($('#log')), payout = new PayoutStrip($('#payout'), SHOW.payees.map(p => ({ label: p.label, who: p.who })));
+const cues = new Cues(); Ticker.lamp(el.status);
+let view = null, st = {}, minute = 0;
+const stamp = () => `Mon 9:${pad2(++minute + 10)}am`;
+const STATUS = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', ''], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'] };
+const say = (k, instant) => setStatus(el.status, ...STATUS[k], instant);
+const visual = () => ({ phase: st.phase === 'paying' || st.phase === 'paid' ? 'paid' : st.phase === 'missing' || st.phase === 'released' ? 'released' : st.tipped ? 'tipped' : 'held', fans: st.fans });
+const payees = () => { const a = splitOf(Math.max(st.fans, SHOW.target)); return SHOW.payees.map((p, i) => ({ label: p.label, amount: a[i] })); };
+
+function render(instant = false) {
+  const { fans } = st, total = fans * SHOW.pledge, v = visual().phase;
+  odoFans.set(fans, instant); odoHeld.set(st.tipped || v === 'released' ? 0 : total, instant); odoCharged.set(st.tipped ? total : 0, instant);
+  el.of.textContent = fans <= SHOW.target ? `of ${SHOW.target} fans` : `fans · target was ${SHOW.target}`;
+  el.sub.textContent = v === 'paid' ? 'Everyone’s paid' : v === 'released' ? `Called off · ${SHOW.target - fans} short` : st.tipped ? (fans > SHOW.target ? `It’s on! · ${fans - SHOW.target} joined after it tipped` : 'It’s on! Everyone’s charged') : `${SHOW.target - fans} more to make it happen`;
+  const a = splitOf(fans);
+  el.sentence.textContent = v === 'paid' ? `Everyone’s paid. Lucky’s Café got ${usd(a[0])} and you got ${usd(a[1])}.`
+    : v === 'released' ? `Called off. Every hold was cancelled, ${usd(total)} went back to ${fans} fans, and nobody paid.`
+    : st.tipped ? `It’s on! ${fans} fans were charged ${usd(total)}. Lucky’s Café and you are paid at the deadline, ${st.deadline}.`
+    : `${fans} fans are on hold. ${SHOW.target - fans} more by ${st.deadline} and it’s on. Nobody has been charged.`;
+  el.dl.textContent = `Deadline · ${st.deadline}`; el.clock.innerHTML = countdownHTML(st.remain);
+  const open = st.phase === 'open' || st.phase === 'tipped';
+  el.add.disabled = !open || st.busy; const left = SHOW.target - fans; el.add.textContent = !open || st.tipped || left >= 5 || left <= 0 ? 'Add 5 fans' : `Add ${left} fan${left === 1 ? '' : 's'}`;
+  el.ff.disabled = !open || st.busy;
+  el.stage.setAttribute('aria-label', `Your marquee sign: ${v === 'paid' ? 'fully lit, with payout signs hanging below' : v === 'tipped' ? 'fully lit, the show is on' : v === 'released' ? 'dark, it reads CALLED OFF, $0 CHARGED' : `${fans} of ${SHOW.target} bulbs glowing dimly, fans on hold`}.`);
+  ph.update(v, fans);
+}
+function reset() {
+  cues.clear(); cancelAnimationFrame(st.ffRaf);
+  st = { phase: 'open', tipped: false, fans: SHOW.start, remain: SHOW.remain, deadline: 'Thu Nov 12, 6:00pm', busy: false, asked: true }; minute = 0;
+  log.clear();
+  log.add({ time: 'Sun 4:12pm', html: 'You signed the money rules. <b>Your show is live.</b>', fine: 'rules frozen · v1 · hash 9f2c41e7', instant: true });
+  log.add({ time: 'Tue 7:12pm', html: 'Your first fan held a spot. PayPal is holding $15.', fine: '1 PayPal authorization · money rule 1', instant: true });
+  log.add({ time: 'Mon 9:00am', html: '<span class="w-ask">Pace check:</span> 12 of 21 with 3 days left. I asked you about the deadline.', fine: 'projected 17 by the deadline · money rule 5 needs your OK', instant: true });
+  el.ask.hidden = false; approveBtn.reset(); $('[data-approve-label]').textContent = 'Hold to approve';
+  Ledger.reset(); payout.reset(); payout.plan(splitOf(SHOW.target), ['Planned', 'At least $200 · planned']);
+  say('held', true); render(true);
+  if (view) { view.setPayouts(payees()); view.reset(); }
+}
+function approve() {
+  st.remain += 4 * 86400; st.deadline = 'Mon Nov 16, 6:00pm'; el.ask.hidden = true; Snd.sign();
+  log.add({ time: stamp(), html: 'You approved it. <b>The new deadline is Mon Nov 16, 6pm.</b> Fans see it now.', fine: 'deadline extended once, +4 days · money rule 5 · approved by you' });
+  render();
+}
+function decline() { el.ask.hidden = true; log.add({ time: stamp(), html: 'You said not now. I’ll check the pace again tomorrow morning.', fine: 'proposal declined · no change' }); }
+function addFans(max = 5) {
+  if (!(st.phase === 'open' || st.phase === 'tipped') || st.busy) return;
+  const n = st.tipped ? max : Math.min(max, SHOW.target - st.fans); if (n <= 0) return;
+  st.busy = true; render();
+  const f0 = st.fans, step = REDUCED ? .06 : st.tipped ? .3 : .24, land = REDUCED || st.tipped ? .1 : .38, after = st.tipped;
+  if (view) view.play(after ? (REDUCED ? 'reduced' : 'bonus') : 'pledge', after ? (REDUCED ? { to: 'tipped' } : { count: n }) : { f0, f1: f0 + n });
+  for (let k = 0; k < n; k++) cues.at(k * step + land, () => {
+    const i = st.fans; st.fans++;
+    Ledger.add({ when: 'Nov 9 · ' + `9:${pad2(10 + i)}am`, what: after ? 'Fan joined and was charged' : 'Fan held a spot', who: `Fan ${pad2(i + 1)} · ${INITIALS[i % INITIALS.length]}`, amount: SHOW.pledge, ref: `SAMPLE-${after ? 'CAPT' : 'AUTH'}-${String(i + 1).padStart(3, '0')}`, status: after ? 'Charged' : 'On hold', hold: true });
+    render(); Snd.screw(k);
+  });
+  cues.at((n - 1) * step + land + .2, () => {
+    st.busy = false;
+    log.add({ time: stamp(), html: after ? `${n} more fans joined after it tipped, and were <b>charged right away</b>: ${usd(n * SHOW.pledge)}.` : `${n} more fan${n > 1 ? 's' : ''} held a spot. PayPal is holding their ${usd(n * SHOW.pledge)}.`, fine: after ? 'captured on approval · money rule 2' : `${n} PayPal authorization${n > 1 ? 's' : ''} · money rule 1` });
+    if (!after && st.fans >= SHOW.target) tip(); else { render(); if (view && after) view.setPayouts(payees()); }
+  });
+}
+function tip() {
+  st.phase = 'tipping'; st.busy = true; el.ask.hidden = true; render();
+  if (view) view.play(REDUCED ? 'reduced' : 'tip', REDUCED ? { to: 'tipped' } : {});
+  if (!REDUCED) { Snd.chase(SHOW.target, T.TIP.flare); cues.at(T.TIP.pop, () => Snd.sparks()); cues.at(T.TIP.itson, () => Snd.chord()); }
+  cues.at(REDUCED ? .05 : T.TIP.flare, () => {
+    Snd.flare(); st.tipped = true; say('tipped'); Ledger.setHolds('Charged');
+    Ledger.add({ when: 'Nov 9 · ' + stamp().slice(4), what: `Everyone charged at tipping · ${st.fans} holds`, who: 'All fans', amount: st.fans * SHOW.pledge, ref: `SAMPLE-CAPT ×${st.fans}`, status: 'Charged' });
+    log.add({ time: stamp(), html: `<b>Your show reached ${st.fans} fans. It’s on!</b> Everyone was charged at once: ${usd(st.fans * SHOW.pledge)}.`, fine: `captured ${st.fans} PayPal authorizations at tipping · money rule 2` });
+    render();
+  });
+  cues.at(REDUCED ? .7 : T.TIP.done, () => { st.phase = 'tipped'; st.busy = false; render(); if (view) view.setPayouts(payees()); });
+}
+function skip() {
+  if (!(st.phase === 'open' || st.phase === 'tipped') || st.busy) return;
+  const wasTipped = st.tipped; st.phase = 'ff'; st.busy = true; el.ask.hidden = true; render();
+  const from = st.remain, dur = REDUCED ? .2 : 1.15, t0 = performance.now();
+  if (view) view.tension(true);
+  const step = now => {
+    const k = clamp((now - t0) / 1000 / dur), e = k * k * (2.2 - 1.2 * k); st.remain = Math.round(from * (1 - e)); el.clock.innerHTML = countdownHTML(st.remain);
+    if (k < 1) st.ffRaf = requestAnimationFrame(step); else { el.clock.classList.add('zero'); if (view) view.tension(false); wasTipped ? payOut() : miss(); }
+  };
+  st.ffRaf = requestAnimationFrame(step);
+}
+function payOut() {
+  const a = splitOf(st.fans); st.phase = 'paying'; say('paying'); render(); Snd.drop();
+  if (view) { view.setPayouts(payees()); view.play(REDUCED ? 'reduced' : 'payout', REDUCED ? { to: 'paid' } : {}); }
+  cues.at(REDUCED ? .3 : T.PAYOUT.paid, () => {
+    Snd.paid(2); st.phase = 'paid'; st.busy = false; say('paid');
+    payout.fill(a, cues, `One PayPal payout, in money-rule order: Lucky’s Café ${usd(a[0])}, then you ${usd(a[1])}.`);
+    SHOW.payees.forEach((p, i) => Ledger.add({ when: 'Nov 12 · 6:00pm', what: `Paid ${p.label === 'You' ? 'you' : p.who}`, who: p.who, amount: a[i], ref: `SAMPLE-PAYOUT-01 · item ${i + 1}`, status: 'Paid' }));
+    log.add({ time: 'Thu 6:00pm', html: `Deadline reached. <span class="w-paid">Paid Lucky’s Café ${usd(a[0])}, then you ${usd(a[1])}.</span>`, fine: '1 PayPal payout batch · 2 items · money rule 3' });
+    render();
+  });
+}
+function miss() {
+  const held = st.fans * SHOW.pledge; st.phase = 'missing'; render();
+  if (view) view.play(REDUCED ? 'reduced' : 'miss', REDUCED ? { to: 'released' } : {});
+  if (!REDUCED) { Snd.relays(12, T.MISS.wave); Snd.release(st.fans); }
+  cues.at(REDUCED ? .05 : T.MISS.release, () => {
+    say('missing'); Ledger.setHolds('Cancelled');
+    Ledger.add({ when: 'Nov 12 · 6:00pm', what: `Every hold cancelled · ${st.fans} holds`, who: 'All fans', amount: held, ref: `SAMPLE-VOID ×${st.fans}`, status: 'Cancelled' });
+    log.add({ time: 'Thu 6:00pm', html: `Your show ended at ${st.fans} of ${SHOW.target}. <span class="w-rel">Every hold was cancelled. Nobody paid.</span>`, fine: `voided ${st.fans} PayPal authorizations · money rule 4` });
+    payout.reset(); render();
+  });
+  cues.at(REDUCED ? .8 : T.MISS.msg, () => { Snd.msg(); st.phase = 'released'; st.busy = false; say('released'); render(); });
+}
+
+const approveBtn = new HoldButton($('#approve'), { ms: 1500, onDone: () => { $('[data-approve-label]').textContent = 'Approved'; approve(); } });
+$('#decline').addEventListener('click', decline);
+el.add.addEventListener('click', () => addFans(5)); el.ff.addEventListener('click', skip); $('[data-act=reset]').addEventListener('click', reset);
+$('#copy').addEventListener('click', () => copyText($('#share-url').textContent, $('[data-copied]')));
+drawQR($('#qr'), $('#share-url').textContent, { scale: 4, margin: 3 });
+setInterval(() => { if ((st.phase === 'open' || st.phase === 'tipped' || st.phase === 'tipping') && st.remain > 0) { st.remain--; el.clock.innerHTML = countdownHTML(st.remain); } }, 1000);
+soundToggle($('#sound'));
+reset();
+
+window.__marquee = { page: 'manage', ready: false, views: [], get state() { return st; }, addFans, skip, reset, approve: () => { approveBtn.done = true; $('#approve').classList.add('is-done'); $('[data-approve-label]').textContent = 'Approved'; approve(); }, decline, holdTo: p => approveBtn.set(p) };
+let host = null;
+try { const { SignHost } = await import('./shared/sign.js'); host = await SignHost.create(); } catch (_) { host = null; }
+if (host) {
+  view = host.add(el.stage, { name: SHOW.name, crest: SHOW.crest, target: SHOW.target, seed: SHOW.seed, yaw: SHOW.yaw, payees: payees() },
+    { state: visual, tipEl: $('[data-tip]'), ph: $('[data-ph]'), tip: slot => slot < Math.min(st.fans, SHOW.target) ? `Fan ${pad2(slot + 1)} · ${INITIALS[slot]} · $${SHOW.pledge} ${visual().phase === 'held' ? 'on hold' : visual().phase === 'released' ? 'hold cancelled' : 'charged'}` : null });
+  Ticker.add(now => host.tick(now)); window.__marquee.views = host.views; window.__marquee.host = host;
+}
+window.__marquee.ready = true;
+</script>
+</body>
+</html>

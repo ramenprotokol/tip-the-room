@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tip the Room · Try the demo</title>
+<meta name="description" content="Two sample shows side by side: one reaches its fans and everyone is charged and paid, one misses and every hold is cancelled.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="shared/styles.css">
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="demo.html">
+    <span class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</span>
+    <span class="tagline">Nobody's charged unless the show happens.</span>
+  </a>
+  <p class="mode">Try the demo · PayPal sandbox · sample shows</p>
+  <div class="bar-right">
+    <p class="keys" aria-hidden="true"><kbd>T</kbd>tip <kbd>P</kbd>pay out <kbd>M</kbd>miss <kbd>R</kbd>start over</p>
+    <button class="sound" id="sound" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      <span data-label>Sound off</span>
+    </button>
+  </div>
+</header>
+<ol class="steps" aria-label="How it works">
+  <li><b>1</b><span>Fans hold a spot, PayPal holds the money</span></li>
+  <li><b>2</b><span>Enough fans by the deadline, everyone is charged and paid</span></li>
+  <li><b>3</b><span>Not enough, every hold is cancelled, nobody pays</span></li>
+</ol>
+
+<main>
+  <div class="front">
+    <section class="show" id="show-a" aria-labelledby="a-title">
+      <div class="stage" data-stage role="img" aria-label="Marquee sign for Juniper Vale">
+        <svg class="ph" data-ph aria-hidden="true"></svg>
+        <div class="bulb-tip" data-tip hidden></div>
+      </div>
+      <div class="panel">
+        <div class="row-top">
+          <p class="eyebrow">Show A · Fri Nov 20</p>
+          <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>Waiting for fans</b><span data-said>· $0 charged</span></p>
+        </div>
+        <h2 class="title" id="a-title">Juniper Vale</h2>
+        <p class="bill">Acoustic set with The Low Tides · Back room, Spindle Records</p>
+        <dl class="stats">
+          <div class="stat clock"><dt>Deadline · Wed Nov 18, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
+          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>29</span><span data-of>of 34 fans</span></span><span class="sub" data-fans-sub>5 more to make it happen</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>435</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
+        </dl>
+        <p class="rules-line"><span><b>$15</b> a spot</span><span>Money rules: Room $80 → Opener $100 → Artist gets the rest</span></p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="add">Add 5 fans</button>
+          <button class="btn btn-red" type="button" data-act="ff">Skip to the deadline</button>
+          <button class="btn btn-ghost" type="button" data-act="reset">Start over</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="show" id="show-b" aria-labelledby="b-title">
+      <div class="stage" data-stage role="img" aria-label="Marquee sign for Marlow Finch">
+        <svg class="ph" data-ph aria-hidden="true"></svg>
+        <div class="bulb-tip" data-tip hidden></div>
+      </div>
+      <div class="panel">
+        <div class="row-top">
+          <p class="eyebrow">Show B · Sun Nov 22</p>
+          <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>Waiting for fans</b><span data-said>· $0 charged</span></p>
+        </div>
+        <h2 class="title" id="b-title">Marlow Finch</h2>
+        <p class="bill">Songs from the kitchen · Living room, Elm St house show</p>
+        <dl class="stats">
+          <div class="stat clock"><dt>Deadline · Fri Nov 20, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
+          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>19</span><span data-of>of 28 fans</span></span><span class="sub" data-fans-sub>9 more to make it happen</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>228</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
+        </dl>
+        <p class="rules-line"><span><b>$12</b> a spot</span><span>Money rules: Room $60 → Opener $40 → Artist gets the rest</span></p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="add">Add 5 fans</button>
+          <button class="btn btn-red" type="button" data-act="ff">Skip to the deadline</button>
+          <button class="btn btn-ghost" type="button" data-act="reset">Start over</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="ledger" aria-label="What the agent did">
+    <div>
+      <h2 class="section-title">What the agent did</h2>
+      <ol class="log" id="log" aria-live="polite"></ol>
+      <ul class="money-rules" aria-label="The money rules">
+        <li><b>Rule 1</b>Fans’ money is only held, never charged early.</li>
+        <li><b>Rule 2</b>When a show gets enough fans, everyone is charged at once.</li>
+        <li><b>Rule 3</b>At the deadline: pay the room, then the opener, then the host. The artist gets the rest.</li>
+        <li><b>Rule 4</b>If the deadline passes short, every hold is cancelled.</li>
+        <li><b>Rule 5</b>Anything else, like a new deadline or target, the artist approves first.</li>
+      </ul>
+    </div>
+    <div class="payout" id="payout">
+      <h2 class="section-title">Payout · Juniper Vale</h2>
+      <div class="strip"></div>
+      <p class="pay-note" data-pay-note data-idle="Fills at the deadline, once the show is on. Until then, nobody is paid.">Fills at the deadline, once the show is on. Until then, nobody is paid.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="key" aria-label="What the sign shows">
+  <ul>
+    <li><i class="sw sw-held" aria-hidden="true"></i>Dim bulb = a fan on hold</li>
+    <li><i class="sw sw-lit" aria-hidden="true"></i>Lit bulb = charged</li>
+    <li><i class="sw sw-rel" aria-hidden="true"></i>Light floating away = hold cancelled</li>
+    <li><i class="sw sw-paid" aria-hidden="true"><b></b><b></b><b></b></i>Signs drop below = everyone's paid</li>
+  </ul>
+</footer>
+<nav class="ref-nav" data-ref-only aria-label="Reference pages">Reference pages: <a href="demo.html">Try the demo</a><a href="start.html">Start a show</a><a href="pledge.html">Fan page</a><a href="manage.html">Artist's show page</a></nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
+<script type="module">
+import { $, $$, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from './shared/ui.js';
+
+// fixed sample data · "now" is Mon Nov 16, 10:19am (2026 calendar)
+const SHOWS = [
+  { key: 'a', name: 'Juniper Vale', crest: 'SPINDLE RECORDS', target: 34, start: 29, pledge: 15, remain: 200460, deadline: 'Wed 6:00pm', yaw: .2, seed: 7,
+    split: [{ label: 'Room', who: 'Spindle Records', fixed: 80 }, { label: 'Opener', who: 'The Low Tides', fixed: 100 }, { label: 'Artist', who: 'Juniper Vale', fixed: null }] },
+  { key: 'b', name: 'Marlow Finch', crest: 'ELM ST HOUSE SHOW', target: 28, start: 19, pledge: 12, remain: 373260, deadline: 'Fri 6:00pm', yaw: -.2, seed: 19,
+    split: [{ label: 'Room', who: 'Elm St house', fixed: 60 }, { label: 'Opener', who: 'The opener', fixed: 40 }, { label: 'Artist', who: 'Marlow Finch', fixed: null }] },
+];
+const splitOf = (cfg, fans) => { let rest = fans * cfg.pledge; return cfg.split.map(p => { const v = p.fixed == null ? rest : Math.min(p.fixed, rest); rest -= v; return v; }); };
+const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6, done: 2.6 }, MISS: { release: .12, msg: 2.05, done: 3.1, wave: .9 }, R: { tip: .7, payout: .7, miss: 1.3 } };
+const log = new AgentLog($('#log'));
+let minute = 19; const stamp = () => `Mon 10:${pad2(++minute)}am`;
+const resetLog = () => { log.clear(); minute = 19; log.add({ time: 'Mon 10:19am', html: 'Watching 2 shows. <b>48 fans are on hold</b> and <span class="w-held">nobody has been charged</span>.', fine: '48 PayPal authorizations open · money rule 1', instant: true }); };
+const payout = new PayoutStrip($('#payout'), SHOWS[0].split.map(p => ({ label: p.label, who: p.who })));
+
+const STATUS = {
+  held: c => ['held', 'Waiting for fans', '· $0 charged'],
+  tipped: c => ['tipped', 'It’s on!', '· everyone’s charged'],
+  paying: c => ['paying', 'Paying everyone', '· one PayPal payout'],
+  paid: c => ['paid', 'Everyone’s paid', '· room, opener and artist'],
+  missing: c => ['missing', 'Deadline passed', '· cancelling every hold'],
+  released: c => ['released', 'Called off', '· nobody paid'],
+};
+
+class ShowCtl {
+  constructor(cfg) {
+    this.cfg = cfg; const el = this.el = $('#show-' + cfg.key);
+    this.stage = $('[data-stage]', el); this.tipEl = $('[data-tip]', el); this.status = $('[data-status]', el); Ticker.lamp(this.status);
+    this.clock = $('[data-clock]', el); this.fansSub = $('[data-fans-sub]', el); this.of = $('[data-of]', el); this.moneySub = $('[data-money-sub]', el);
+    this.odoFans = new Odo($('[data-fans]', el)); this.odoHeld = new Odo($('[data-held]', el)); this.odoCharged = new Odo($('[data-charged]', el));
+    this.bAdd = $('[data-act=add]', el); this.bFF = $('[data-act=ff]', el);
+    this.ph = new Placeholder($('[data-ph]', el), { name: cfg.name, target: cfg.target });
+    this.cues = new Cues(); this.view = null;
+    this.bAdd.addEventListener('click', () => this.addFans(5));
+    this.bFF.addEventListener('click', () => this.fastForward());
+    $('[data-act=reset]', el).addEventListener('click', () => { this.reset(); log.clear(cfg.key); });
+    this.reset(true);
+  }
+  visual() { const p = this.phase; return { phase: p === 'paying' || p === 'paid' ? 'paid' : p === 'missing' || p === 'released' ? 'released' : this.tipped ? 'tipped' : 'held', fans: this.fans }; }
+  model() { const c = this.cfg; return { name: c.name, crest: c.crest, target: c.target, seed: c.seed, yaw: c.yaw, payees: this.payees() }; }
+  payees() { const c = this.cfg, amts = splitOf(c, Math.max(this.fans, c.target)); return c.split.map((p, i) => ({ label: p.label, amount: amts[i] })); }
+  attach(host) {
+    this.view = host.add(this.stage, this.model(), { state: () => this.visual(), tipEl: this.tipEl, ph: $('[data-ph]', this.el), tip: slot => this.tipText(slot) });
+  }
+  tipText(slot) { if (slot >= Math.min(this.fans, this.cfg.target)) return null; const v = this.visual().phase; return `Fan ${pad2(slot + 1)} · $${this.cfg.pledge} ${v === 'held' ? 'on hold' : v === 'released' ? 'hold cancelled' : 'charged'}`; }
+  reset(first = false) {
+    this.cues.clear(); cancelAnimationFrame(this.ffRaf);
+    this.phase = 'open'; this.tipped = false; this.fans = this.cfg.start; this.remain = this.cfg.remain; this.busy = false; this.pendingFF = false;
+    this.renderMoney(true); this.odoFans.set(this.fans, true); this.clock.classList.remove('zero');
+    this.moneySub.textContent = 'Nobody pays unless it happens.';
+    this.setStatus('held', true); this.renderClock(); this.renderFans(); this.buttons();
+    this.ph.update('held', this.fans); this.label();
+    if (this.cfg.key === 'a' && !first) payout.reset();
+    if (this.view) { this.view.setPayouts(this.payees()); this.view.reset(); }
+  }
+  setStatus(k, instant) { const [s, w, said] = STATUS[k](this); setStatus(this.status, s, w, said, instant); }
+  renderMoney(instant) { const total = this.fans * this.cfg.pledge; this.odoHeld.set(this.tipped || this.phase === 'released' || this.phase === 'missing' ? 0 : total, instant); this.odoCharged.set(this.tipped ? total : 0, instant); }
+  renderClock() { this.clock.innerHTML = countdownHTML(this.remain); }
+  renderFans() {
+    const { fans } = this, { target } = this.cfg, p = this.phase;
+    this.of.textContent = fans <= target ? `of ${target} fans` : `fans · target was ${target}`;
+    this.fansSub.textContent = p === 'paid' || p === 'paying' ? 'Everyone’s paid'
+      : p === 'released' || p === 'missing' ? `Called off · ${target - fans} short`
+      : this.tipped ? (fans > target ? `It’s on! · ${fans - target} joined after it tipped` : 'It’s on! Everyone’s charged')
+      : `${target - fans} more to make it happen`;
+  }
+  buttons() {
+    const canAdd = (this.phase === 'open' || this.phase === 'tipped') && !this.busy, left = this.cfg.target - this.fans;
+    this.bAdd.disabled = !canAdd; this.bAdd.textContent = !canAdd && !this.busy || this.tipped || left >= 5 || left <= 0 ? 'Add 5 fans' : `Add ${left} fan${left === 1 ? '' : 's'}`;
+    this.bFF.disabled = !(this.phase === 'open' || this.phase === 'tipped') || this.busy;
+  }
+  label() {
+    const v = this.visual(), c = this.cfg;
+    const txt = v.phase === 'paid' ? 'fully lit, with payout signs hanging below: everyone has been paid'
+      : v.phase === 'tipped' ? `fully lit: the show reached ${c.target} fans and everyone was charged`
+      : v.phase === 'released' ? 'dark: the show was called off, every hold was cancelled, the board reads CALLED OFF, $0 CHARGED'
+      : `${this.fans} of ${c.target} border bulbs screwed in and glowing dimly: fans on hold, nobody charged`;
+    this.stage.setAttribute('aria-label', `Marquee sign for ${c.name}, ${txt}.`);
+  }
+  addFans(max = 5) {
+    if (!(this.phase === 'open' || this.phase === 'tipped') || this.busy) return 0;
+    const c = this.cfg;
+    if (this.tipped) return this.addAfterTip(max);
+    const n = Math.min(max, c.target - this.fans); if (n <= 0) return 0;
+    this.busy = true; this.buttons();
+    const f0 = this.fans, step = REDUCED ? .06 : .24, land = REDUCED ? 0 : .38;
+    if (this.view) this.view.play('pledge', { f0, f1: f0 + n });
+    for (let k = 0; k < n; k++) this.cues.at(k * step + land, () => { this.fans++; this.odoFans.set(this.fans); this.renderMoney(); this.renderFans(); this.ph.update('held', this.fans); Snd.screw(k); });
+    const total = (n - 1) * step + land + (REDUCED ? .05 : .2);
+    this.cues.at(total, () => {
+      log.add({ time: stamp(), html: `${n} more fan${n > 1 ? 's' : ''} joined ${c.name}. PayPal is holding their ${usd(n * c.pledge)}.`, fine: `${n} PayPal authorization${n > 1 ? 's' : ''} · money rule 1`, tag: c.key });
+      this.busy = false; this.label();
+      if (this.fans >= c.target) this.runTip(); else { this.setStatus('held'); this.buttons(); if (this.pendingFF) { this.pendingFF = false; this.fastForward(); } }
+    });
+    return total;
+  }
+  addAfterTip(n) {
+    const c = this.cfg; this.busy = true; this.buttons();
+    const step = REDUCED ? .05 : .3;
+    if (this.view) this.view.play(REDUCED ? 'reduced' : 'bonus', REDUCED ? { to: 'tipped' } : { count: n });
+    for (let k = 0; k < n; k++) this.cues.at(k * step + .1, () => { this.fans++; this.odoFans.set(this.fans); this.renderMoney(); this.renderFans(); Snd.screw(k); });
+    const total = (n - 1) * step + .7;
+    this.cues.at(total, () => {
+      log.add({ time: stamp(), html: `${n} more fans joined after it tipped, and were <b>charged right away</b>: ${usd(n * c.pledge)}.`, fine: `captured on approval · money rule 2`, tag: c.key });
+      this.busy = false; this.buttons(); this.label(); if (this.view) this.view.setPayouts(this.payees());
+      if (this.pendingFF) { this.pendingFF = false; this.fastForward(); }
+    });
+    return total;
+  }
+  runTip() {
+    const c = this.cfg, C = REDUCED ? { flare: .05, done: T.R.tip } : T.TIP;
+    this.phase = 'tipping'; this.busy = true; this.buttons();
+    if (this.view) this.view.play(REDUCED ? 'reduced' : 'tip', REDUCED ? { to: 'tipped' } : {});
+    if (!REDUCED) { Snd.chase(c.target, T.TIP.flare); this.cues.at(T.TIP.pop, () => Snd.sparks()); this.cues.at(T.TIP.itson, () => Snd.chord()); }
+    this.cues.at(C.flare, () => {
+      Snd.flare(); this.tipped = true; this.setStatus('tipped'); this.renderFans(); this.renderMoney();
+      this.moneySub.textContent = `Charged the moment it tipped · ${this.fans} × $${c.pledge}`;
+      this.ph.update('tipped', this.fans); this.label();
+      log.add({ time: stamp(), html: `<b>${c.name} reached ${this.fans} fans. It’s on!</b> Everyone was charged at once: ${usd(this.fans * c.pledge)}.`, fine: `captured ${this.fans} PayPal authorizations at tipping · money rule 2`, tag: c.key });
+    });
+    this.cues.at(C.done, () => { this.phase = 'tipped'; this.busy = false; this.buttons(); if (this.pendingFF) { this.pendingFF = false; this.fastForward(); } });
+  }
+  fastForward() {
+    if (!(this.phase === 'open' || this.phase === 'tipped')) { if (this.phase === 'tipping') this.pendingFF = true; return; }
+    if (this.busy) { this.pendingFF = true; return; }
+    const wasTipped = this.tipped; this.phase = 'ff'; this.buttons();
+    const from = this.remain, dur = REDUCED ? .2 : 1.15, t0 = performance.now();
+    if (this.view) this.view.tension(true);
+    const step = now => {
+      const k = clamp((now - t0) / 1000 / dur), e = k * k * (2.2 - 1.2 * k);
+      this.remain = Math.round(from * (1 - e)); this.renderClock();
+      if (k < 1) this.ffRaf = requestAnimationFrame(step); else { this.clock.classList.add('zero'); if (this.view) this.view.tension(false); wasTipped ? this.runPayout() : this.runMiss(); }
+    };
+    this.ffRaf = requestAnimationFrame(step);
+  }
+  runPayout() {
+    const c = this.cfg, C = REDUCED ? { paid: .3, done: T.R.payout } : T.PAYOUT, amts = splitOf(c, this.fans);
+    this.phase = 'paying'; this.setStatus('paying'); this.buttons();
+    if (this.view) { this.view.setPayouts(this.payees()); this.view.play(REDUCED ? 'reduced' : 'payout', REDUCED ? { to: 'paid' } : {}); }
+    if (!REDUCED) Snd.drop();
+    this.cues.at(C.paid, () => {
+      Snd.paid(); this.phase = 'paid'; this.setStatus('paid'); this.renderFans(); this.label(); this.ph.update('paid', this.fans);
+      this.moneySub.textContent = 'Paid out in one PayPal batch.';
+      if (c.key === 'a') payout.fill(amts, this.cues, `One PayPal payout, in money-rule order: ${c.split.map((p, i) => `${p.who} ${usd(amts[i])}`).join(' · ')}.`);
+      log.add({ time: c.deadline, html: `Deadline reached. <span class="w-paid">Paid ${c.split.map((p, i) => `${p.who} ${usd(amts[i])}`).join(', then ')}.</span>`, fine: `1 PayPal payout batch · ${amts.length} items · money rule 3`, tag: c.key });
+    });
+  }
+  runMiss() {
+    const c = this.cfg, C = REDUCED ? { release: .05, msg: .8 } : T.MISS, held = this.fans * c.pledge;
+    this.phase = 'missing'; this.buttons();
+    if (this.view) this.view.play(REDUCED ? 'reduced' : 'miss', REDUCED ? { to: 'released' } : {});
+    if (!REDUCED) { Snd.relays(12, T.MISS.wave); Snd.release(this.fans); }
+    this.cues.at(C.release, () => {
+      this.setStatus('missing'); this.renderFans(); this.renderMoney();
+      this.moneySub.textContent = `${usd(held)} released back to ${this.fans} fans · nobody paid`;
+      this.ph.update('released', this.fans);
+      log.add({ time: c.deadline, html: `${c.name} ended at ${this.fans} of ${c.target}. <span class="w-rel">Every hold was cancelled. Nobody paid.</span>`, fine: `voided ${this.fans} PayPal authorizations · money rule 4`, tag: c.key });
+    });
+    this.cues.at(C.msg, () => { Snd.msg(); this.phase = 'released'; this.setStatus('released'); this.label(); });
+  }
+  demoTip() { if (this.tipped || this.phase !== 'open' || this.busy) { this.reset(); log.clear(this.cfg.key); } this.addFans(this.cfg.target - this.fans); }
+  demoPay() { if (this.phase === 'tipped' && !this.busy) this.fastForward(); else if (this.tipped || this.phase === 'tipping') this.pendingFF = true; else { this.demoTip(); this.pendingFF = true; } }
+  demoMiss() { if (this.phase !== 'open' || this.busy || this.tipped) { this.reset(); log.clear(this.cfg.key); } this.fastForward(); }
+}
+
+resetLog();
+const ctls = SHOWS.map(cfg => new ShowCtl(cfg)); const [A, B] = ctls;
+setInterval(() => ctls.forEach(c => { if ((c.phase === 'open' || c.phase === 'tipped' || c.phase === 'tipping') && c.remain > 0) { c.remain--; c.renderClock(); } }), 1000);
+soundToggle($('#sound'));
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+  const t = e.target; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  const k = e.key.toLowerCase();
+  if (k === 't') { A.demoTip(); e.preventDefault(); }
+  else if (k === 'p') { A.demoPay(); e.preventDefault(); }
+  else if (k === 'm') { B.demoMiss(); e.preventDefault(); }
+  else if (k === 'r') { ctls.forEach(c => c.reset()); resetLog(); e.preventDefault(); }
+});
+window.__marquee = { page: 'demo', ctls, views: [], host: null, ready: false };
+
+// 3D layer (optional): one shared WebGL renderer for both signs
+let host = null;
+try { const { SignHost } = await import('./shared/sign.js'); host = await SignHost.create(); } catch (_) { host = null; }
+if (host) { ctls.forEach(c => c.attach(host)); Ticker.add(now => host.tick(now)); window.__marquee.views = host.views; window.__marquee.host = host; }
+window.__marquee.ready = true;
+</script>
+</body>
+</html>

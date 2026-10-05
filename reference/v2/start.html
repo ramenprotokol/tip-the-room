@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tip the Room · Start a show</title>
+<meta name="description" content="Describe your show in one sentence, check the numbers, sign the money rules and share your link.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="shared/styles.css">
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="demo.html">
+    <span class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</span>
+    <span class="tagline">Nobody's charged unless the show happens.</span>
+  </a>
+  <p class="mode">Start a show · sample</p>
+  <div class="bar-right">
+    <button class="sound" id="sound" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      <span data-label>Sound off</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <div class="start-grid">
+    <section class="intro" aria-labelledby="h-start">
+      <h1 class="page-title" id="h-start">Start a show</h1>
+      <p class="lede">Describe it in one sentence. We fill in a draft, and you check every number before anything goes live.</p>
+      <div class="field">
+        <label for="sentence">Describe your show in one sentence</label>
+        <textarea id="sentence" class="textarea" rows="3">Acoustic set at Lucky's Café on Nov 20, $15 tickets, the café wants $100 and I need $200</textarea>
+      </div>
+      <div class="actions" style="margin-top:14px">
+        <button class="btn btn-ink btn-big" type="button" id="fill">Fill it in for me</button>
+        <span class="hint" style="font-size:16px;color:var(--ink-3)">A draft only. You can change everything.</span>
+      </div>
+    </section>
+
+    <aside class="preview" aria-label="Your sign, live preview">
+      <div class="stage mini" data-stage role="img" aria-label="Preview of your marquee sign">
+        <svg class="ph" data-ph aria-hidden="true"></svg>
+      </div>
+      <p class="sentence" data-target-sentence aria-live="polite">Fill it in to see how many fans you need</p>
+      <p class="split-words" data-split></p>
+      <p class="preview-cap">Each bulb around the edge is one fan. They light up when the show is on.</p>
+    </aside>
+
+    <section class="draft" id="draft" hidden aria-labelledby="h-draft">
+      <div>
+        <h2 class="section-title" id="h-draft">Your show</h2>
+        <div class="fields">
+          <div class="field wide"><label for="f-name">Show name (on the sign)</label><input id="f-name" class="input" autocomplete="off"></div>
+          <div class="field"><label for="f-room">Room</label><input id="f-room" class="input" autocomplete="off"></div>
+          <div class="field"><label for="f-date">Show date</label><input id="f-date" class="input" autocomplete="off"></div>
+          <div class="field"><label for="f-price">Price of a spot ($)</label><input id="f-price" class="input mono" inputmode="numeric" autocomplete="off"></div>
+          <div class="field"><label for="f-deadline">Pledge deadline</label><input id="f-deadline" class="input" autocomplete="off"><span class="hint">Holds last up to 21 days, so keep it within 21 days of today, Mon Nov 2.</span></div>
+        </div>
+      </div>
+      <div>
+        <h2 class="section-title">Who gets paid</h2>
+        <p class="hint" style="margin:-4px 0 12px;font-size:16px;color:var(--ink-3)">Paid in this order at the deadline. You get whatever is left, and never less than your minimum.</p>
+        <ol class="paylist" id="paylist"></ol>
+      </div>
+      <div class="card signing" aria-labelledby="h-rules">
+        <h2 class="section-title" id="h-rules">The money rules you're signing</h2>
+        <ul id="rules"></ul>
+        <div>
+          <button class="btn btn-hold" type="button" id="sign" aria-describedby="sign-hint"><span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><path d="M6 16l9.5-9.5a2.1 2.1 0 0 1 3 3L9 19H6z"/></svg><span data-sign-label>Hold to sign the money rules</span></span></button>
+          <p class="hold-hint" id="sign-hint">Press and hold for 1.5 seconds. On a keyboard, hold Space or Enter.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="live" id="live" hidden aria-labelledby="h-live">
+      <p class="eyebrow">Signed Mon Nov 2, 4:12pm</p>
+      <h2 class="page-title" id="h-live">Your show is live</h2>
+      <p class="lede" data-live-lede></p>
+      <div class="card" style="display:grid;gap:16px">
+        <div class="share">
+          <div class="field">
+            <span class="label" id="l-share">Your share link</span>
+            <div class="share-link"><output class="linkbox" id="share-url" aria-labelledby="l-share"></output><button class="btn" type="button" id="copy-share">Copy link</button></div>
+            <span class="hint" data-copied aria-live="polite">Send it to fans, or print the code for the door.</span>
+          </div>
+          <figure class="qr" style="margin:0"><canvas id="qr" width="132" height="132"></canvas><figcaption>Scan to hold a spot</figcaption></figure>
+        </div>
+        <div class="field">
+          <span class="label" id="l-manage">Your private show page</span>
+          <div class="share-link"><output class="linkbox" id="manage-url" aria-labelledby="l-manage"></output><button class="btn" type="button" id="copy-manage">Copy</button></div>
+          <span class="hint">Keep this one to yourself. It's the only way back to your show page, and we show it once.</span>
+        </div>
+      </div>
+      <div class="actions"><a class="btn btn-red btn-big" href="manage.html">Open your show page</a><a class="btn" href="pledge.html">See what fans see</a></div>
+    </section>
+  </div>
+</main>
+<nav class="ref-nav" data-ref-only aria-label="Reference pages">Reference pages: <a href="demo.html">Try the demo</a><a href="start.html">Start a show</a><a href="pledge.html">Fan page</a><a href="manage.html">Artist's show page</a></nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
+<script type="module">
+import { $, $$, REDUCED, Ticker, Snd, soundToggle, Placeholder, HoldButton, drawQR, copyText, enter, usd } from './shared/ui.js';
+
+/* ---- deterministic stand-in for the AI draft (the real one is a model + code) ---- */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const day = (m, d) => new Date(Date.UTC(2026, m, d));
+const fmtDay = dt => `${DOW[dt.getUTCDay()]} ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCDate()}`;
+const title = s => s.replace(/\b\w/g, c => c.toUpperCase());
+const curly = s => s.replace(/'/g, '’');
+function parseShow(text) {
+  const t = text.replace(/[’]/g, "'"), num = re => { const m = t.match(re); return m ? +m[1] : null; };
+  const price = num(/\$(\d+)\s*(?:tickets?|a ticket|each|a spot|per (?:ticket|person|fan))/i) ?? num(/tickets?\s*(?:are|at)?\s*\$(\d+)/i) ?? 15;
+  const room = num(/(?:caf[eé]|room|venue|bar|shop|store|place)\s+(?:wants|needs|gets|charges)\s+\$(\d+)/i) ?? 0;
+  const opener = num(/opener\s+(?:wants|needs|gets)\s+\$(\d+)/i) ?? 0;
+  const host = num(/host\s+(?:wants|needs|gets)\s+\$(\d+)/i) ?? 0;
+  const me = num(/\bI\s+(?:need|want|get)\s+\$(\d+)/i) ?? 0;
+  const dm = t.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})\b/i);
+  const date = dm ? day(MONTHS.findIndex(x => x.toLowerCase() === dm[1].slice(0, 3).toLowerCase()), +dm[2]) : day(10, 20);
+  const roomName = ((t.match(/\bat\s+((?:[A-Z][\w'é&.-]*\s?)+?)(?=\s+on\b|,|$)/) || [])[1] || '').trim();
+  const name = ((t.match(/^\s*([^,]+?)\s+at\s+/i) || [])[1] || 'My show').trim();
+  return { name: title(name), room: curly(roomName), date: fmtDay(date), price, deadline: `${fmtDay(new Date(date.getTime() - 8 * 864e5))}, 6:00pm`,
+    payees: [{ role: 'Room', who: curly(roomName), amount: room }, { role: 'Opener', who: '', amount: opener, optional: true }, { role: 'Host', who: '', amount: host, optional: true }, { role: 'You', who: 'You', amount: me, me: true }] };
+}
+/* code, not the model, computes the target: ceil((fixed + your minimum) × 1.05 / price) */
+const FEE = .05;
+const targetOf = d => { const sum = d.payees.reduce((a, p) => a + (+p.amount || 0), 0); return d.price > 0 ? Math.max(1, Math.ceil(Math.round(sum * (1 + FEE) * 100) / 100 / d.price)) : 0; };
+const slug = d => `${d.name}-${d.date.split(' ').slice(1).join('')}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+const els = { sentence: $('#sentence'), draft: $('#draft'), live: $('#live'), paylist: $('#paylist'), rules: $('#rules'), sign: $('#sign'), target: $('[data-target-sentence]'), split: $('[data-split]'), stage: $('[data-stage]') };
+const ph = new Placeholder($('[data-ph]'), { name: 'Your show', target: 20 });
+let D = null, view = null, holdBtn = null, signed = false;
+
+function payRow(p, i) {
+  const li = document.createElement('li'); li.className = 'payrow' + (p.optional && !p.amount ? ' is-empty' : '');
+  li.innerHTML = `<div class="role">${p.role}${p.optional ? '<small>optional</small>' : p.me ? '<small>gets the rest</small>' : ''}</div>
+    <div class="field">${p.me ? '<span class="label">Who</span><input class="input" value="You" disabled aria-label="Who: you">' : `<label for="who-${i}">Name</label><input id="who-${i}" class="input" data-k="who" value="${p.who}" placeholder="${p.role === 'Opener' ? 'Opener’s name' : p.role === 'Host' ? 'Host’s name' : 'Room name'}" autocomplete="off">`}</div>
+    <div class="field"><label for="amt-${i}">${p.me ? 'At least ($)' : 'Gets ($)'}</label><input id="amt-${i}" class="input mono" data-k="amount" inputmode="numeric" value="${p.amount || ''}" placeholder="0" autocomplete="off"></div>
+    <div class="field email"><label for="mail-${i}">PayPal email</label><input id="mail-${i}" class="input mono" data-k="email" type="email" value="${p.email || ''}" placeholder="name@example.com" autocomplete="off"></div>`;
+  li.addEventListener('input', e => { const k = e.target.dataset.k; if (!k) return; p[k] = k === 'amount' ? (+e.target.value.replace(/[^0-9.]/g, '') || 0) : e.target.value; li.classList.toggle('is-empty', !!p.optional && !p.amount && !p.who); update(); });
+  return li;
+}
+function fill() {
+  D = parseShow(els.sentence.value);
+  $('#f-name').value = D.name; $('#f-room').value = D.room; $('#f-date').value = D.date; $('#f-price').value = D.price; $('#f-deadline').value = D.deadline;
+  els.paylist.textContent = ''; D.payees.forEach((p, i) => els.paylist.appendChild(payRow(p, i)));
+  els.draft.hidden = false; enter(els.draft, 12, 500); $('#fill').textContent = 'Fill it in again';
+  update(true);
+}
+for (const [id, k] of [['f-name', 'name'], ['f-room', 'room'], ['f-date', 'date'], ['f-price', 'price'], ['f-deadline', 'deadline']]) $('#' + id).addEventListener('input', e => { if (!D) return; D[k] = k === 'price' ? (+e.target.value.replace(/[^0-9.]/g, '') || 0) : e.target.value; if (k === 'room') { D.payees[0].who = D[k]; const w = $('#who-0'); if (w) w.value = D[k]; } update(); });
+
+let debounce = 0;
+function update(now = false) {
+  if (!D) return;
+  const target = targetOf(D), paid = D.payees.filter(p => !p.me && p.amount > 0), me = D.payees.find(p => p.me);
+  els.target.innerHTML = target ? `You need <span class="dotnum">${target}</span> fans at ${usd(D.price)}` : 'Add a price to see how many fans you need';
+  els.split.textContent = [...paid.map(p => `${p.who || p.role} gets ${usd(p.amount)}`), `You get the rest, at least ${usd(me.amount || 0)}`].join(' · ');
+  els.rules.innerHTML = [
+    `If <b>${target} fans</b> hold a spot by <b>${D.deadline}</b>, everyone is charged ${usd(D.price)} at once.`,
+    `At the deadline, ${paid.length ? paid.map(p => `${p.who || p.role} is paid ${usd(p.amount)}`).join(', then ') + ', then you' : 'you'} get the rest (at least ${usd(me.amount || 0)}).`,
+    `If fewer than ${target} fans join, every hold is cancelled and nobody pays.`,
+    `To change the deadline or the target, your agent asks you first.`,
+  ].map(x => `<li>${x}</li>`).join('');
+  const missing = D.payees.filter(p => (p.amount > 0 || p.me) && !/^\S+@\S+\.\S+$/.test(p.email || '')).map(p => p.me ? 'you' : (p.who || p.role));
+  els.sign.disabled = missing.length > 0 || target < 1;
+  $('#sign-hint').textContent = missing.length ? `Add a PayPal email for ${missing.join(' and ')} to sign.` : 'Press and hold for 1.5 seconds. On a keyboard, hold Space or Enter.';
+  const model = { name: D.name || 'Your show', crest: D.room, target: Math.min(Math.max(target, 4), 80), seed: 31, yaw: .16, payees: paid.map(p => ({ label: p.role, amount: p.amount })).concat([{ label: 'Artist', amount: me.amount || 0 }]) };
+  clearTimeout(debounce);
+  const apply = () => { ph.setModel(model); ph.update('held', 0); if (view) view.setModel(model); els.stage.setAttribute('aria-label', `Preview of your marquee: ${model.name}, ${model.target} empty bulbs, one for each fan you need.`); };
+  if (now) apply(); else debounce = setTimeout(apply, 250);
+}
+function goLive() {
+  signed = true; Snd.sign();
+  const s = slug(D), share = `https://tiptheroom.example/s/${s}`, manage = `https://tiptheroom.example/s/${s}/manage#k-7Q2M9X4T`;
+  $('#share-url').textContent = share; $('#manage-url').textContent = manage;
+  drawQR($('#qr'), share, { scale: 4, margin: 3 });
+  const target = targetOf(D);
+  $('[data-live-lede]').textContent = `Share your link. Fans hold a spot with PayPal, and nobody is charged unless ${target} of them join by ${D.deadline}.`;
+  els.draft.hidden = true; els.live.hidden = false; enter(els.live, 12, 500);
+  $('.intro').hidden = true;
+  if (view) view.play('lap');
+}
+$('#fill').addEventListener('click', fill);
+$('#copy-share').addEventListener('click', () => copyText($('#share-url').textContent, $('[data-copied]')));
+$('#copy-manage').addEventListener('click', () => copyText($('#manage-url').textContent, $('[data-copied]')));
+holdBtn = new HoldButton(els.sign, { ms: 1500, onDone: () => { $('[data-sign-label]').textContent = 'Signed'; goLive(); } });
+soundToggle($('#sound'));
+ph.update('held', 0);
+
+window.__marquee = {
+  page: 'start', ready: false, views: [], get data() { return D; },
+  fill, setEmails() { const mails = { Room: 'luckys-cafe@example.com', You: 'maya@example.com' }; D.payees.forEach((p, i) => { if (mails[p.role]) { p.email = mails[p.role]; const el = $('#mail-' + i); if (el) el.value = p.email; } }); update(true); },
+  holdTo(p) { holdBtn.set(p); }, sign: () => { holdBtn.done = true; els.sign.classList.add('is-done'); $('[data-sign-label]').textContent = 'Signed'; goLive(); },
+};
+let host = null;
+try { const { SignHost } = await import('./shared/sign.js'); host = await SignHost.create(); } catch (_) { host = null; }
+if (host) {
+  view = host.add(els.stage, { name: 'Your show', crest: 'YOUR ROOM', target: 20, seed: 31, yaw: .16, payees: [] }, { state: () => ({ phase: 'held', fans: 0 }), ph: $('[data-ph]') });
+  Ticker.add(now => host.tick(now)); window.__marquee.views = host.views; window.__marquee.host = host;
+  if (D) update(true);
+}
+window.__marquee.ready = true;
+</script>
+</body>
+</html>

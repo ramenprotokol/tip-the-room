@@ -1,0 +1,1414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Marquee</title>
+<meta name="description" content="Tip the Room, judge mode: two theatre marquee signs. Fans' PayPal holds are bulbs; the sign lights when the show tips and lets the bulbs go home when it misses.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#F3EEE4; --paper-2:#ECE5D7; --paper-3:#E3DACA;
+  --ink:#15110E; --ink-2:#3B342E; --ink-3:#5F564E;
+  --rule:rgba(21,17,14,.17);
+  --red:#C8221B; --red-ink:#A81C16; --held:#5A1410; --bulb:#FFF1C9; --panel:#2A0C09;
+  --mint:#19C08A; --mint-ink:#0A6A49; --lilac:#A8A2CC; --lilac-soft:#DAD6EE; --lilac-ink:#4B4590;
+  --brass:#B8893A;
+  --focus:#1A56DB;
+  --gutter:clamp(16px,3.2vw,44px);
+  --f-sign:"Big Shoulders Display","Arial Narrow","Roboto Condensed",Impact,sans-serif;
+  --f-dot:"Doto","IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --f-ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{background:#F3EEE4;color:#15110E;color-scheme:light;-webkit-text-size-adjust:100%}
+body{
+  margin:0;min-height:100vh;overflow-x:hidden;
+  background-color:var(--paper);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .09 0 0 0 0 .07 0 0 0 0 .05 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  color:var(--ink);font:400 15px/1.5 var(--f-ui);
+  -webkit-font-smoothing:antialiased;
+}
+.sr{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+button{font:inherit;color:inherit}
+
+/* ---------- top bar */
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 28px;padding:14px var(--gutter) 13px;border-bottom:1.5px solid var(--ink)}
+.brand{display:flex;flex-direction:column;gap:3px;margin-right:auto}
+.wordmark{display:flex;align-items:center;gap:10px;margin:0;font:900 34px/.86 var(--f-sign);letter-spacing:.012em;text-transform:uppercase;color:var(--red-ink)}
+.wordmark .bulbs{display:inline-grid;grid-template-columns:repeat(3,7px);gap:3px}
+.wordmark .bulbs i{width:7px;height:7px;border-radius:50%;background:var(--held);box-shadow:inset 0 0 0 1px #2a0906}
+.wordmark .bulbs i:nth-child(2){background:#FFE3A0;box-shadow:0 0 6px 1px rgba(255,190,90,.7),inset 0 0 0 1px #c99a3a}
+.tagline{margin:0;font:500 14px/1.3 var(--f-ui);color:var(--ink-2)}
+.mode{margin:0;font:500 12px/1 var(--f-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);border:1.5px solid var(--ink);border-radius:999px;padding:7px 12px}
+.bar-right{display:flex;align-items:center;gap:16px}
+.keys{margin:0;font:500 12px/1 var(--f-mono);color:var(--ink-3);display:flex;align-items:center;gap:6px}
+kbd{font:600 11px/1 var(--f-mono);border:1.5px solid var(--ink-3);border-bottom-width:2.5px;border-radius:5px;padding:3px 5px;color:var(--ink);background:var(--paper)}
+.sound{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px 0 12px;border-radius:999px;border:1.5px solid var(--ink);background:transparent;cursor:pointer;font:600 14px/1 var(--f-ui)}
+.sound svg{width:18px;height:18px}
+.sound[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+.sound .wave{opacity:0}
+.sound[aria-pressed=true] .wave{opacity:1}
+.sound .x{opacity:1}
+.sound[aria-pressed=true] .x{opacity:0}
+
+/* ---------- shows */
+main{padding:0 var(--gutter) 28px}
+.front{display:grid;grid-template-columns:1fr;gap:34px 40px;padding-top:6px}
+@media (min-width:1040px){.front{grid-template-columns:1fr 1fr}}
+.show{min-width:0}
+.stage{position:relative;aspect-ratio:2/1;margin:0 -10px;touch-action:pan-y}
+@media (max-width:559px){.stage{aspect-ratio:1/.96;margin:0 -6px}}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;transition:opacity 1s ease}
+.stage.gl-on canvas{opacity:1}
+.ph{position:absolute;inset:0;width:100%;height:100%;transition:opacity .8s ease}
+.stage.gl-on .ph{opacity:0}
+.ph .name{font:900 64px var(--f-sign);letter-spacing:2px;text-transform:uppercase}
+.ph circle{transition:fill .3s}
+.ph .s-empty{fill:#140705}
+.ph .s-held{fill:#8E2A16}
+.ph .s-lit{fill:#FFF1C9}
+.ph .s-off{fill:#2b1210}
+.bulb-tip{position:absolute;z-index:3;pointer-events:none;transform:translate(-50%,calc(-100% - 14px));background:var(--ink);color:var(--paper);font:500 12px/1 var(--f-mono);padding:7px 9px;border-radius:6px;white-space:nowrap}
+.bulb-tip::after{content:"";position:absolute;left:50%;bottom:-5px;width:10px;height:10px;background:var(--ink);transform:translateX(-50%) rotate(45deg);border-radius:2px}
+
+.panel{border-top:1.5px solid var(--ink);padding-top:14px;display:grid;gap:10px}
+.row-top{display:flex;justify-content:space-between;align-items:center;gap:10px 14px;flex-wrap:wrap}
+.eyebrow{margin:0;font:500 12px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.status{display:inline-flex;align-items:center;gap:9px;margin:0;padding:6px 13px 6px 9px;border-radius:999px;font:500 13px/1.1 var(--f-ui);background:var(--held);color:#FBEFE6;transition:background-color .35s,color .35s,box-shadow .35s}
+.status b{font:800 16px/1 var(--f-sign);letter-spacing:.09em}
+.status .lamp{position:relative;flex:none;width:13px;height:13px;border-radius:50%}
+.status[data-state=held] .lamp{background:radial-gradient(circle,#FFB070 0 26%,#9C3416 60%,#3d0d08 100%);animation:filament 2.6s ease-in-out infinite}
+.status[data-state=tipped]{background:var(--bulb);color:var(--ink);box-shadow:inset 0 0 0 1.5px #D9B25E,0 0 22px rgba(255,205,110,.75)}
+.status[data-state=tipped] .lamp{background:radial-gradient(circle,#fff 0 34%,#FFE19A 64%,#E9B24E 100%);animation:flare .45s ease-out 3}
+.status[data-state=paid]{background:var(--mint);color:var(--ink)}
+.status[data-state=paid] .lamp{width:5px;height:9px;border-radius:1.5px;background:#0B3B2A;box-shadow:7px 0 0 #0B3B2A,14px 0 0 #0B3B2A;margin-right:14px;animation:ticks .9s steps(1) 1}
+.status[data-state=missing]{background:var(--lilac-soft);color:var(--ink)}
+.status[data-state=missing] .lamp,.status[data-state=released] .lamp{background:radial-gradient(circle,#fff 0 26%,#CFCAEC 62%,#8F88BF 100%);animation:home 2.4s ease-in-out infinite}
+.status[data-state=released]{background:var(--lilac);color:var(--ink)}
+@keyframes filament{0%,100%{filter:brightness(.75)}50%{filter:brightness(1.4)}}
+@keyframes flare{0%{transform:scale(1)}35%{transform:scale(1.6)}100%{transform:scale(1)}}
+@keyframes ticks{0%{box-shadow:none}33%{box-shadow:7px 0 0 #0B3B2A}66%,100%{box-shadow:7px 0 0 #0B3B2A,14px 0 0 #0B3B2A}}
+@keyframes home{0%{transform:translateY(2px);opacity:1}70%{transform:translateY(-6px);opacity:.3}100%{transform:translateY(2px);opacity:1}}
+
+.title{margin:0;font:800 46px/.92 var(--f-sign);text-transform:uppercase;letter-spacing:.01em}
+.bill{margin:-2px 0 0;color:var(--ink-2);font-size:15px}
+.stats{display:grid;grid-template-columns:1.3fr .85fr 1.05fr;margin:4px 0 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.stat{padding:11px 14px 12px 0;min-width:0}
+.stat+.stat{padding-left:16px;border-left:1px solid var(--rule)}
+.stat dt{font:500 11px/1.25 var(--f-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin:0 0 7px}
+.stat dd{margin:0;display:grid;gap:5px}
+.dotnum{font-family:var(--f-dot);font-weight:900;font-variant-numeric:tabular-nums;line-height:1}
+.clock .dotnum{font-size:clamp(22px,2.3vw,29px);letter-spacing:.01em;white-space:nowrap}
+.clock .dotnum.zero{color:var(--red-ink)}
+.clock .dotnum i{font:500 .62em/1 var(--f-mono);font-style:normal;color:var(--ink-3);padding:0 .12em;position:relative;top:-.12em}
+.clock .dotnum{display:flex;align-items:flex-start}
+.clock .cg{display:grid;gap:7px}
+.clock .cg small{font:500 10px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.units{display:grid;grid-template-columns:repeat(4,1fr);max-width:15.5em;font:500 10px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.fans .dotnum{font-size:clamp(38px,3.6vw,48px);display:flex;align-items:flex-end;gap:2px}
+.fans .of{font-size:.5em;color:var(--ink-3);padding-bottom:.08em}
+.sub{font:500 12px/1.3 var(--f-ui);color:var(--ink-3)}
+.money .held-l{font:500 14px/1 var(--f-mono);color:var(--ink-2);display:flex;align-items:baseline;gap:6px}
+.money .charged-l{display:flex;align-items:baseline;gap:7px;font:600 13px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase}
+.money .charged-l .dotnum{font-size:clamp(30px,2.8vw,38px);letter-spacing:0;text-transform:none}
+.money .charged-l.zero .dotnum{color:var(--ink)}
+.mandate{margin:0;display:flex;flex-wrap:wrap;gap:4px 14px;font:500 13px/1.4 var(--f-mono);color:var(--ink-2)}
+.mandate b{font-weight:600;color:var(--ink)}
+.actions{display:flex;flex-wrap:wrap;gap:10px;padding-top:2px}
+.btn{appearance:none;min-height:44px;padding:0 18px;border-radius:999px;border:1.5px solid var(--ink);background:transparent;color:var(--ink);font:600 15px/1 var(--f-ui);cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background-color .15s,color .15s,border-color .15s,transform .1s}
+.btn:hover{background:var(--ink);color:var(--paper)}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible,.sound:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.btn-red{background:var(--red);border-color:var(--red);color:#FFF8EE}
+.btn-red:hover{background:#A51B15;border-color:#A51B15;color:#fff}
+.btn-ghost{border-color:transparent;text-decoration:underline;text-underline-offset:4px;padding:0 12px}
+.btn-ghost:hover{background:var(--paper-3);color:var(--ink)}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.btn[disabled]:hover{background:transparent;color:var(--ink)}
+.btn-red[disabled]:hover{background:var(--red);color:#FFF8EE}
+.btn kbd{border-color:currentColor;background:transparent;color:inherit;font-size:10px;padding:2px 4px}
+
+/* odometer */
+.odo{display:inline-flex;height:1em;overflow:hidden;vertical-align:bottom}
+.odo .d{display:block;height:1em;overflow:hidden}
+.odo .s{display:flex;flex-direction:column;transition:transform .55s cubic-bezier(.2,.75,.2,1)}
+.odo .s.snap{transition:none}
+.odo .s span{display:block;height:1em;line-height:1em}
+
+/* ---------- ledger */
+.ledger{display:grid;grid-template-columns:1fr;gap:26px 44px;margin-top:38px;padding-top:16px;border-top:1.5px solid var(--ink)}
+@media (min-width:900px){.ledger{grid-template-columns:1.35fr 1fr}}
+.ledger h2{margin:0 0 10px;font:800 22px/1 var(--f-sign);letter-spacing:.06em;text-transform:uppercase}
+.log{list-style:none;margin:0;padding:0;font:400 13px/1.45 var(--f-mono)}
+.log li{display:grid;grid-template-columns:96px 1fr;gap:12px;padding:8px 0;border-bottom:1px dashed var(--rule)}
+.log time{color:var(--ink-3);white-space:nowrap}
+.log em{font-style:normal;font-weight:600;background:var(--paper-3);padding:1px 6px;border-radius:4px;white-space:nowrap}
+.log .w-held{color:#7A2412;font-weight:600}
+.log .w-paid{color:var(--mint-ink);font-weight:600}
+.log .w-rel{color:var(--lilac-ink);font-weight:600}
+.rules{margin:12px 0 0;font:400 12px/1.5 var(--f-mono);color:var(--ink-3)}
+.rules b{color:var(--ink-2);font-weight:600}
+.payout .strip{display:grid;grid-template-columns:repeat(3,1fr);border:1.5px solid var(--ink);border-radius:12px;overflow:hidden}
+.payout .cell{padding:12px 14px 13px;display:grid;gap:8px;transition:background-color .4s}
+.payout .cell+.cell{border-left:1.5px solid var(--ink)}
+.payout .lbl{font:600 12px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase}
+.payout .amt{font:900 32px/1 var(--f-dot);display:flex;align-items:flex-end;color:var(--ink-3)}
+.payout .tag{font:600 11px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.payout .cell[data-state=paid]{background:var(--mint)}
+.payout .cell[data-state=paid] .amt,.payout .cell[data-state=paid] .tag{color:var(--ink)}
+.pay-note{margin:10px 0 0;font:500 13px/1.45 var(--f-ui);color:var(--ink-2)}
+
+/* ---------- key */
+.key{padding:16px var(--gutter) 30px}
+.key ul{list-style:none;margin:0;padding:14px 0 0;border-top:1px solid var(--rule);display:flex;flex-wrap:wrap;gap:10px 28px;font:500 13px/1.2 var(--f-mono);color:var(--ink-2)}
+.key li{display:flex;align-items:center;gap:9px}
+.sw{display:inline-block;width:14px;height:14px;border-radius:50%;flex:none}
+.sw-held{background:radial-gradient(circle,#E06A32 0 22%,#7a2414 58%,#5A1410 100%);box-shadow:inset 0 0 0 1px #2a0906}
+.sw-lit{background:radial-gradient(circle,#fff 0 30%,#FFF1C9 60%,#F2CF7C 100%);box-shadow:0 0 8px 2px rgba(255,200,100,.65)}
+.sw-paid{width:auto;height:auto;border-radius:0;display:inline-flex;gap:3px}
+.sw-paid b{width:9px;height:12px;border-radius:2px;background:var(--mint);box-shadow:inset 0 0 0 1px #0B6B4B}
+.sw-rel{background:radial-gradient(circle,#fff 0 24%,#CFCAEC 60%,#A8A2CC 100%);position:relative;top:-3px;box-shadow:0 5px 0 -3px rgba(75,69,144,.35)}
+
+@media (max-width:700px){
+  .keys{display:none}
+  .stats{grid-template-columns:1fr 1fr}
+  .stat.clock{grid-column:1/-1;padding-right:0;border-bottom:1px solid var(--rule)}
+  .stat.fans{padding-left:0;border-left:0}
+  .title{font-size:40px}
+}
+@media (max-width:420px){
+  .wordmark{font-size:30px}
+  .mode{font-size:11px;letter-spacing:.05em}
+  .btn{padding:0 15px;font-size:14px}
+  .payout .cell{padding:10px 10px 12px}
+  .payout .amt{font-size:26px}
+  .log li{grid-template-columns:1fr;gap:2px}
+}
+@media (prefers-reduced-motion:reduce){
+  .status .lamp{animation:none!important}
+  .odo .s{transition:none}
+  .stage canvas,.ph{transition:none}
+}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <p class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</p>
+    <p class="tagline">Nobody's charged unless the show happens.</p>
+  </div>
+  <p class="mode">Judge mode · PayPal sandbox · sample shows</p>
+  <div class="bar-right">
+    <p class="keys" aria-hidden="true"><kbd>T</kbd>tip <kbd>M</kbd>miss <kbd>R</kbd>replay</p>
+    <button class="sound" id="sound" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      <span data-label>Sound off</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <div class="front" id="front">
+    <section class="show" id="show-a" aria-labelledby="a-title">
+      <div class="stage" data-stage role="img" aria-label="Marquee sign for Juniper Vale">
+        <svg class="ph" data-ph viewBox="0 0 640 368" aria-hidden="true"></svg>
+        <div class="bulb-tip" data-tip hidden></div>
+      </div>
+      <div class="panel">
+        <div class="row-top">
+          <p class="eyebrow">Show A · Thu Nov 20</p>
+          <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>HELD</b><span data-said>$0 charged · 29 PayPal holds</span></p>
+        </div>
+        <h2 class="title" id="a-title">Juniper Vale</h2>
+        <p class="bill">Acoustic set w/ The Low Tides · Back room, Spindle Records</p>
+        <dl class="stats">
+          <div class="stat clock"><dt>Deadline Tue Nov 18 · 6:00pm</dt><dd><span class="dotnum" data-clock>02<i>:</i>07<i>:</i>41<i>:</i>00</span></dd></div>
+          <div class="stat fans"><dt>Fans pledged</dt><dd><span class="dotnum"><span data-fans>29</span><span class="of">/34</span></span><span class="sub" data-fans-sub>5 more to tip</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="held-l"><span>$<span data-held>435</span></span>held</span><span class="charged-l zero" data-charged-l><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Holds only. Released if it misses.</span></dd></div>
+        </dl>
+        <p class="mandate"><span><b>$15</b> pledge</span><span>Signed split: Room $80 → Opener $100 → Artist gets the rest</span></p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="add">+5 fans</button>
+          <button class="btn btn-red" type="button" data-act="ff">Fast-forward to deadline</button>
+          <button class="btn btn-ghost" type="button" data-act="replay">Replay</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="show" id="show-b" aria-labelledby="b-title">
+      <div class="stage" data-stage role="img" aria-label="Marquee sign for Marlow Finch">
+        <svg class="ph" data-ph viewBox="0 0 640 368" aria-hidden="true"></svg>
+        <div class="bulb-tip" data-tip hidden></div>
+      </div>
+      <div class="panel">
+        <div class="row-top">
+          <p class="eyebrow">Show B · Sat Nov 22</p>
+          <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>HELD</b><span data-said>$0 charged · 19 PayPal holds</span></p>
+        </div>
+        <h2 class="title" id="b-title">Marlow Finch</h2>
+        <p class="bill">Songs from the kitchen · Living room, Elm St house show</p>
+        <dl class="stats">
+          <div class="stat clock"><dt>Deadline Thu Nov 20 · 6:00pm</dt><dd><span class="dotnum" data-clock>04<i>:</i>07<i>:</i>41<i>:</i>00</span></dd></div>
+          <div class="stat fans"><dt>Fans pledged</dt><dd><span class="dotnum"><span data-fans>19</span><span class="of">/28</span></span><span class="sub" data-fans-sub>9 more to tip</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="held-l"><span>$<span data-held>228</span></span>held</span><span class="charged-l zero" data-charged-l><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Holds only. Released if it misses.</span></dd></div>
+        </dl>
+        <p class="mandate"><span><b>$12</b> pledge</span><span>Signed split: Room $60 → Opener $40 → Artist gets the rest</span></p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="add">+5 fans</button>
+          <button class="btn btn-red" type="button" data-act="ff">Fast-forward to deadline</button>
+          <button class="btn btn-ghost" type="button" data-act="replay">Replay</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="ledger" aria-label="Agent activity">
+    <div>
+      <h2>What the agent did</h2>
+      <ol class="log" id="log" aria-live="polite"></ol>
+      <p class="rules"><b>Mandate</b> §1 hold, never charge early · §2 capture only if the target is met at the deadline · §3 pay Room, then Opener, then Artist · §4 otherwise release every hold</p>
+    </div>
+    <div class="payout" id="payout">
+      <h2>Payout batch · Juniper Vale</h2>
+      <div class="strip">
+        <div class="cell" data-state="waiting"><span class="lbl">Room</span><span class="amt">$<span data-amt>0</span></span><span class="tag" data-tag>Waiting</span></div>
+        <div class="cell" data-state="waiting"><span class="lbl">Opener</span><span class="amt">$<span data-amt>0</span></span><span class="tag" data-tag>Waiting</span></div>
+        <div class="cell" data-state="waiting"><span class="lbl">Artist</span><span class="amt">$<span data-amt>0</span></span><span class="tag" data-tag>Waiting</span></div>
+      </div>
+      <p class="pay-note" data-pay-note>Fills only if the show tips. Until then, $0 moves.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="key" aria-label="Key">
+  <ul>
+    <li><i class="sw sw-held" aria-hidden="true"></i>Dim bulb = held</li>
+    <li><i class="sw sw-lit" aria-hidden="true"></i>Lit = charged</li>
+    <li><i class="sw sw-paid" aria-hidden="true"><b></b><b></b><b></b></i>Three signs = paid out</li>
+    <li><i class="sw sw-rel" aria-hidden="true"></i>Bulbs home = released</li>
+  </ul>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
+<script type="module">
+/* =====================================================================
+   Tip the Room · Marquee preview
+   DOM layer works on its own; the three.js sign layers on top when it can.
+   ===================================================================== */
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const G = window.gsap || null;
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const smooth = x => { x = clamp(x); return x * x * (3 - 2 * x); };
+const easeOut3 = x => 1 - Math.pow(1 - clamp(x), 3);
+const easeInOut = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const backOut = (x, s = 1.7) => { x = clamp(x); const c = s + 1; return 1 + c * Math.pow(x - 1, 3) + s * Math.pow(x - 1, 2); };
+const pad2 = n => String(n).padStart(2, '0');
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+const SHOWS = [
+  { key: 'a', name: 'Juniper Vale', short: 'Spindle', crest: 'SPINDLE RECORDS', target: 34, start: 29, pledge: 15, remain: 200460,
+    deadline: 'Tue 6:00pm', split: [['Room', 80], ['Opener', 100], ['Artist', null]], yaw: .2, seed: 7 },
+  { key: 'b', name: 'Marlow Finch', short: 'Elm St', crest: 'ELM ST HOUSE SHOW', target: 28, start: 19, pledge: 12, remain: 373260,
+    deadline: 'Thu 6:00pm', split: [['Room', 60], ['Opener', 40], ['Artist', null]], yaw: -.2, seed: 19 },
+];
+const splitOf = (cfg, fans) => { const total = fans * cfg.pledge; let rest = total; return cfg.split.map(([label, amt]) => { const v = amt == null ? rest : Math.min(amt, rest); rest -= v; return [label, v]; }); };
+
+/* choreography cue times (seconds) — shared by DOM and 3D */
+const TIP = { flare: .62, pop: 1.0, gather: 1.78, itson: 2.38, drop: 2.72, split: 3.05, relight: 3.5, paid: 3.95, done: 4.75 };
+const TIP_R = { flare: .05, paid: .3, done: .75 };
+const MISS = { wave: .9, release: .12, msg: 2.05, done: 3.1 };
+const MISS_R = { release: .05, msg: .8, done: 1.3 };
+
+/* ---------------- sound (WebAudio synth, off by default) ---------------- */
+const Snd = {
+  on: false, ctx: null, out: null, nb: null,
+  ensure() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return false;
+      this.ctx = new AC(); this.out = this.ctx.createGain(); this.out.gain.value = .55;
+      const comp = this.ctx.createDynamicsCompressor(); this.out.connect(comp); comp.connect(this.ctx.destination);
+      const len = this.ctx.sampleRate; this.nb = this.ctx.createBuffer(1, len, len);
+      const d = this.nb.getChannelData(0); const r = mulberry32(3); for (let i = 0; i < len; i++) d[i] = r() * 2 - 1;
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    return true;
+  },
+  click(when = 0, { f = 2400, q = 6, g = .1, d = .03 } = {}) {
+    if (!this.on || !this.ctx) return; const c = this.ctx, t = c.currentTime + when;
+    const s = c.createBufferSource(); s.buffer = this.nb; const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+    const gn = c.createGain(); gn.gain.setValueAtTime(g, t); gn.gain.exponentialRampToValueAtTime(.0001, t + d);
+    s.connect(bp); bp.connect(gn); gn.connect(this.out); s.start(t, Math.random() * .5); s.stop(t + d + .02);
+  },
+  tone(when, f, d, { type = 'sine', g = .06, f2 = null, a = .006 } = {}) {
+    if (!this.on || !this.ctx) return; const c = this.ctx, t = c.currentTime + when;
+    const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+    const gn = c.createGain(); gn.gain.setValueAtTime(.0001, t); gn.gain.exponentialRampToValueAtTime(g, t + a); gn.gain.exponentialRampToValueAtTime(.0001, t + d);
+    o.connect(gn); gn.connect(this.out); o.start(t); o.stop(t + d + .05);
+  },
+  screw(i) { this.click(0, { f: 3300, g: .07, d: .018 }); this.click(.045, { f: 3700, g: .06, d: .018 }); this.click(.09, { f: 4100, g: .05, d: .018 }); this.tone(.12, 1500 + i * 110, .16, { g: .035 }); },
+  primed() { [0, .07, .14, .21].forEach((w, i) => this.tone(w, 880 * Math.pow(1.122, i), .25, { g: .025, type: 'triangle' })); },
+  chase(n, dur) { for (let i = 0; i < n; i += 2) this.tone(i / n * dur, 2200 + i * 30, .04, { g: .022 }); },
+  flare() { this.tone(0, 120, .5, { g: .18, f2: 48 }); this.click(0, { f: 6000, q: .7, g: .08, d: .6 }); this.tone(.02, 1046, .9, { g: .03, type: 'triangle' }); },
+  sparks() { for (let i = 0; i < 22; i++) this.click(i * .035 + Math.random() * .02, { f: 3000 + Math.random() * 5000, q: 9, g: .05, d: .02 }); },
+  chord() { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => this.tone(i * .03, f, 1.1, { g: .03, type: 'triangle' })); },
+  drop() { [0, .07, .14].forEach((w, i) => this.tone(w, 180 - i * 12, .18, { g: .06 })); },
+  paid() { [0, .1, .2].forEach((w, i) => { this.tone(w, 1318.5, .5, { g: .04 }); this.tone(w + .05, 1975.5, .6, { g: .03 }); }); },
+  relays(n, dur) { for (let i = 0; i < n; i++) this.click(i / n * dur, { f: 850, q: 2.5, g: .08, d: .05 }); },
+  release(n) { for (let i = 0; i < Math.min(n, 8); i++) this.tone(.3 + i * .16, 392, 1.2, { g: .012, f2: 587 }); },
+  msg() { this.tone(0, 392, 1.4, { g: .025, type: 'triangle' }); this.tone(.04, 493.9, 1.4, { g: .018, type: 'triangle' }); },
+};
+
+/* ---------------- odometer digits ---------------- */
+class Odo {
+  constructor(el) { this.el = el; this.v = null; this.cols = []; this.el.textContent = ''; this.wrap = document.createElement('span'); this.wrap.className = 'odo'; this.wrap.setAttribute('aria-hidden', 'true'); this.sr = document.createElement('span'); this.sr.className = 'sr'; el.append(this.wrap, this.sr); }
+  build(n) {
+    this.wrap.textContent = ''; this.cols = [];
+    for (let i = 0; i < n; i++) {
+      const d = document.createElement('span'); d.className = 'd'; const s = document.createElement('span'); s.className = 's';
+      for (let k = 0; k < 20; k++) { const x = document.createElement('span'); x.textContent = k % 10; s.appendChild(x); }
+      d.appendChild(s); this.wrap.appendChild(d); this.cols.push({ s, at: 0 });
+    }
+  }
+  set(v, instant = false) {
+    v = Math.max(0, Math.round(v)); const str = String(v);
+    const up = this.v !== null && v > this.v;
+    if (str.length !== this.cols.length) { this.build(str.length); instant = true; }
+    if (REDUCED || this.v === null) instant = true;
+    str.split('').forEach((ch, i) => {
+      const col = this.cols[i], d = +ch;
+      let idx = d;
+      if (!instant && up && d < col.at) idx = d + 10;
+      col.s.classList.toggle('snap', instant);
+      col.s.style.transform = `translateY(${-idx}em)`;
+      if (idx >= 10) { const s = col.s; setTimeout(() => { s.classList.add('snap'); s.style.transform = `translateY(${-d}em)`; }, 600); }
+      col.at = d;
+    });
+    this.sr.textContent = str; this.v = v;
+  }
+}
+
+/* ---------------- agent log ---------------- */
+const Log = {
+  el: $('#log'), minute: 19,
+  stamp() { this.minute++; return `Sun 10:${pad2(this.minute)}am`; },
+  add(time, html, tag = '', instant = false) {
+    const li = document.createElement('li'); if (tag) li.dataset.show = tag;
+    li.innerHTML = `<time>${time}</time><span>${html}</span>`;
+    this.el.appendChild(li);
+    if (G && !instant && !REDUCED) G.from(li, { opacity: 0, y: 6, duration: .45, ease: 'power2.out' });
+  },
+  resetAll() { this.el.textContent = ''; this.minute = 19; this.add('Sun 10:19am', 'Watching 2 shows · 48 PayPal holds open · <em>mandate §1</em> holds only · <span class="w-held">$0 charged</span>', '', true); },
+  resetShow(key) { $$(`li[data-show="${key}"]`, this.el).forEach(li => li.remove()); },
+};
+
+/* ---------------- payout strip (Show A) ---------------- */
+const Payout = {
+  el: $('#payout'),
+  init() { this.cells = $$('.cell', this.el); this.odos = this.cells.map(c => new Odo($('[data-amt]', c))); this.reset(); },
+  reset() { this.cells.forEach((c, i) => { c.dataset.state = 'waiting'; $('[data-tag]', c).textContent = 'Waiting'; this.odos[i].set(0, true); }); $('[data-pay-note]', this.el).textContent = 'Fills only if the show tips. Until then, $0 moves.'; },
+  fill(split, later) {
+    split.forEach(([label, v], i) => later(i * .14, () => {
+      const c = this.cells[i]; this.odos[i].set(v);
+      later(.45, () => { c.dataset.state = 'paid'; $('[data-tag]', c).textContent = 'Paid'; if (G && !REDUCED) G.fromTo(c, { scale: .97 }, { scale: 1, duration: .5, ease: 'back.out(3)' }); });
+    }));
+    later(.9, () => { $('[data-pay-note]', this.el).textContent = `One PayPal payout batch, in mandate order. ${split.map(([l, v]) => `${l} $${v}`).join(' · ')}.`; });
+  },
+};
+
+/* ---------------- flat placeholder sign (instant paint + no-WebGL fallback) ---------------- */
+class Placeholder {
+  constructor(svg, cfg) {
+    this.svg = svg; this.cfg = cfg; const NS = 'http://www.w3.org/2000/svg';
+    const el = (tag, at) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); svg.appendChild(e); return e; };
+    el('rect', { x: 52, y: 92, width: 536, height: 184, rx: 12, fill: '#C8221B', stroke: '#B8893A', 'stroke-width': 4 });
+    el('rect', { x: 92, y: 130, width: 456, height: 108, rx: 5, fill: '#2A0C09', stroke: '#C9A04A', 'stroke-width': 3 });
+    const pts = trackPoints2D(504, 152, 12, cfg.target);
+    this.dots = pts.map(p => el('circle', { cx: 320 + p.x, cy: 184 - p.y, r: 6.5, class: 's-empty' }));
+    this.text = el('text', { x: 320, y: 207, 'text-anchor': 'middle', class: 'name', fill: '#D9662E' });
+    this.text.textContent = cfg.name.toUpperCase();
+  }
+  update(phase, fans) {
+    this.dots.forEach((d, i) => d.setAttribute('class', phase === 'paid' ? 's-lit' : i < fans ? (phase === 'released' ? 's-off' : 's-held') : 's-empty'));
+    this.text.textContent = phase === 'released' ? 'SHOW’S OFF · $0' : this.cfg.name.toUpperCase();
+    this.text.setAttribute('fill', phase === 'paid' ? '#FFF1C9' : phase === 'released' ? '#A8A2CC' : '#D9662E');
+  }
+}
+function trackPoints2D(w, h, r, n) {
+  const segs = [
+    ['L', -w / 2 + r, h / 2, w / 2 - r, h / 2], ['A', w / 2 - r, h / 2 - r, Math.PI / 2, 0],
+    ['L', w / 2, h / 2 - r, w / 2, -h / 2 + r], ['A', w / 2 - r, -h / 2 + r, 0, -Math.PI / 2],
+    ['L', w / 2 - r, -h / 2, -w / 2 + r, -h / 2], ['A', -w / 2 + r, -h / 2 + r, -Math.PI / 2, -Math.PI],
+    ['L', -w / 2, -h / 2 + r, -w / 2, h / 2 - r], ['A', -w / 2 + r, h / 2 - r, Math.PI, Math.PI / 2]];
+  const len = s => s[0] === 'L' ? Math.hypot(s[3] - s[1], s[4] - s[2]) : Math.abs(s[4] - s[3]) * r;
+  const total = segs.reduce((a, s) => a + len(s), 0); const out = [];
+  for (let i = 0; i < n; i++) {
+    let d = (i + .5) * total / n;
+    for (const s of segs) {
+      const l = len(s); if (d > l) { d -= l; continue; }
+      const k = d / l;
+      if (s[0] === 'L') out.push({ x: s[1] + (s[3] - s[1]) * k, y: s[2] + (s[4] - s[2]) * k });
+      else { const a = s[3] + (s[4] - s[3]) * k; out.push({ x: s[1] + Math.cos(a) * r, y: s[2] + Math.sin(a) * r }); }
+      break;
+    }
+  }
+  return out;
+}
+
+/* ---------------- one show: state + DOM ---------------- */
+const STATUS = {
+  held: c => ['HELD', `$0 charged · ${c.fans} PayPal holds`],
+  primed: c => ['HELD', 'Target met · charges only at the deadline'],
+  tipped: c => ['TIPPED', `Show's on · ${c.fans} holds captured`],
+  paid: c => ['PAID OUT', 'Room, opener and artist paid'],
+  missing: c => ['MISSED', `Releasing ${c.fans} holds · $0 charged`],
+  released: c => ['RELEASED', `Nobody paid · ${c.fans} holds let go`],
+};
+
+class ShowCtl {
+  constructor(cfg) {
+    this.cfg = cfg; const el = this.el = $('#show-' + cfg.key);
+    this.stageEl = $('[data-stage]', el); this.tipEl = $('[data-tip]', el);
+    this.statusEl = $('[data-status]', el); this.wordEl = $('[data-word]', el); this.saidEl = $('[data-said]', el);
+    this.clockEl = $('[data-clock]', el); this.fansSub = $('[data-fans-sub]', el); this.moneySub = $('[data-money-sub]', el); this.chargedL = $('[data-charged-l]', el);
+    this.odoFans = new Odo($('[data-fans]', el)); this.odoHeld = new Odo($('[data-held]', el)); this.odoCharged = new Odo($('[data-charged]', el));
+    this.btnAdd = $('[data-act=add]', el); this.btnFF = $('[data-act=ff]', el); this.btnReplay = $('[data-act=replay]', el);
+    this.ph = new Placeholder($('[data-ph]', el), cfg);
+    this.timers = []; this.view = null;
+    this.btnAdd.addEventListener('click', () => this.addFans(5));
+    this.btnFF.addEventListener('click', () => this.fastForward());
+    this.btnReplay.addEventListener('click', () => { this.reset(); Log.resetShow(cfg.key); });
+    this.reset(true);
+  }
+  later(sec, fn) { const id = setTimeout(fn, sec * 1000); this.timers.push(id); return id; }
+  visual() { const p = this.phase; return { phase: (p === 'paid' || p === 'tipping') ? 'paid' : (p === 'released' || p === 'missing') ? 'released' : 'held', fans: this.fans }; }
+  reset(first = false) {
+    this.timers.forEach(clearTimeout); this.timers = []; cancelAnimationFrame(this.ffRaf);
+    this.phase = 'open'; this.fans = this.cfg.start; this.remain = this.cfg.remain; this.busy = false; this.pendingFF = false;
+    this.odoFans.set(this.fans, true); this.odoHeld.set(this.fans * this.cfg.pledge, true); this.odoCharged.set(0, true);
+    this.chargedL.classList.add('zero'); this.clockEl.classList.remove('zero');
+    this.moneySub.textContent = 'Holds only. Released if it misses.';
+    this.setStatus('held', true); this.renderClock(); this.renderFansSub(); this.updateButtons();
+    this.ph.update('held', this.fans); this.updateLabel();
+    if (this.cfg.key === 'a' && !first) Payout.reset();
+    if (this.view) this.view.reset();
+  }
+  setStatus(kind, instant = false) {
+    const [w, s] = STATUS[kind](this); this.statusEl.dataset.state = kind === 'primed' ? 'held' : kind;
+    this.wordEl.textContent = w; this.saidEl.textContent = s;
+    if (G && !instant && !REDUCED) G.fromTo(this.statusEl, { scale: .92 }, { scale: 1, duration: .55, ease: 'back.out(3)' });
+  }
+  renderClock() {
+    const r = Math.max(0, this.remain); const d = Math.floor(r / 86400), h = Math.floor(r % 86400 / 3600), m = Math.floor(r % 3600 / 60), s = r % 60;
+    const g = (v, u) => `<span class="cg"><span>${pad2(v)}</span><small>${u}</small></span>`;
+    this.clockEl.innerHTML = `${g(d, 'days')}<i>:</i>${g(h, 'hrs')}<i>:</i>${g(m, 'min')}<i>:</i>${g(s, 'sec')}`;
+  }
+  renderFansSub() {
+    const { fans } = this, { target } = this.cfg;
+    this.fansSub.textContent = this.phase === 'paid' || this.phase === 'tipping' ? 'Show tipped'
+      : this.phase === 'released' || this.phase === 'missing' ? `Missed by ${target - fans}`
+      : fans >= target ? 'Target met' : `${target - fans} more to tip`;
+  }
+  updateButtons() {
+    const open = this.phase === 'open'; const left = this.cfg.target - this.fans;
+    this.btnAdd.disabled = !open || left <= 0 || this.busy;
+    this.btnAdd.textContent = left <= 0 ? 'Target met' : `+${Math.min(5, left)} fans`;
+    this.btnFF.disabled = !open;
+  }
+  updateLabel() {
+    const v = this.visual(); const c = this.cfg;
+    const txt = v.phase === 'paid' ? `fully lit: the show tipped and ${c.target} holds were charged; three payout signs hang below`
+      : v.phase === 'released' ? `dark: the show missed, every bulb's light went home, the board reads SHOW'S OFF, $0 charged`
+      : `${this.fans} of ${c.target} border bulbs screwed in and glowing dimly: held, not charged`;
+    this.stageEl.setAttribute('aria-label', `Marquee sign for ${c.name}, ${txt}.`);
+  }
+  addFans(max = 5) {
+    if (this.phase !== 'open' || this.busy) return 0;
+    const n = Math.min(max, this.cfg.target - this.fans); if (n <= 0) return 0;
+    this.busy = true; this.updateButtons();
+    const f0 = this.fans, step = REDUCED ? .06 : .24, land = REDUCED ? 0 : .38;
+    if (this.view) this.view.play('pledge', { f0, f1: f0 + n });
+    for (let k = 0; k < n; k++) this.later(k * step + land, () => {
+      this.fans++; this.odoFans.set(this.fans); this.odoHeld.set(this.fans * this.cfg.pledge);
+      this.renderFansSub(); this.ph.update('held', this.fans); Snd.screw(k);
+    });
+    const total = (n - 1) * step + land + .25;
+    this.later(total, () => {
+      this.busy = false; const c = this.cfg;
+      Log.add(Log.stamp(), `${c.short} · ${n} fans pledged · ${n} new PayPal holds ($${n * c.pledge}) · <em>mandate §1</em> · <span class="w-held">$0 charged</span>`, c.key);
+      if (this.fans >= c.target) {
+        this.setStatus('primed'); Snd.primed();
+        Log.add(Log.stamp(), `${c.short} reached ${this.fans} of ${c.target} · <em>mandate §2</em> · capture waits for the deadline`, c.key);
+      } else this.setStatus('held');
+      this.updateButtons(); this.updateLabel();
+      if (this.pendingFF) { this.pendingFF = false; this.fastForward(); }
+    });
+    return total;
+  }
+  fastForward() {
+    if (this.phase !== 'open') return;
+    if (this.busy) { this.pendingFF = true; return; }
+    this.phase = 'ff'; this.updateButtons();
+    const from = this.remain, dur = REDUCED ? .2 : 1.15, t0 = performance.now();
+    if (this.view) this.view.tension(true);
+    const step = now => {
+      const k = clamp((now - t0) / 1000 / dur); const e = k * k * (2.2 - 1.2 * k);
+      this.remain = Math.round(from * (1 - e)); this.renderClock();
+      if (k < 1) this.ffRaf = requestAnimationFrame(step); else this.settle();
+    };
+    this.ffRaf = requestAnimationFrame(step);
+  }
+  settle() {
+    this.remain = 0; this.renderClock(); this.clockEl.classList.add('zero');
+    if (this.view) this.view.tension(false);
+    if (this.fans >= this.cfg.target) this.runTip(); else this.runMiss();
+  }
+  runTip() {
+    const c = this.cfg, C = REDUCED ? TIP_R : TIP, total = this.fans * c.pledge, split = splitOf(c, this.fans);
+    this.phase = 'tipping'; this.updateButtons();
+    if (this.view) this.view.play(REDUCED ? 'tipR' : 'tip', { split });
+    if (!REDUCED) { Snd.chase(c.target, TIP.flare); this.later(TIP.pop, () => Snd.sparks()); this.later(TIP.itson, () => Snd.chord()); this.later(TIP.drop, () => Snd.drop()); }
+    this.later(C.flare, () => {
+      Snd.flare(); this.setStatus('tipped'); this.renderFansSub();
+      this.odoHeld.set(0); this.odoCharged.set(total); this.chargedL.classList.remove('zero');
+      this.moneySub.textContent = `Captured at the deadline · ${this.fans} × $${c.pledge}`;
+      this.ph.update('paid', this.fans);
+      Log.add(c.deadline, `Deadline · ${c.short} at ${this.fans} of ${c.target} · <em>mandate §2</em> · captured ${this.fans} holds ($${total})`, c.key);
+    });
+    this.later(C.paid, () => {
+      Snd.paid(); this.phase = 'paid'; this.setStatus('paid'); this.updateLabel();
+      if (c.key === 'a') Payout.fill(split, (t, fn) => this.later(t, fn));
+      Log.add(c.deadline, `Payout batch sent · <em>mandate §3</em> · <span class="w-paid">${split.map(([l, v]) => `${l} $${v}`).join(' → ')}</span>`, c.key);
+    });
+  }
+  runMiss() {
+    const c = this.cfg, C = REDUCED ? MISS_R : MISS, held = this.fans * c.pledge;
+    this.phase = 'missing'; this.updateButtons();
+    if (this.view) this.view.play(REDUCED ? 'missR' : 'miss');
+    if (!REDUCED) { Snd.relays(12, MISS.wave); Snd.release(this.fans); }
+    this.later(C.release, () => {
+      this.setStatus('missing'); this.renderFansSub(); this.odoHeld.set(0);
+      this.moneySub.textContent = `$${held} released to ${this.fans} fans · nobody paid`;
+      this.ph.update('released', this.fans);
+      Log.add(c.deadline, `Deadline · ${c.short} at ${this.fans} of ${c.target} · <em>mandate §4</em> · <span class="w-rel">released ${this.fans} holds · $0 charged</span>`, c.key);
+    });
+    this.later(C.msg, () => { Snd.msg(); this.phase = 'released'; this.setStatus('released'); this.updateLabel(); });
+  }
+  demoTip() {
+    if (this.phase !== 'open' || this.busy) { this.reset(); Log.resetShow(this.cfg.key); }
+    const d = this.addFans(this.cfg.target - this.fans);
+    this.later(d + .15, () => this.fastForward());
+  }
+  demoMiss() {
+    if (this.phase !== 'open' || this.busy) { this.reset(); Log.resetShow(this.cfg.key); }
+    this.fastForward();
+  }
+}
+
+/* ---------------- boot DOM ---------------- */
+Payout.init();
+Log.resetAll();
+const ctls = SHOWS.map(cfg => new ShowCtl(cfg));
+const [A, B] = ctls;
+setInterval(() => ctls.forEach(c => { if (c.phase === 'open' && c.remain > 0) { c.remain--; c.renderClock(); } }), 1000);
+
+const soundBtn = $('#sound');
+soundBtn.addEventListener('click', () => {
+  const on = soundBtn.getAttribute('aria-pressed') !== 'true';
+  if (on && !Snd.ensure()) return;
+  Snd.on = on; soundBtn.setAttribute('aria-pressed', String(on)); $('[data-label]', soundBtn).textContent = on ? 'Sound on' : 'Sound off';
+  if (on) Snd.tone(0, 880, .15, { g: .03 });
+});
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+  const t = e.target; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  const k = e.key.toLowerCase();
+  if (k === 't') { A.demoTip(); e.preventDefault(); }
+  else if (k === 'm') { B.demoMiss(); e.preventDefault(); }
+  else if (k === 'r') { ctls.forEach(c => c.reset()); Log.resetAll(); e.preventDefault(); }
+});
+window.__marquee = { ctls };
+
+/* =====================================================================
+   3D marquee (three.js) — optional layer
+   ===================================================================== */
+boot3D().catch(() => {});
+
+async function boot3D() {
+  const probe = document.createElement('canvas');
+  if (!probe.getContext('webgl2')) return;
+  let THREE, RoomEnvironment, RoundedBoxGeometry, UnrealBloomPass, FullScreenQuad;
+  try {
+    [THREE, { RoomEnvironment }, { RoundedBoxGeometry }, { UnrealBloomPass }, { FullScreenQuad }] = await Promise.all([
+      import('three'), import('three/addons/environments/RoomEnvironment.js'), import('three/addons/geometries/RoundedBoxGeometry.js'),
+      import('three/addons/postprocessing/UnrealBloomPass.js'), import('three/addons/postprocessing/Pass.js')]);
+  } catch (e) { return; }
+  const FONT = '"Big Shoulders Display","Arial Narrow",Impact,sans-serif';
+  try { await Promise.race([Promise.all([document.fonts.load(`900 100px ${FONT}`), document.fonts.load(`800 60px ${FONT}`)]), new Promise(r => setTimeout(r, 3500))]); } catch (e) { }
+
+  const LIT = [1.0, .8, .46], FIL = [1.0, .3, .075], MINT = [.03, .95, .46], LILAC = [.46, .42, .86], ZERO = [0, 0, 0], BH = .62;
+  const LAYOUTS = {
+    wide: { W: 3.6, H: 1.3, D: .36, track: .13, panelIn: .29, rows: 22, fov: 22, rest: [1.1, 1.62], lines: 1,
+      small: { w: 1.02, h: .62, d: .16, gap: .24, rows: 9, plateH: .13 }, smallX: 1.18 },
+    tall: { W: 2.6, H: 1.86, D: .36, track: .13, panelIn: .29, rows: 30, fov: 24, rest: [1.13, 1.5], lines: 2,
+      small: { w: .82, h: .6, d: .16, gap: .2, rows: 9, plateH: .11 }, smallX: .88 },
+  };
+
+  /* ---- 5x7 dot font for small lines (numbers, $0 CHARGED) ---- */
+  const PX = {
+    '0': '01110100011001110101110011000101110', '1': '00100011000010000100001000010001110', '2': '01110100010000100010001000100011111',
+    '3': '11111000100010000010000011000101110', '4': '00010001100101010010111110001000010', '5': '11111100001111000001000011000101110',
+    '6': '00110010001000011110100011000101110', '7': '11111000010001000100010000100001000', '8': '01110100011000101110100011000101110',
+    '9': '01110100011000101111000010001001100', '$': '00100011111010001110001011111000100', 'C': '01110100011000010000100001000101110',
+    'H': '10001100011000111111100011000110001', 'A': '01110100011000111111100011000110001', 'R': '11110100011000111110101001001010001',
+    'G': '01110100011000010111100011000101111', 'E': '11111100001000011110100001000011111', 'D': '11110100011000110001100011000111110',
+  };
+  const pxWidth = t => [...t].reduce((w, ch) => w + (ch === ' ' ? 3 : 6), 0) - 1;
+  function pxText(text, cols, rowOff, out) {
+    let c0 = Math.floor((cols - pxWidth(text)) / 2);
+    for (const ch of text) {
+      if (ch === ' ') { c0 += 3; continue; }
+      const g = PX[ch]; if (g) for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (g[r * 5 + c] === '1' && c0 + c >= 0 && c0 + c < cols) out.push((rowOff + r) * cols + c0 + c);
+      c0 += 6;
+    }
+    return out;
+  }
+  // lines: [{t, px:true} | {t, rows}] stacked top to bottom with gaps
+  function compose(cols, rows, lines, gap = 2, padCols = 3) {
+    const fixed = lines.reduce((a, l) => a + (l.px ? 7 : 0), 0), flex = lines.filter(l => !l.px);
+    const free = rows - fixed - gap * (lines.length - 1) - 2;
+    let r = 1; const out = [];
+    for (const l of lines) {
+      if (l.px) { pxText(l.t, cols, r, out); r += 7 + gap; continue; }
+      const band = Math.floor(free / flex.length);
+      sampleText([l.t], cols, band, { padRows: 0, gapRows: 0, padCols }).forEach(i => out.push(i + r * cols));
+      r += band + gap;
+    }
+    return out;
+  }
+
+  /* ---- text → lattice cells ---- */
+  function sampleText(lines, cols, rows, o = {}) {
+    const S = 12, cw = cols * S, ch = rows * S;
+    const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const n = lines.length, padR = o.padRows ?? 2, gapR = o.gapRows ?? 2, padC = o.padCols ?? 2;
+    const weights = o.weights || lines.map(() => 1), wsum = weights.reduce((a, b) => a + b, 0);
+    const avail = rows - 2 * padR - gapR * (n - 1);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const wt = o.weight || 900;
+    ctx.font = `${wt} 100px ${FONT}`; const capRatio = (ctx.measureText('H').actualBoundingBoxAscent || 72) / 100;
+    let y = padR * S;
+    for (let i = 0; i < n; i++) {
+      const bandH = avail * weights[i] / wsum * S;
+      let size = bandH / capRatio, sx = 1;
+      const setF = () => { ctx.font = `${wt} ${size}px ${FONT}`; if ('letterSpacing' in ctx) ctx.letterSpacing = `${(o.track ?? .07) * size}px`; };
+      setF(); let w = ctx.measureText(lines[i]).width; const maxW = (cols - 2 * padC) * S;
+      if (w > maxW) { sx = Math.max(o.minSquash ?? .8, maxW / w); if (w * sx > maxW) { size *= maxW / (w * sx); setF(); w = ctx.measureText(lines[i]).width; } }
+      const capH = capRatio * size, base = y + (bandH + capH) / 2;
+      ctx.save(); ctx.translate(cw / 2, base); ctx.scale(sx, 1); ctx.fillText(lines[i], 0, 0); ctx.restore();
+      y += bandH + gapR * S;
+    }
+    const data = ctx.getImageData(0, 0, cw, ch).data, out = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      let acc = 0; for (let sy = 0; sy < 4; sy++) for (let sxx = 0; sxx < 4; sxx++) { const px = c * S + 1.5 + sxx * 3, py = r * S + 1.5 + sy * 3; acc += data[((py | 0) * cw + (px | 0)) * 4 + 3]; }
+      if (acc / 16 / 255 > (o.thr ?? .42)) out.push(r * cols + c);
+    }
+    return out;
+  }
+
+  /* ---- geometry helpers ---- */
+  function rrPath(w, h, r, p) { const x = -w / 2, y = -h / 2; p.moveTo(x + r, y); p.lineTo(x + w - r, y); p.absarc(x + w - r, y + r, r, -Math.PI / 2, 0, false); p.lineTo(x + w, y + h - r); p.absarc(x + w - r, y + h - r, r, 0, Math.PI / 2, false); p.lineTo(x + r, y + h); p.absarc(x + r, y + h - r, r, Math.PI / 2, Math.PI, false); p.lineTo(x, y + r); p.absarc(x + r, y + r, r, Math.PI, Math.PI * 1.5, false); return p; }
+  function ringGeo(ow, oh, or_, iw, ih, ir, depth, bevel) {
+    const s = rrPath(ow, oh, or_, new THREE.Shape()); s.holes.push(rrPath(iw, ih, ir, new THREE.Path()));
+    return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel * .8, bevelSegments: 3, curveSegments: 8 });
+  }
+  function canvasTex(w, h, draw) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+  }
+  function brassPlate(text, paid) {
+    return canvasTex(512, 112, (x, w, h) => {
+      const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#EBCB82'); g.addColorStop(.45, '#C99F4B'); g.addColorStop(1, '#9C752B');
+      x.fillStyle = g; x.fillRect(0, 0, w, h);
+      x.strokeStyle = 'rgba(70,45,10,.55)'; x.lineWidth = 5; x.strokeRect(8, 8, w - 16, h - 16);
+      x.font = `800 66px ${FONT}`; x.textBaseline = 'middle'; if ('letterSpacing' in x) x.letterSpacing = '7px';
+      const t1 = text, t2 = paid ? '  PAID' : '';
+      const w1 = x.measureText(t1).width, w2 = t2 ? x.measureText(t2).width : 0, x0 = (w - w1 - w2) / 2;
+      x.textAlign = 'left'; x.fillStyle = '#2E1F08'; x.fillText(t1, x0, h / 2 + 4);
+      if (t2) { x.fillStyle = '#075A3C'; x.fillText(t2, x0 + w1, h / 2 + 4); }
+    });
+  }
+  function shadowTex() {
+    return canvasTex(256, 160, (x, w, h) => {
+      x.fillStyle = '#000';
+      if ('filter' in x) { x.filter = 'blur(16px)'; x.fillRect(42, 40, w - 84, h - 80); }
+      else { const g = x.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w / 2); g.addColorStop(0, 'rgba(0,0,0,.9)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, w, h); }
+    });
+  }
+
+  /* ---- materials ---- */
+  function dotMaterial(color, rough, uTime, env, envI, core) {
+    const m = new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, envMap: env, envMapIntensity: envI });
+    m.onBeforeCompile = sh => {
+      sh.uniforms.uTime = uTime;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+attribute vec4 aEm; attribute vec2 aAux; uniform float uTime; varying vec4 vEm; varying float vFacing; varying float vFlick; varying float vWhite;`)
+        .replace('#include <project_vertex>', `#include <project_vertex>
+vEm = aEm; vWhite = aAux.y;
+vFacing = clamp(dot(normalize(transformedNormal), normalize(-mvPosition.xyz)), 0.0, 1.0);
+float fl = sin(uTime*11.0 + aAux.x*37.0) * sin(uTime*5.3 + aAux.x*13.0);
+vFlick = 1.0 + 0.24*fl*(1.0 - aEm.a);`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec4 vEm; varying float vFacing; varying float vFlick; varying float vWhite;`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+float emax = max(vEm.r, max(vEm.g, vEm.b));
+vec3 ehue = emax > 0.0001 ? vEm.rgb / emax : vec3(1.0);
+diffuseColor.rgb = mix(diffuseColor.rgb, ehue * vec3(1.0, 0.97, 0.92), clamp(vWhite, 0.0, 1.0));
+totalEmissiveRadiance = vEm.rgb * (${core < 3 ? '0.32 + 1.1' : '0.12 + 1.6'}*pow(vFacing, ${core.toFixed(1)})) * vFlick;`);
+    };
+    m.customProgramCacheKey = () => 'marquee-dot-' + core;
+    return m;
+  }
+  function glowMaterial(uTime, uGain) {
+    return new THREE.ShaderMaterial({
+      uniforms: { uTime, uGain },
+      vertexShader: `attribute vec4 aEm; attribute vec2 aAux; uniform float uTime; uniform float uGain; varying vec3 vC;
+void main(){
+  vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+  vec3 n = normalize(normalMatrix * (mat3(instanceMatrix) * normal));
+  float f = clamp(dot(n, normalize(-mv.xyz)), 0.0, 1.0);
+  float fl = sin(uTime*11.0 + aAux.x*37.0) * sin(uTime*5.3 + aAux.x*13.0);
+  float flick = 1.0 + 0.24*fl*(1.0 - aEm.a);
+  vC = aEm.rgb * (0.18 + 1.35*pow(f, 3.0)) * flick * uGain * mix(0.3, 1.0, clamp(aEm.a, 0.0, 1.0));
+  gl_Position = projectionMatrix * mv;
+}`,
+      fragmentShader: `varying vec3 vC; void main(){ gl_FragColor = vec4(vC, 1.0); }`,
+    });
+  }
+  const SPARK_FRAG = `varying float vA; varying vec3 vCol; uniform float uCore;
+void main(){ vec2 d = gl_PointCoord - 0.5; float r = length(d)*2.0; if (r > 1.0) discard;
+  float core = smoothstep(uCore, 0.0, r); float halo = pow(1.0 - r, 3.0)*0.3;
+  float k = (core*1.8 + halo)*vA; gl_FragColor = vec4(vCol*k*1.2, 1.0); }`;
+  const SM = `float sm(float x){ x = clamp(x, 0.0, 1.0); return x*x*(3.0-2.0*x); }`;
+  // Sparks are drawn as velocity-aligned capsules: head = position now, tail = position a moment ago.
+  const STREAK_COMMON = `uniform vec2 uRes; uniform float uScale; uniform float uTime;
+varying vec2 vQ; varying float vLen; varying float vR; varying float vA; varying vec3 vCol;
+${'float sm(float x){ x = clamp(x, 0.0, 1.0); return x*x*(3.0-2.0*x); }'}
+void expand(vec3 head, vec3 tail, float rWorld){
+  vec4 ch = projectionMatrix * modelViewMatrix * vec4(head, 1.0);
+  vec4 ct = projectionMatrix * modelViewMatrix * vec4(tail, 1.0);
+  vec2 sh = ch.xy / ch.w * 0.5 * uRes, st = ct.xy / ct.w * 0.5 * uRes;
+  float r = max(rWorld * uScale / ch.w, 0.9);
+  vec2 d = sh - st; float L = length(d); vec2 dir = L > 0.001 ? d / L : vec2(1.0, 0.0); vec2 nrm = vec2(-dir.y, dir.x);
+  float along = mix(-r, L + r, position.x), across = position.y * r;
+  vQ = vec2(along, across); vLen = L; vR = r;
+  gl_Position = vec4((st + dir*along + nrm*across) / (0.5*uRes), mix(ct.z/ct.w, ch.z/ch.w, position.x), 1.0);
+}`;
+  const STREAK_FRAG = `varying vec2 vQ; varying float vLen; varying float vR; varying float vA; varying vec3 vCol;
+void main(){
+  float u = clamp(vQ.x, 0.0, vLen); float d = length(vec2(vQ.x - u, vQ.y)) / vR; if (d > 1.0 || vA < 0.002) discard;
+  float core = 1.0 - d; core *= core;
+  float tailFade = vLen > 0.5 ? mix(0.15, 1.0, u / vLen) : 1.0;
+  float headDot = max(0.0, 1.0 - length(vQ - vec2(vLen, 0.0)) / vR);
+  gl_FragColor = vec4(vCol * (core*tailFade*1.3 + headDot*headDot*1.4) * vA, 1.0);
+}`;
+  const PARTICLE_VERT = `attribute vec3 aA; attribute vec3 aB; attribute vec3 aC; attribute vec4 aSeed; attribute vec2 aStag;
+uniform float uPopT; uniform float uGather; uniform float uSplit; uniform float uOn; uniform float uSize;
+uniform vec3 uCenter; uniform vec2 uRad;
+${STREAK_COMMON}
+vec3 P(float popT, float gth, float spl, out float alpha, out float gkO, out float skO, out float exO){
+  float since = popT - aSeed.w*0.12; float pt = max(since, 0.0); float popped = step(0.0001, since);
+  vec3 rel = aA - uCenter; vec2 q = vec2(rel.x/uRad.x, rel.y/uRad.y);
+  float ang0 = atan(q.y, q.x), r0 = length(q);
+  float ex = 1.0 - pow(1.0 - clamp(pt/0.5, 0.0, 1.0), 3.0);
+  float rr = mix(r0, 0.38 + 0.5*aSeed.x, ex);
+  float ang = ang0 + (2.3 + 1.6*aSeed.y)*pt;
+  vec3 orbit = uCenter + vec3(cos(ang)*rr*uRad.x, sin(ang)*rr*uRad.y, (0.3 + 0.6*aSeed.z)*ex + 0.07*sin(pt*6.0 + aSeed.x*20.0));
+  float gk = sm(gth*1.7 - aStag.x*0.7);
+  vec3 bP = aB + vec3(0.0, 0.0, 0.02);
+  vec3 p = mix(orbit, bP, gk); p.z += 0.22*sin(gk*3.14159);
+  float sk = sm(spl*1.6 - aStag.y*0.6);
+  vec3 cP = aC + vec3(0.0, 0.0, 0.02);
+  vec3 ctrl = 0.5*(bP + cP) + vec3(0.0, 0.3, 0.95);
+  vec3 sp = mix(mix(bP, ctrl, sk), mix(ctrl, cP, sk), sk);
+  float splitting = step(0.0001, spl);
+  p = mix(p, sp, splitting);
+  float aG = (1.0 - smoothstep(0.88, 1.0, gk)) * popped;
+  float aS = smoothstep(0.0, 0.04, sk) * (1.0 - smoothstep(0.9, 1.0, sk));
+  alpha = mix(aG, aS, splitting); gkO = gk; skO = sk; exO = ex * (1.0 - splitting);
+  return p;
+}
+void main(){
+  float a, gk, sk, ex, a2, g2, s2, e2; float dt = 0.06;
+  vec3 head = P(uPopT, uGather, uSplit, a, gk, sk, ex);
+  vec3 tail = P(uPopT - dt, clamp(uGather - dt/0.62, 0.0, 1.0), clamp(uSplit - dt/0.8, 0.0, 1.0), a2, g2, s2, e2);
+  vA = uOn * a;
+  float tw = 0.7 + 0.5*sin(uTime*26.0 + aSeed.x*71.0);
+  vec3 gold = vec3(1.0, 0.6, 0.2), cream = vec3(1.0, 0.86, 0.56);
+  vCol = mix(mix(gold*mix(tw, 1.0, gk), cream, gk), mix(cream, gold, sin(sk*3.14159)*0.6), step(0.0001, uSplit));
+  expand(head, tail, uSize*(1.0 + 0.4*ex*(1.0 - gk) + 0.3*sin(sk*3.14159)));
+}`;
+  const EMBER_VERT = `attribute vec3 aA; attribute vec3 aV; attribute vec3 aL; uniform float uT; uniform float uSize;
+${STREAK_COMMON}
+vec3 E(float t){ float tt = max(t, 0.0); return aA + aV*(1.0 - exp(-tt*2.4))/2.4 + vec3(0.0, -0.8*tt*tt, 0.0); }
+void main(){
+  float t = uT - aL.y; float k = clamp(t/aL.x, 0.0, 1.0);
+  vA = step(0.0, t) * (1.0 - k) * step(k, 0.999);
+  vCol = mix(vec3(1.0, 0.82, 0.45), vec3(1.0, 0.36, 0.08), k);
+  expand(E(t), E(t - 0.05), uSize*(1.0 - 0.5*k));
+}`;
+  const ORB_VERT = `attribute vec3 aA; attribute vec3 aO; uniform float uT; uniform float uFans; uniform float uScale; uniform float uSize;
+varying float vA; varying vec3 vCol;
+void main(){
+  float t = uT - aO.x - 0.06; float k = clamp(t/1.85, 0.0, 1.0); float e = k*k*(3.0-2.0*k);
+  vec3 p = aA + vec3((aO.y - 0.5)*0.55*e + sin(t*2.3 + aO.y*6.28)*0.05*k, e*1.75, 0.08 + 0.5*e);
+  float on = step(aO.z, uFans - 0.5) * step(0.0, t);
+  vA = on * smoothstep(0.0, 0.07, k) * (1.0 - smoothstep(0.55, 1.0, k));
+  vCol = mix(vec3(1.0, 0.8, 0.55), vec3(0.62, 0.55, 1.0), smoothstep(0.0, 0.35, k));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
+  gl_PointSize = max(uSize*(1.0 + 0.5*e)*uScale / -mv.z, 1.0);
+}`;
+  const COMPOSITE = {
+    uniforms: { tBase: { value: null }, tGlow: { value: null }, tBloom: { value: null }, uGlowK: { value: .62 }, uBloomK: { value: .3 }, uFlash: { value: 0 }, uExposure: { value: 1.0 }, uSat: { value: 1.35 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D tBase; uniform sampler2D tGlow; uniform sampler2D tBloom; uniform float uGlowK; uniform float uBloomK; uniform float uFlash; uniform float uExposure; uniform float uSat; varying vec2 vUv;
+vec3 neutralTM(vec3 color){
+  const float sc = 0.76; const float desat = 0.15;
+  float x = min(color.r, min(color.g, color.b)); float off = x < 0.08 ? x - 6.25*x*x : 0.04; color -= off;
+  float peak = max(color.r, max(color.g, color.b)); if (peak < sc) return color;
+  float d = 1.0 - sc; float np = 1.0 - d*d/(peak + d - sc); color *= np/peak;
+  float g = 1.0 - 1.0/(desat*(peak - np) + 1.0); return mix(color, vec3(np), g);
+}
+vec3 oetf(vec3 c){ c = clamp(c, 0.0, 1.0); return mix(c*12.92, 1.055*pow(c, vec3(1.0/2.4)) - 0.055, step(vec3(0.0031308), c)); }
+void main(){
+  vec4 b = texture2D(tBase, vUv); vec3 g = texture2D(tGlow, vUv).rgb;
+  float a = clamp(b.a, 0.0, 1.0); vec3 c = b.rgb / max(a, 0.0001);
+  // light that lands on the paper wall: crisp cores from the sharp emissive image, only a whisper of the bloom haze
+  vec3 bl = texture2D(tBloom, vUv).rgb; vec3 sh = max(g - bl, 0.0);
+  vec3 sgn = oetf(neutralTM((c + sh*uGlowK + bl*uBloomK)*uExposure));
+  float ms = max(sh.r, max(sh.g, sh.b)), mb = max(bl.r, max(bl.g, bl.b));
+  vec3 hs = sh / max(ms, 0.0001), hb = bl / max(mb, 0.0001);
+  hs = clamp(mix(vec3(dot(hs, vec3(0.299, 0.587, 0.114))), hs, uSat), 0.0, 1.0);
+  hb = clamp(mix(vec3(dot(hb, vec3(0.299, 0.587, 0.114))), hb, uSat), 0.0, 1.0);
+  float gb = min(mb*0.08, 0.08) + uFlash*smoothstep(0.15, 1.0, mb)*0.16;
+  float gs = smoothstep(0.4, 1.5, ms)*0.8;
+  vec3 col = oetf(hb*0.8)*gb; float al = gb;
+  col = oetf(hs*0.82)*gs + col*(1.0 - gs); al = gs + al*(1.0 - gs);
+  float edge = smoothstep(0.0, 0.08, min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y)));
+  col *= edge; al *= edge;
+  gl_FragColor = vec4(sgn*a + col*(1.0 - a), a + al*(1.0 - a));
+}`,
+  };
+
+  function disposeTree(o) { o.traverse(n => { if (n.geometry) n.geometry.dispose(); }); }
+
+  /* ================= SignView ================= */
+  class SignView {
+    constructor(ctl) {
+      this.ctl = ctl; this.cfg = ctl.cfg; this.stage = ctl.stageEl;
+      const canvas = this.canvas = document.createElement('canvas'); canvas.setAttribute('aria-hidden', 'true');
+      this.stage.insertBefore(canvas, ctl.tipEl);
+      const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance' });
+      r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); r.setClearColor(0x000000, 0); r.autoClear = false; r.toneMapping = THREE.NoToneMapping;
+      this.scene = new THREE.Scene();
+      const pm = new THREE.PMREMGenerator(r); const env = this.env = pm.fromScene(new RoomEnvironment(), .04).texture; this.scene.environment = env; pm.dispose();
+      const key = new THREE.DirectionalLight(0xfff0dc, 1.0); key.position.set(-2.6, 3.4, 4.2); this.scene.add(key);
+      this.scene.add(new THREE.HemisphereLight(0xfff8ee, 0x7a5a44, .35));
+      this.camera = new THREE.PerspectiveCamera(22, 1, .1, 60);
+      this.uTime = { value: 0 }; this.uGain = { value: 1 };
+      this.M = {
+        lacquer: new THREE.MeshPhysicalMaterial({ color: '#C8221B', roughness: .34, metalness: 0, clearcoat: 1, clearcoatRoughness: .04, envMap: env, envMapIntensity: .6 }),
+        brass: new THREE.MeshStandardMaterial({ color: '#D2A452', metalness: 1, roughness: .27 }),
+        panel: new THREE.MeshPhysicalMaterial({ color: '#1E0806', roughness: .6, clearcoat: .4, clearcoatRoughness: .25, envMap: env, envMapIntensity: .5 }),
+        socket: new THREE.MeshStandardMaterial({ color: '#0E0605', roughness: .12, metalness: 0 }),
+        dot: dotMaterial('#100504', .3, this.uTime, env, .42, 2.2),
+        bulb: dotMaterial('#5A1410', .1, this.uTime, env, .85, 5.0),
+        glow: glowMaterial(this.uTime, this.uGain),
+        black: new THREE.MeshBasicMaterial({ color: 0x000000 }),
+        shadow: new THREE.MeshBasicMaterial({ color: 0x000000, map: shadowTex(), transparent: true, opacity: .34, depthWrite: false }),
+      };
+      this.rtBase = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
+      this.rtGlow = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(4, 4), .8, .32, 0);
+      this.comp = new THREE.ShaderMaterial({ ...COMPOSITE, uniforms: THREE.UniformsUtils.clone(COMPOSITE.uniforms), depthTest: false, depthWrite: false });
+      this.comp.uniforms.tBase.value = this.rtBase.texture; this.comp.uniforms.tGlow.value = this.rtGlow.texture; this.comp.uniforms.tBloom.value = this.bloom.renderTargetsHorizontal[0].texture;
+      this.quad = new FullScreenQuad(this.comp);
+      this.ray = new THREE.Raycaster();
+      this.par = { x: 0, y: 0 }; this.parT = { x: 0, y: 0 };
+      this.anim = null; this.awake = 0; this.lastRender = 0; this.dirty = true; this.onScreen = true; this.hover = -1; this.idleStep = -1; this.tense = false;
+      this.st = { frame: 0, push: 0, env: 1, bloom: .8, flash: 0, dim: 0 };
+      this.cRed = new THREE.Color('#C8221B'); this.cDim = new THREE.Color('#8F2420');
+      new ResizeObserver(() => this.resize()).observe(this.stage);
+      new IntersectionObserver(es => { this.onScreen = es[0].isIntersecting; }).observe(this.stage);
+      this.stage.addEventListener('pointermove', e => this.onPointer(e));
+      this.stage.addEventListener('pointerleave', () => { this.parT.x = this.parT.y = 0; this.setHover(-1); });
+      this.resize();
+    }
+
+    /* ---------- build ---------- */
+    build(layout) {
+      if (this.root) { this.scene.remove(this.root); disposeTree(this.root); }
+      this.layout = layout; const L = this.L = LAYOUTS[layout], cfg = this.cfg, M = this.M;
+      const root = this.root = new THREE.Group();
+      root.rotation.set(-.055, layout === 'tall' ? cfg.yaw * .55 : cfg.yaw, 0);
+      this.scene.add(root);
+      this.boardMeshes = []; this.dotMeshes = []; this.glowOnly = []; this.shadows = [];
+      const board = (geo, mat, parent = root) => { const m = new THREE.Mesh(geo, mat); m.userData.mat = mat; this.boardMeshes.push(m); parent.add(m); return m; };
+      const fz = L.D / 2;
+
+      // body + trims
+      board(new RoundedBoxGeometry(L.W, L.H, L.D, 5, .07), M.lacquer);
+      board(ringGeo(L.W - .03, L.H - .03, .06, L.W - .09, L.H - .09, .035, .008, .008), M.brass).position.z = fz - .008;
+      const pw = L.W - 2 * L.panelIn, ph = L.H - 2 * L.panelIn;
+      board(ringGeo(pw + .1, ph + .1, .045, pw + .008, ph + .008, .012, .014, .011), M.brass).position.z = fz - .006;
+      board(new THREE.PlaneGeometry(pw + .03, ph + .03), M.panel).position.z = fz + .002;
+
+      // crest plate on top
+      const crestW = Math.min(1.5, L.W * .46), crestH = .2;
+      const crest = board(new RoundedBoxGeometry(crestW, crestH, .1, 3, .03), M.brass); crest.position.set(0, L.H / 2 + crestH / 2 - .02, -.02);
+      const crestFaceMat = new THREE.MeshStandardMaterial({ map: canvasTex(768, 104, (x, w, h) => {
+        const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#E9C77C'); g.addColorStop(1, '#A57D30'); x.fillStyle = g; x.fillRect(0, 0, w, h);
+        x.font = `800 64px ${FONT}`; x.textAlign = 'center'; x.textBaseline = 'middle'; if ('letterSpacing' in x) x.letterSpacing = '9px'; x.fillStyle = '#2E1F08'; x.fillText(cfg.crest, w / 2, h / 2 + 4);
+      }), metalness: .75, roughness: .32 });
+      board(new THREE.PlaneGeometry(crestW - .05, crestH - .06), crestFaceMat).position.set(0, L.H / 2 + crestH / 2 - .02, .031);
+
+      // border track: sockets + bulbs (one per fan slot)
+      const n = cfg.target, tw = L.W - 2 * L.track, th = L.H - 2 * L.track;
+      const pts = trackPoints2D(tw, th, .085, n);
+      const per = 2 * (tw + th);
+      const rb = Math.min(.062, per / n * .3);
+      this.rb = rb;
+      const sockGeo = new THREE.CylinderGeometry(rb * .8, rb * .95, .045, 20).rotateX(Math.PI / 2);
+      const sock = new THREE.InstancedMesh(sockGeo, M.brass, n); sock.userData.mat = M.brass; this.boardMeshes.push(sock); root.add(sock);
+      const hole = new THREE.InstancedMesh(new THREE.CircleGeometry(rb * .64, 20), M.socket, n); hole.userData.mat = M.socket; this.boardMeshes.push(hole); root.add(hole);
+      const bulbGeo = new THREE.SphereGeometry(rb, 20, 14);
+      this.bEm = new Float32Array(n * 4); this.bAux = new Float32Array(n * 2);
+      const rnd = mulberry32(cfg.seed * 131 + 7);
+      for (let i = 0; i < n; i++) this.bAux[i * 2] = rnd();
+      bulbGeo.setAttribute('aEm', new THREE.InstancedBufferAttribute(this.bEm, 4)); bulbGeo.setAttribute('aAux', new THREE.InstancedBufferAttribute(this.bAux, 2));
+      const bulbs = this.bulbs = new THREE.InstancedMesh(bulbGeo, M.bulb, n); bulbs.userData.mat = M.bulb; bulbs.frustumCulled = false;
+      this.dotMeshes.push(bulbs); root.add(bulbs);
+      const mtx = new THREE.Matrix4();
+      this.bPos = pts.map(p => new THREE.Vector3(p.x, p.y, fz + .045 + rb * .72));
+      this.bXn = pts.map(p => (p.x + tw / 2) / tw);
+      pts.forEach((p, i) => { mtx.makeTranslation(p.x, p.y, fz + .0225); sock.setMatrixAt(i, mtx); mtx.makeTranslation(p.x, p.y, fz + .0455); hole.setMatrixAt(i, mtx); });
+      this.screw = new Float32Array(n); this.screwZ = new Float32Array(n);
+
+      // lattice (full dot-matrix of glass bulbs)
+      const rows = L.rows, pitch = ph / rows, cols = Math.floor(pw / pitch), offX = (pw - cols * pitch) / 2;
+      this.cols = cols; this.rows = rows; this.pitch = pitch;
+      const cells = cols * rows;
+      const dotGeo = new THREE.SphereGeometry(pitch * .37, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2);
+      this.cEm = new Float32Array(cells * 4); this.cAux = new Float32Array(cells * 2); this.cPos = new Float32Array(cells * 3); this.cXn = new Float32Array(cells);
+      dotGeo.setAttribute('aEm', new THREE.InstancedBufferAttribute(this.cEm, 4)); dotGeo.setAttribute('aAux', new THREE.InstancedBufferAttribute(this.cAux, 2));
+      const lat = this.lattice = new THREE.InstancedMesh(dotGeo, M.dot, cells); lat.userData.mat = M.dot; lat.frustumCulled = false;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const i = r * cols + c, x = -pw / 2 + offX + (c + .5) * pitch, y = ph / 2 - (r + .5) * pitch;
+        this.cPos[i * 3] = x; this.cPos[i * 3 + 1] = y; this.cPos[i * 3 + 2] = fz + .003; this.cXn[i] = (c + .5) / cols;
+        this.cAux[i * 2] = rnd(); mtx.makeTranslation(x, y, fz + .003); lat.setMatrixAt(i, mtx);
+      }
+      this.dotMeshes.push(lat); root.add(lat);
+      const nameLines = L.lines === 2 ? cfg.name.toUpperCase().split(' ') : [cfg.name.toUpperCase()];
+      this.sets = {
+        name: sampleText(nameLines, cols, rows, { padRows: L.lines === 2 ? 2 : 3, gapRows: 3, padCols: 3 }),
+        itson: sampleText(L.lines === 2 ? ['IT’S', 'ON'] : ['IT’S ON'], cols, rows, { padRows: 2, gapRows: 3, padCols: 3, track: .1 }),
+        off: L.lines === 2 ? compose(cols, rows, [{ t: 'SHOW’S OFF' }, { t: '$0', px: true }, { t: 'CHARGED', px: true }], 2, 2)
+          : compose(cols, rows, [{ t: 'SHOW’S OFF' }, { t: '$0 CHARGED', px: true }], 2, 4),
+      };
+      this.isName = new Uint8Array(cells); this.sets.name.forEach(i => this.isName[i] = 1);
+      this.isOff = new Uint8Array(cells); this.sets.off.forEach(i => this.isOff[i] = 1);
+
+      // small payout signs (hidden until paid)
+      const S = L.small, split = splitOf(cfg, cfg.target);
+      this.smalls = [];
+      split.forEach(([label, amt], k) => this.buildSmall(k, label, amt, (k - 1) * L.smallX, board));
+      const dollar = this.smalls.every(sm => pxWidth(`$${sm.amt}`) <= sm.cols); // same style on all three signs
+      this.smalls.forEach(sm => { sm.amtCells = pxText(dollar ? `$${sm.amt}` : String(sm.amt), sm.cols, Math.floor((sm.rows - 7) / 2), []); });
+
+      // shadow on the wall
+      const sh = new THREE.Mesh(new THREE.PlaneGeometry(L.W + 1.1, L.H + 1.0), M.shadow); sh.position.set(.1, -.17, -fz - .03); root.add(sh); this.shadows.push(sh);
+
+      this.buildFx();
+      this.computeFrames();
+      this.warm = true;
+    }
+    buildSmall(k, label, amt, x, board) {
+      const L = this.L, S = L.small, M = this.M, root = this.root;
+      const g = new THREE.Group(); root.add(g);
+      const yF = -L.H / 2 - S.gap - S.h / 2; g.position.set(x, yF, 0); g.visible = false;
+      board(new RoundedBoxGeometry(S.w, S.h, S.d, 4, .035), M.lacquer, g);
+      const iw = S.w - .13, ih = S.h - .13, fz = S.d / 2;
+      board(ringGeo(S.w - .022, S.h - .022, .03, S.w - .06, S.h - .06, .02, .006, .006), M.brass, g).position.z = fz - .006;
+      board(ringGeo(iw + .05, ih + .05, .025, iw + .004, ih + .004, .01, .01, .008), M.brass, g).position.z = fz - .004;
+      board(new THREE.PlaneGeometry(iw + .01, ih + .01), M.panel, g).position.z = fz + .002;
+      const texA = brassPlate(label.toUpperCase(), false), texB = brassPlate(label.toUpperCase(), true);
+      const plateMat = new THREE.MeshStandardMaterial({ map: texA, metalness: .7, roughness: .34 });
+      const plate = board(new THREE.PlaneGeometry(iw - .02, S.plateH), plateMat, g); plate.position.set(0, ih / 2 - S.plateH / 2 - .012, fz + .004);
+      const lw = iw - .04, lh = ih - S.plateH - .045, cy = -ih / 2 + lh / 2 + .014;
+      const rows = S.rows, pitch = lh / rows, cols = Math.floor(lw / pitch), offX = (lw - cols * pitch) / 2, cells = rows * cols;
+      const geo = new THREE.SphereGeometry(pitch * .37, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2);
+      const em = new Float32Array(cells * 4), aux = new Float32Array(cells * 2), pos = new Float32Array(cells * 3);
+      geo.setAttribute('aEm', new THREE.InstancedBufferAttribute(em, 4)); geo.setAttribute('aAux', new THREE.InstancedBufferAttribute(aux, 2));
+      const lat = new THREE.InstancedMesh(geo, M.dot, cells); lat.userData.mat = M.dot; lat.frustumCulled = false;
+      const mtx = new THREE.Matrix4(); const rnd = mulberry32(this.cfg.seed * 17 + k);
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const i = r * cols + c, xx = -lw / 2 + offX + (c + .5) * pitch, yy = cy + lh / 2 - (r + .5) * pitch;
+        pos[i * 3] = xx; pos[i * 3 + 1] = yy; pos[i * 3 + 2] = fz + .003; aux[i * 2] = rnd(); mtx.makeTranslation(xx, yy, fz + .003); lat.setMatrixAt(i, mtx);
+      }
+      this.dotMeshes.push(lat); g.add(lat);
+      // rods from the main sign down to this sign
+      const rods = [-1, 1].map(s => { const rod = board(new THREE.CylinderGeometry(.011, .011, 1, 10), M.brass); rod.position.set(x + s * (S.w / 2 - .14), 0, 0); rod.visible = false; return rod; });
+      const sh = new THREE.Mesh(new THREE.PlaneGeometry(S.w + .5, S.h + .5), M.shadow); sh.position.set(.06, -.1, -S.d / 2 - .03); g.add(sh); this.shadows.push(sh); sh.userData.small = true;
+      this.smalls.push({ g, yF, lat, em, aux, pos, cells, cols, rows, amtCells: [], rods, plateMat, texA, texB, amt, label, drop: 0, isPaid: false });
+    }
+    buildFx() {
+      const cfg = this.cfg, L = this.L, rnd = mulberry32(cfg.seed * 977 + 13), P = this.cPos, cells = this.cols * this.rows;
+      const byX = (a, b) => P[a * 3] - P[b * 3] || P[b * 3 + 1] - P[a * 3 + 1];
+      const nameS = this.sets.name.slice().sort(byX), itS = this.sets.itson.slice().sort(byX);
+      // each spark carries a small cluster of cells, so the swirl stays readable (≈340 sparks, not 1000+)
+      const N = Math.max(1, Math.min(280, Math.max(nameS.length, itS.length)));
+      const nameP = new Int32Array(cells).fill(-1), itP = new Int32Array(cells).fill(-1);
+      nameS.forEach((c, j) => nameP[c] = Math.floor(j * N / nameS.length)); itS.forEach((c, j) => itP[c] = Math.floor(j * N / itS.length));
+      const amt = []; this.smalls.forEach((s, k) => { const list = s.amtCells.slice().sort((a, b) => s.pos[a * 3] - s.pos[b * 3]); list.forEach(ci => amt.push({ k, ci, x: s.g.position.x + s.pos[ci * 3], y: s.yF + s.pos[ci * 3 + 1], z: s.pos[ci * 3 + 2] })); });
+      const amtP = new Int32Array(amt.length); amt.forEach((a, j) => amtP[j] = Math.floor(j * N / amt.length));
+      const aA = new Float32Array(N * 3), aB = new Float32Array(N * 3), aC = new Float32Array(N * 3), aSeed = new Float32Array(N * 4), aStag = new Float32Array(N * 2);
+      const stagG = new Float32Array(N), stagS = new Float32Array(N), delay = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const s = nameS[Math.floor((i + .5) * nameS.length / N)] ?? 0, d = itS[Math.floor((i + .5) * itS.length / N)] ?? 0;
+        const a = amt[Math.min(amt.length - 1, Math.floor((i + .5) * amt.length / N))] || { x: 0, y: 0, z: 0, k: 0 };
+        aA.set([P[s * 3], P[s * 3 + 1], P[s * 3 + 2]], i * 3); aB.set([P[d * 3], P[d * 3 + 1], P[d * 3 + 2]], i * 3); aC.set([a.x, a.y, a.z], i * 3);
+        const r1 = rnd(), r2 = rnd(), r3 = rnd(), r4 = rnd();
+        aSeed.set([r1, r2, r3, r4], i * 4); delay[i] = r4 * .12;
+        stagG[i] = this.cXn[d] * .85 + rnd() * .15; stagS[i] = (a.k || 0) * .16 + rnd() * .5;
+        aStag.set([stagG[i], stagS[i]], i * 2);
+      }
+      this.pm = { N, nameP, itP, amt, amtP, stagG, stagS, delay, gk: new Float32Array(N), sk: new Float32Array(N) };
+      // particle points
+      const quad = () => { const g = new THREE.InstancedBufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0], 3)); g.setIndex([0, 1, 2, 0, 2, 3]); return g; };
+      const geo = quad(); geo.instanceCount = N;
+      for (const [k, v, sz] of [['aA', aA, 3], ['aB', aB, 3], ['aC', aC, 3], ['aSeed', aSeed, 4], ['aStag', aStag, 2]]) geo.setAttribute(k, new THREE.InstancedBufferAttribute(v, sz));
+      const fz = L.D / 2;
+      this.uRes = { value: new THREE.Vector2(1, 1) };
+      this.uP = { uPopT: { value: 0 }, uGather: { value: 0 }, uSplit: { value: 0 }, uOn: { value: 0 }, uTime: this.uTime, uScale: { value: 500 }, uRes: this.uRes, uSize: { value: this.pitch * .42 },
+        uCenter: { value: new THREE.Vector3(0, 0, fz) }, uRad: { value: new THREE.Vector2(L.W * .52, L.H * .66) }, uCore: { value: .36 } };
+      const pmat = new THREE.ShaderMaterial({ uniforms: this.uP, vertexShader: PARTICLE_VERT, fragmentShader: STREAK_FRAG, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
+      const pts = this.particles = new THREE.Mesh(geo, pmat); pts.frustumCulled = false; pts.visible = false; this.root.add(pts); this.glowOnly.push(pts);
+      // embers
+      const NE = 220, eA = new Float32Array(NE * 3), eV = new Float32Array(NE * 3), eL = new Float32Array(NE * 3);
+      for (let i = 0; i < NE; i++) {
+        const s = nameS[Math.floor(rnd() * nameS.length)] ?? 0; eA.set([P[s * 3], P[s * 3 + 1], P[s * 3 + 2] + .02], i * 3);
+        eV.set([(rnd() - .5) * 2.6, .4 + rnd() * 1.9, .5 + rnd() * 1.6], i * 3); eL.set([.6 + rnd() * .9, rnd() * .14, rnd()], i * 3);
+      }
+      const eg = quad(); eg.instanceCount = NE;
+      eg.setAttribute('aA', new THREE.InstancedBufferAttribute(eA, 3)); eg.setAttribute('aV', new THREE.InstancedBufferAttribute(eV, 3)); eg.setAttribute('aL', new THREE.InstancedBufferAttribute(eL, 3));
+      this.uE = { uT: { value: -1 }, uScale: this.uP.uScale, uRes: this.uRes, uTime: this.uTime, uSize: { value: this.pitch * .32 } };
+      const embers = this.embers = new THREE.Mesh(eg, new THREE.ShaderMaterial({ uniforms: this.uE, vertexShader: EMBER_VERT, fragmentShader: STREAK_FRAG, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
+      embers.frustumCulled = false; embers.visible = false; this.root.add(embers); this.glowOnly.push(embers);
+      // orbs (one per fan slot)
+      const n = cfg.target, oA = new Float32Array(n * 3), oO = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { const p = this.bPos[i]; oA.set([p.x, p.y, p.z], i * 3); oO.set([(1 - this.bXn[i]) * MISS.wave, rnd(), i], i * 3); }
+      const og = new THREE.BufferGeometry(); og.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+      og.setAttribute('aA', new THREE.BufferAttribute(oA, 3)); og.setAttribute('aO', new THREE.BufferAttribute(oO, 3));
+      this.uO = { uT: { value: -1 }, uFans: { value: 0 }, uScale: this.uP.uScale, uSize: { value: this.rb * 3.2 }, uCore: { value: .62 } };
+      const orbs = this.orbs = new THREE.Points(og, new THREE.ShaderMaterial({ uniforms: this.uO, vertexShader: ORB_VERT, fragmentShader: SPARK_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      orbs.frustumCulled = false; orbs.visible = false; this.root.add(orbs); this.glowOnly.push(orbs);
+    }
+    computeFrames() {
+      const L = this.L, S = L.small, th = Math.tan(L.fov * Math.PI / 360), asp = this.aspect || 1.7;
+      const fit = (w, h) => Math.max(h / 2 / th, w / 2 / (th * asp));
+      const totalH = L.H + .22 + S.gap + S.h;
+      this.frames = {
+        rest: { ty: .05, d: fit(L.W * L.rest[0], L.H * L.rest[1]) + L.D },
+        paid: { ty: -(S.gap + S.h) / 2 + .08, d: fit(L.W * 1.1, totalH * 1.2) + L.D },
+      };
+    }
+
+    /* ---------- sizing, input ---------- */
+    resize() {
+      const w = this.stage.clientWidth, h = this.stage.clientHeight; if (!w || !h) return;
+      this.renderer.setSize(w, h, false);
+      const dw = this.canvas.width, dh = this.canvas.height;
+      this.rtBase.setSize(dw, dh); this.rtGlow.setSize(dw, dh); this.bloom.setSize(dw, dh);
+      this.aspect = w / h;
+      const layout = w < 520 ? 'tall' : 'wide';
+      if (layout !== this.layout) { this.anim = null; this.build(layout); this.reset(); }
+      this.camera.fov = this.L.fov; this.camera.aspect = this.aspect; this.camera.updateProjectionMatrix();
+      this.uP.uScale.value = dh / (2 * Math.tan(this.L.fov * Math.PI / 360)); this.uRes.value.set(dw, dh);
+      this.computeFrames(); this.dirty = true;
+    }
+    onPointer(e) {
+      const r = this.stage.getBoundingClientRect(); const nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+      if (!REDUCED) { this.parT.x = (nx * 2 - 1) * .07; this.parT.y = (ny * 2 - 1) * .04; }
+      this.ptr = { x: nx * 2 - 1, y: -(ny * 2 - 1) }; this.needPick = true; this.wake(400);
+    }
+    pick() {
+      this.needPick = false; if (!this.ptr || !this.bulbs) return;
+      this.ray.setFromCamera(this.ptr, this.camera);
+      const hit = this.ray.intersectObject(this.bulbs, false)[0];
+      const i = hit && hit.instanceId != null && this.screw[hit.instanceId] > .5 ? hit.instanceId : -1;
+      this.setHover(i);
+    }
+    setHover(i) {
+      if (i === this.hover) { if (i >= 0) this.placeTip(i); return; }
+      this.hover = i; const tip = this.ctl.tipEl;
+      if (i < 0) { tip.hidden = true; this.dirty = true; this.repaintStatic(); return; }
+      const v = this.ctl.visual(); const word = v.phase === 'paid' ? 'charged' : v.phase === 'released' ? 'released' : 'held';
+      tip.textContent = `Fan ${pad2(i + 1)} · $${this.cfg.pledge} ${word}`; tip.hidden = false; this.placeTip(i); this.repaintStatic();
+    }
+    placeTip(i) {
+      const p = this.bPos[i].clone(); this.root.updateMatrixWorld(); p.applyMatrix4(this.root.matrixWorld).project(this.camera);
+      const tip = this.ctl.tipEl; tip.style.left = `${(p.x * .5 + .5) * 100}%`; tip.style.top = `${(-p.y * .5 + .5) * 100}%`;
+    }
+    repaintStatic() { if (!this.anim && this.root) this.applyStatic(this.phase, this.fans); }
+    tension(on) { this.tense = on; this.wake(on ? 1400 : 200); }
+    wake(ms = 300) { this.awake = Math.max(this.awake, performance.now() + ms); }
+
+    /* ---------- state writers ---------- */
+    setB(i, rgb, k, steady, white) { const e = this.bEm; e[i * 4] = rgb[0] * k; e[i * 4 + 1] = rgb[1] * k; e[i * 4 + 2] = rgb[2] * k; e[i * 4 + 3] = steady; this.bAux[i * 2 + 1] = white; }
+    setC(i, rgb, k, steady, white) { const e = this.cEm; e[i * 4] = rgb[0] * k; e[i * 4 + 1] = rgb[1] * k; e[i * 4 + 2] = rgb[2] * k; e[i * 4 + 3] = steady; this.cAux[i * 2 + 1] = white; }
+    addC(i, rgb, k) { const e = this.cEm; e[i * 4] += rgb[0] * k; e[i * 4 + 1] += rgb[1] * k; e[i * 4 + 2] += rgb[2] * k; }
+    setS(s, i, rgb, k, steady, white) { const e = s.em; e[i * 4] = rgb[0] * k; e[i * 4 + 1] = rgb[1] * k; e[i * 4 + 2] = rgb[2] * k; e[i * 4 + 3] = steady; s.aux[i * 2 + 1] = white; }
+    nameLevel(f) { return .5 + .5 * clamp(f / this.cfg.target); }
+    commit() {
+      const n = this.cfg.target, mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3();
+      for (let i = 0; i < n; i++) {
+        const s = this.screw[i]; pos.copy(this.bPos[i]); pos.z += this.screwZ[i]; sc.setScalar(Math.max(s, 1e-4));
+        if (i === this.hover && s > .5) { const e = this.bEm; e[i * 4] *= 1.6; e[i * 4 + 1] *= 1.6; e[i * 4 + 2] *= 1.6; sc.multiplyScalar(1.08); }
+        mtx.compose(pos, q, sc); this.bulbs.setMatrixAt(i, mtx);
+      }
+      this.bulbs.instanceMatrix.needsUpdate = true;
+      const bg = this.bulbs.geometry; bg.attributes.aEm.needsUpdate = true; bg.attributes.aAux.needsUpdate = true;
+      const lg = this.lattice.geometry; lg.attributes.aEm.needsUpdate = true; lg.attributes.aAux.needsUpdate = true;
+      for (const s of this.smalls) { s.lat.geometry.attributes.aEm.needsUpdate = true; s.lat.geometry.attributes.aAux.needsUpdate = true; }
+      this.layoutSmalls();
+      this.dirty = true;
+    }
+    layoutSmalls() {
+      const L = this.L, S = L.small, top = -L.H / 2 + .01;
+      for (const s of this.smalls) {
+        const e = s.drop; s.g.visible = e > 0.001; s.g.position.y = s.yF + (1 - e) * (S.h + S.gap + .08);
+        const gTop = s.g.position.y + S.h / 2 - .01, len = top - gTop;
+        s.rods.forEach(r => { r.visible = s.g.visible && len > .005; r.scale.y = Math.max(len, .001); r.position.y = (top + gTop) / 2; });
+        s.plateMat.map = s.isPaid ? s.texB : s.texA;
+      }
+    }
+    clearCells() { this.cEm.fill(0); for (let i = 0; i < this.cAux.length; i += 2) this.cAux[i + 1] = 0; }
+    reset() { if (!this.root) return; this.anim = null; this.tense = false; const v = this.ctl.visual(); this.applyStatic(v.phase, v.fans); this.wake(200); }
+    applyStatic(phase, fans) {
+      if (phase === undefined) { const v = this.ctl.visual(); phase = v.phase; fans = v.fans; }
+      this.phase = phase; this.fans = fans; this.idleStep = -1;
+      const n = this.cfg.target;
+      for (let i = 0; i < n; i++) {
+        const present = phase === 'paid' ? 1 : phase === 'held' && i < fans ? 1 : 0; this.screw[i] = present; this.screwZ[i] = 0;
+        if (phase === 'held') this.setB(i, FIL, BH, 0, 0); else if (phase === 'paid') this.setB(i, LIT, 1, 1, 1); else this.setB(i, ZERO, 0, 1, 0);
+      }
+      this.clearCells();
+      const nl = this.nameLevel(fans);
+      if (phase === 'held') this.sets.name.forEach(i => this.setC(i, FIL, nl, 0, 0));
+      else if (phase === 'paid') this.sets.name.forEach(i => this.setC(i, LIT, 1, 1, 1));
+      else this.sets.off.forEach(i => this.setC(i, LILAC, 1, 1, .25));
+      for (const s of this.smalls) {
+        s.em.fill(0); s.drop = phase === 'paid' ? 1 : 0; s.isPaid = phase === 'paid';
+        if (phase === 'paid') s.amtCells.forEach(i => this.setS(s, i, MINT, 1.15, 1, .35));
+      }
+      this.uP.uOn.value = 0; this.uE.uT.value = -1; this.uO.uT.value = -1; this.uO.uFans.value = fans;
+      this.particles.visible = this.embers.visible = this.orbs.visible = false;
+      this.particles.userData.want = this.embers.userData.want = this.orbs.userData.want = false;
+      this.st.frame = phase === 'paid' ? 1 : 0; this.st.push = 0; this.st.flash = 0; this.st.env = phase === 'released' ? .78 : 1; this.st.dim = phase === 'released' ? 1 : 0; this.st.bloom = .8;
+      this.commit();
+    }
+
+    /* ---------- choreography: pure functions of time ---------- */
+    play(kind, opts = {}) { this.anim = { kind, t0: performance.now(), opts }; this.wake(400); }
+    run_pledge(t, { f0, f1 }) {
+      const n = this.cfg.target, step = .24, dur = .5, cnt = f1 - f0;
+      let landed = 0;
+      for (let i = 0; i < n; i++) {
+        if (i < f0) { this.screw[i] = 1; this.screwZ[i] = 0; this.setB(i, FIL, BH, 0, 0); continue; }
+        if (i >= f1) { this.screw[i] = 0; continue; }
+        const k = i - f0, loc = (t - k * step) / dur;
+        this.screw[i] = loc <= 0 ? 0 : backOut(loc, 2.1); this.screwZ[i] = (1 - easeOut3(loc * 1.15)) * .26;
+        if (loc >= .78) { landed += clamp((loc - .78) / .22); const fl = Math.exp(-(t - k * step - .78 * dur) * 7); this.setB(i, FIL, BH + 2.4 * fl, 0, 0); }
+        else this.setB(i, ZERO, 0, 1, 0);
+      }
+      const nl = this.nameLevel(f0 + landed);
+      this.sets.name.forEach(i => this.setC(i, FIL, nl, 0, 0));
+      const end = (cnt - 1) * step + dur;
+      if (f1 >= n) { // target met: one soft lap of light around the ring
+        const tp = t - end;
+        if (tp > 0) for (let i = 0; i < n; i++) { const d = tp * 1.25 - i / n; const b = Math.exp(-d * d * 160) * 2.2; if (b > .01) { const e = this.bEm; e[i * 4] += FIL[0] * b; e[i * 4 + 1] += FIL[1] * b + .25 * b; e[i * 4 + 2] += FIL[2] * b + .1 * b; } }
+        return t > end + 1.0;
+      }
+      return t > end + .05;
+    }
+    run_tip(t) {
+      const T = TIP, n = this.cfg.target, pm = this.pm;
+      // border: chaser lap, then everything flares
+      const head = clamp(t / T.flare) * (n + 2.5);
+      const ft = t - T.flare, env = ft < 0 ? 0 : ft < .1 ? ft / .1 : Math.exp(-(ft - .1) * 5.5);
+      const boost = 1 + 1.1 * env;
+      const idle = t > T.paid + .3 ? Math.floor(t / .16) : -1;
+      for (let i = 0; i < n; i++) {
+        this.screw[i] = 1; this.screwZ[i] = 0;
+        const hg = t < T.flare + .15 ? Math.max(0, 1 - Math.abs(head - 1.2 - i) / 2.4) : 0;
+        if (i < head - 1) this.setB(i, LIT, (idle >= 0 && (i + idle) % 3 === 0 ? .55 : 1) * boost + 1.4 * hg, 1, 1);
+        else { this.setB(i, FIL, BH, 0, 0); if (hg > 0) { const e = this.bEm; e[i * 4] += LIT[0] * hg * 1.6; e[i * 4 + 1] += LIT[1] * hg * 1.6; e[i * 4 + 2] += LIT[2] * hg * 1.6; this.bAux[i * 2 + 1] = hg; } }
+      }
+      this.st.bloom = .8 + .65 * env; this.st.push = env; this.st.flash = env;
+      // name cells: flare, then each cluster pops into its spark
+      this.clearCells();
+      const nameLit = smooth((t - T.flare) / .1), nl = this.nameLevel(n);
+      const popT = t - T.pop, relight = t - T.relight;
+      for (const i of this.sets.name) {
+        if (popT < pm.delay[pm.nameP[i]]) { const k = nameLit; this.setC(i, k > 0 ? LIT : FIL, k > 0 ? (nl * (1 - k) + k * boost) : nl, k > 0 ? 1 : 0, k); }
+        else if (relight > 0) { const r = smooth((relight / .42 - this.cXn[i]) * 5); if (r > 0) this.setC(i, LIT, r * (1 + .8 * Math.exp(-relight * 4)), 1, r); }
+      }
+      // sparks
+      const uG = clamp((t - T.gather) / .62), uS = clamp((t - T.split) / .8);
+      this.uP.uPopT.value = Math.max(0, popT); this.uP.uGather.value = uG; this.uP.uSplit.value = uS; this.uP.uOn.value = popT >= 0 ? 1 : 0;
+      this.particles.userData.want = popT >= 0 && t < T.paid + .2;
+      this.uE.uT.value = popT; this.embers.userData.want = popT >= 0 && popT < 1.8;
+      for (let p = 0; p < pm.N; p++) { pm.gk[p] = smooth(uG * 1.7 - pm.stagG[p] * .7); pm.sk[p] = smooth(uS * 1.6 - pm.stagS[p] * .6); }
+      // IT'S ON cells light as their spark lands, go dark as it leaves for the payout signs
+      const itBoost = 1 + .8 * Math.exp(-Math.max(0, t - T.itson) * 5) * (t > T.itson ? 1 : 0);
+      for (const i of this.sets.itson) {
+        const p = pm.itP[i]; const lv = smooth((pm.gk[p] - .86) / .14) * (pm.sk[p] > .02 ? 0 : 1);
+        if (lv > 0) { const cur = this.cEm[i * 4 + 3] > 0 ? this.cEm[i * 4] / LIT[0] : 0; this.setC(i, LIT, Math.max(cur, lv * itBoost), 1, lv); }
+      }
+      // payout signs drop, then fill
+      const S = this.smalls;
+      S.forEach((s, k) => { s.drop = t < T.drop ? 0 : backOut((t - T.drop - k * .07) / .6, 1.25); s.em.fill(0); s.isPaid = t > T.paid + k * .1 + .12; });
+      pm.amt.forEach((a, j) => {
+        const lv = smooth((pm.sk[pm.amtP[j]] - .88) / .12); if (lv <= 0) return; const s = S[a.k];
+        const pt = t - T.paid - a.k * .1;
+        if (pt < 0) this.setS(s, a.ci, LIT, lv * 1.2, 1, lv);
+        else { const fl = pt < .3 ? (Math.floor(pt / .05) % 2 ? .12 : 1) : 1; this.setS(s, a.ci, pt < .3 ? LIT : MINT, (pt < .3 ? 1.2 : 1.15 + .9 * Math.exp(-(pt - .3) * 4)) * fl, 1, .35); }
+      });
+      if (t > T.paid + .3) S.forEach((s, k) => { const pt = t - T.paid - k * .1; if (pt >= .3) s.amtCells.forEach(ci => this.setS(s, ci, MINT, 1.15 + .9 * Math.exp(-(pt - .3) * 4), 1, .35)); });
+      this.st.frame = easeInOut((t - (T.drop - .15)) / 1.05);
+      return t > T.done;
+    }
+    run_tipR(t) {
+      this.applyStatic('paid', this.cfg.target);
+      const k = 1 + .7 * Math.sin(Math.PI * clamp(t / .6));
+      for (let i = 0; i < this.bEm.length; i++) if (i % 4 < 3) this.bEm[i] *= k;
+      for (let i = 0; i < this.cEm.length; i++) if (i % 4 < 3) this.cEm[i] *= k;
+      this.st.bloom = .8 * k; this.commit();
+      return t > .7;
+    }
+    run_miss(t) {
+      const n = this.cfg.target, fans = this.fansAtStart ?? this.ctl.fans, W = MISS.wave;
+      for (let i = 0; i < n; i++) {
+        this.screw[i] = i < fans ? 1 : 0; this.screwZ[i] = 0; if (i >= fans) continue;
+        const ts = (1 - this.bXn[i]) * W;
+        if (t < ts) this.setB(i, FIL, BH, 0, 0); else { const c = Math.exp(-(t - ts) * 12); this.setB(i, FIL, BH * c * 1.4, 1, 0); const u = easeInOut((t - ts - .2) / .45); this.screw[i] = 1 - u; this.screwZ[i] = u * .16; }
+      }
+      this.clearCells();
+      const nl = this.nameLevel(fans);
+      for (const i of this.sets.name) { const ts = (1 - this.cXn[i]) * W; if (t < ts) this.setC(i, FIL, nl, 0, 0); else { const c = Math.exp(-(t - ts) * 12); if (c > .01) this.setC(i, FIL, nl * c * 1.4, 1, 0); } }
+      this.uO.uT.value = t; this.uO.uFans.value = fans; this.orbs.userData.want = t < W + 2.2;
+      this.st.env = 1 - .22 * smooth((t - .9) / 1.1); this.st.dim = smooth((t - .7) / 1.2);
+      const mt = (t - MISS.msg) / .75;
+      if (mt > 0) for (const i of this.sets.off) { const k = smooth(mt * 1.35 - this.cXn[i] * .35); if (k > 0) this.setC(i, LILAC, k * (1 + .35 * Math.exp(-Math.max(0, mt - .5) * 3)), 1, .25 * k); }
+      return t > MISS.done;
+    }
+    run_missR(t) {
+      const n = this.cfg.target, fans = this.ctl.fans, k = 1 - smooth(t / .8), nl = this.nameLevel(fans);
+      for (let i = 0; i < n; i++) { this.screw[i] = i < fans ? 1 : 0; this.setB(i, FIL, BH * k, 0, 0); }
+      this.clearCells(); this.sets.name.forEach(i => this.setC(i, FIL, nl * k, 0, 0));
+      const m = smooth((t - .8) / .4); if (m > 0) this.sets.off.forEach(i => this.setC(i, LILAC, m, 1, .25 * m));
+      this.st.env = 1 - .22 * smooth(t / 1.2); this.st.dim = smooth(t / 1.2);
+      return t > 1.3;
+    }
+
+    /* ---------- frame ---------- */
+    tick(now) {
+      if (!this.root) return;
+      let active = false;
+      if (this.anim) {
+        const a = this.anim, t = (a.tHold ?? (now - a.t0) / 1000);
+        if (a.kind === 'miss' && a.fans == null) { a.fans = this.ctl.fans; this.fansAtStart = a.fans; }
+        const done = this['run_' + a.kind](t, a.opts);
+        if (a.kind !== 'tipR') this.commit();
+        active = true;
+        if (done && a.tHold == null) {
+          this.anim = null; this.fansAtStart = null;
+          const final = a.kind === 'tip' || a.kind === 'tipR' ? 'paid' : a.kind === 'miss' || a.kind === 'missR' ? 'released' : 'held';
+          this.applyStatic(final, final === 'paid' ? this.cfg.target : this.ctl.fans);
+        }
+      } else if (this.phase === 'paid' && !REDUCED) {
+        const step = Math.floor(now / 160);
+        if (step !== this.idleStep) { this.idleStep = step; for (let i = 0; i < this.cfg.target; i++) this.setB(i, LIT, (i + step) % 3 === 0 ? .55 : 1, 1, 1); this.commit(); }
+      }
+      // parallax easing
+      const dx = this.parT.x - this.par.x, dy = this.parT.y - this.par.y;
+      const moving = Math.abs(dx) + Math.abs(dy) > 1e-4;
+      if (moving) { this.par.x += dx * .08; this.par.y += dy * .08; }
+      if (this.needPick) this.pick();
+      const ambient = !REDUCED && this.onScreen && !document.hidden && (this.phase === 'held' || this.phase === 'paid');
+      const interval = this.tense ? 33 : this.phase === 'paid' ? 160 : 85;
+      if (active || moving || this.dirty || now < this.awake || (ambient && now - this.lastRender > interval)) this.render(now);
+    }
+    updateCamera() {
+      const F = this.frames, f = this.st.frame;
+      const ty = F.rest.ty + (F.paid.ty - F.rest.ty) * f;
+      const d = (F.rest.d + (F.paid.d - F.rest.d) * f) * (1 - .06 * this.st.push);
+      const yaw = this.par.x, pit = this.par.y;
+      this.camera.position.set(Math.sin(yaw) * d, ty - .12 - Math.sin(pit) * d * .6, Math.cos(yaw) * d);
+      this.camera.lookAt(0, ty, 0);
+    }
+    render(now) {
+      if (this.warm) { // compile every material/pass once with everything visible
+        this.warm = false; const hidden = this.smalls.map(s => s.g.visible);
+        this.smalls.forEach(s => { s.g.visible = true; s.rods.forEach(r => r.visible = true); });
+        this.glowOnly.forEach(o => { o.userData.prev = o.userData.want; o.userData.want = true; });
+        this.render(now);
+        this.glowOnly.forEach(o => { o.userData.want = o.userData.prev; });
+        this.smalls.forEach((s, k) => { s.g.visible = hidden[k]; }); this.layoutSmalls();
+      }
+      this.lastRender = now; this.dirty = false;
+      this.uTime.value = (now / 1000) * (this.tense ? 2.4 : 1);
+      this.updateCamera();
+      this.scene.environmentIntensity = this.st.env;
+      this.bloom.strength = this.st.bloom; this.comp.uniforms.uFlash.value = this.st.flash;
+      this.M.lacquer.color.copy(this.cRed).lerp(this.cDim, this.st.dim); this.M.lacquer.envMapIntensity = .6 - .22 * this.st.dim;
+      const r = this.renderer;
+      // pass 1: emissive-only glow (+ sparks), then bloom
+      for (const m of this.boardMeshes) m.material = this.M.black;
+      for (const m of this.dotMeshes) m.material = this.M.glow;
+      for (const o of this.glowOnly) o.visible = !!o.userData.want;
+      for (const s of this.shadows) s.visible = false;
+      r.setRenderTarget(this.rtGlow); r.setClearColor(0x000000, 1); r.clear(); r.render(this.scene, this.camera);
+      this.bloom.render(r, null, this.rtGlow, 0, false);
+      // pass 2: lit scene with alpha
+      for (const m of this.boardMeshes) m.material = m.userData.mat;
+      for (const m of this.dotMeshes) m.material = m.userData.mat;
+      for (const o of this.glowOnly) o.visible = false;
+      for (const s of this.shadows) s.visible = true;
+      r.setRenderTarget(this.rtBase); r.setClearColor(0x000000, 0); r.clear(); r.render(this.scene, this.camera);
+      // pass 3: composite onto the page (premultiplied)
+      r.setRenderTarget(null); r.setClearColor(0x000000, 0); r.clear(); this.quad.render(r);
+      if (!this.shown) { this.shown = true; requestAnimationFrame(() => this.stage.classList.add('gl-on')); }
+    }
+  }
+
+  const views = [];
+  for (const c of ctls) { try { const v = new SignView(c); c.view = v; v.reset(); views.push(v); } catch (e) { c.view = null; } }
+  const loop = now => { for (const v of views) v.tick(now); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+  window.__marquee.views = views;
+}
+</script>
+</body>
+</html>
