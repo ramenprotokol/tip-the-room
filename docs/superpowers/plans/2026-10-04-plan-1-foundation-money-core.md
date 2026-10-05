@@ -1201,7 +1201,7 @@ const launched = Date.parse(draft.launchedAt);
 
 function campaignIn(state: Campaign["state"], held = 0, charged = 0): Campaign {
   const base = reduce(initialCampaign(), { type: "mandate_signed", threshold: mandate.threshold, deadline }).campaign;
-  return { ...base, state, pledges: { held, charged, released: 0, refunded: 0 } };
+  return { ...base, state, pledges: { held, charged, released: 0, refunded: 0, failed: 0 } };
 }
 const ctx = (campaign: Campaign, extra: Partial<GuardContext> = {}): GuardContext => ({ mandate, campaign, approvals: new Set(), collectedNet: 0, ...extra });
 

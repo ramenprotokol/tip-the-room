@@ -73,12 +73,16 @@ No accounts or passwords in the demo. An artist's show is reached by its own pri
 ## 3. How a campaign works
 
 ```
-draft ──approve mandate──▶ live ──threshold reached──▶ tipped ──payouts sent──▶ settled
-                             │                            │
-                             │ deadline passes, short     │ show cancelled (human confirms)
-                             ▼                            ▼
-                          missed ──holds voided──▶ closed   refunded
+draft ──sign mandate──▶ live ──target reached──▶ tipped ──deadline──▶ paying_out ──payouts sent──▶ settled
+                          │   (every hold captured;     │   (one batch, once every
+                          │    later pledges captured   │    capture has charged or failed)
+                          │    on arrival)              │
+                          │ deadline passes, short      │ artist calls it off (approved)
+                          ▼                             ▼
+                        missed (every hold voided)    cancelled (open holds voided, charges refunded)
 ```
+
+Charging happens **at tipping**: every hold is captured inside PayPal's 3-day honor period. Paying out happens **at the deadline**: one batch, so pledges that arrive after tipping are included. The UI says "It's on! · everyone's charged" at tipping and "Everyone's paid" after the payout batch. "Skip to the deadline" in the demo runs the payout beat.
 
 1. **Draft.** The artist describes the show in one sentence, e.g. "Acoustic set at a record shop, Nov 20, 40 people max, $15 a ticket. I need $300, the opener gets $100, the room wants $80." The AI turns that into a structured draft. **Code, not the model**, computes the threshold:
    `threshold_pledges = ceil((room + opener + host + artist_minimum) × (1 + fee_buffer) / ticket_price)`, where `fee_buffer` covers PayPal's fees (default 5%, editable).
@@ -88,7 +92,7 @@ draft ──approve mandate──▶ live ──threshold reached──▶ tippe
    - Agent must ask first: extend the deadline (at most once, at most 7 days, never past 21 days from launch); lower the threshold or price; refund after capture (show cancelled).
 3. **Live.** Fans pledge on a public page with the PayPal button (Orders v2, `intent: AUTHORIZE`). Each pledge becomes a hold.
 4. **Watching.** At 50% of the campaign window and at 72 hours before the deadline, the agent checks pace. Code projects the final count; the model explains it and proposes options, e.g. "40% with 3 days left. Extend 4 days, or lower the target to 22?" The artist approves or ignores.
-5. **Tipped.** The moment the threshold is met, the agent captures every hold (reauthorizing any hold past the 3-day honor period first). Pledges after tipping are captured immediately. Then it sends one Payouts batch per the split.
+5. **Tipped.** The moment the threshold is met, the agent captures every hold (reauthorizing any hold past the 3-day honor period first). Pledges after tipping are captured immediately. At the deadline, once every capture has either charged or failed, it sends one Payouts batch per the split.
 6. **Missed.** At the deadline, if short, the agent voids every hold. "Nobody paid for a show that didn't happen."
 7. **Cancelled after tipping.** The agent prepares refunds; the artist confirms; refunds go out.
 
@@ -204,7 +208,9 @@ Real artists would be onboarded through PayPal's multiparty platform so money go
 
 ## 11. Out of scope
 
-Qloo or any taste data, multi-city routing, opener ranking, maps, artist accounts and logins (the demo uses per-visitor campaigns), live money, real PayPal onboarding, mobile apps, emails or SMS to fans.
+Qloo or any taste data, multi-city routing, opener ranking, maps, artist accounts and logins (the demo uses per-visitor campaigns), live money, real PayPal onboarding, mobile apps, emails or SMS to fans. Also out of scope for the hackathon:
+- Changing the pledge price after launch, which would change the target, the hash and every hold. Lowering the **target** is in scope.
+- Calling off a show that is still **live**. Fans stay on hold until the deadline voids them; only a tipped show can be called off.
 
 ## 12. Submission checklist (PayPal AI Hackathon)
 
