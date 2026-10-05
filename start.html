@@ -1,11 +1,106 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Tip the Room</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tip the Room · Start a show</title>
+<meta name="description" content="Describe your show in one sentence, check the numbers, sign the money rules and share your link.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 </head>
 <body>
-  <main id="app"><h1>Tip the Room</h1><p>Nobody's charged unless the show happens.</p></main>
+<header class="bar">
+  <a class="brand" href="demo.html">
+    <span class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</span>
+    <span class="tagline">Nobody's charged unless the show happens.</span>
+  </a>
+  <p class="mode">Start a show · sample</p>
+  <div class="bar-right">
+    <button class="sound" id="sound" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      <span data-label>Sound off</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <div class="start-grid">
+    <section class="intro" aria-labelledby="h-start">
+      <h1 class="page-title" id="h-start">Start a show</h1>
+      <p class="lede">Describe it in one sentence. We fill in a draft, and you check every number before anything goes live.</p>
+      <div class="field">
+        <label for="sentence">Describe your show in one sentence</label>
+        <textarea id="sentence" class="textarea" rows="3">Acoustic set at Lucky's Café on Nov 20, $15 tickets, the café wants $100 and I need $200</textarea>
+      </div>
+      <div class="actions" style="margin-top:14px">
+        <button class="btn btn-ink btn-big" type="button" id="fill">Fill it in for me</button>
+        <span class="hint" style="font-size:16px;color:var(--ink-3)">A draft only. You can change everything.</span>
+      </div>
+    </section>
+
+    <aside class="preview" aria-label="Your sign, live preview">
+      <div class="stage mini" data-stage role="img" aria-label="Preview of your marquee sign">
+        <svg class="ph" data-ph aria-hidden="true"></svg>
+      </div>
+      <p class="sentence" data-target-sentence aria-live="polite">Fill it in to see how many fans you need</p>
+      <p class="split-words" data-split></p>
+      <p class="preview-cap">Each bulb around the edge is one fan. They light up when the show is on.</p>
+    </aside>
+
+    <section class="draft" id="draft" hidden aria-labelledby="h-draft">
+      <div>
+        <h2 class="section-title" id="h-draft">Your show</h2>
+        <div class="fields">
+          <div class="field wide"><label for="f-name">Show name (on the sign)</label><input id="f-name" class="input" autocomplete="off"></div>
+          <div class="field"><label for="f-room">Room</label><input id="f-room" class="input" autocomplete="off"></div>
+          <div class="field"><label for="f-date">Show date</label><input id="f-date" class="input" autocomplete="off"></div>
+          <div class="field"><label for="f-price">Price of a spot ($)</label><input id="f-price" class="input mono" inputmode="numeric" autocomplete="off"></div>
+          <div class="field"><label for="f-deadline">Pledge deadline</label><input id="f-deadline" class="input" autocomplete="off"><span class="hint">Holds last up to 21 days, so keep it within 21 days of today, Mon Nov 2.</span></div>
+        </div>
+      </div>
+      <div>
+        <h2 class="section-title">Who gets paid</h2>
+        <p class="hint" style="margin:-4px 0 12px;font-size:16px;color:var(--ink-3)">Paid in this order at the deadline. You get whatever is left, and never less than your minimum.</p>
+        <ol class="paylist" id="paylist"></ol>
+      </div>
+      <div class="card signing" aria-labelledby="h-rules">
+        <h2 class="section-title" id="h-rules">The money rules you're signing</h2>
+        <ul id="rules"></ul>
+        <div>
+          <button class="btn btn-hold" type="button" id="sign" aria-describedby="sign-hint"><span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><path d="M6 16l9.5-9.5a2.1 2.1 0 0 1 3 3L9 19H6z"/></svg><span data-sign-label>Hold to sign the money rules</span></span></button>
+          <p class="hold-hint" id="sign-hint">Press and hold for 1.5 seconds. On a keyboard, hold Space or Enter.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="live" id="live" hidden aria-labelledby="h-live">
+      <p class="eyebrow">Signed Mon Nov 2, 4:12pm</p>
+      <h2 class="page-title" id="h-live">Your show is live</h2>
+      <p class="lede" data-live-lede></p>
+      <div class="card" style="display:grid;gap:16px">
+        <div class="share">
+          <div class="field">
+            <span class="label" id="l-share">Your share link</span>
+            <div class="share-link"><output class="linkbox" id="share-url" aria-labelledby="l-share"></output><button class="btn" type="button" id="copy-share">Copy link</button></div>
+            <span class="hint" data-copied aria-live="polite">Send it to fans, or print the code for the door.</span>
+          </div>
+          <figure class="qr" style="margin:0"><canvas id="qr" width="132" height="132"></canvas><figcaption>Scan to hold a spot</figcaption></figure>
+        </div>
+        <div class="field">
+          <span class="label" id="l-manage">Your private show page</span>
+          <div class="share-link"><output class="linkbox" id="manage-url" aria-labelledby="l-manage"></output><button class="btn" type="button" id="copy-manage">Copy</button></div>
+          <span class="hint">Keep this one to yourself. It's the only way back to your show page, and we show it once.</span>
+        </div>
+      </div>
+      <div class="actions"><a class="btn btn-red btn-big" href="manage.html">Open your show page</a><a class="btn" href="pledge.html">See what fans see</a></div>
+    </section>
+  </div>
+</main>
+<nav class="ref-nav" data-ref-only aria-label="Reference pages">Reference pages: <a href="demo.html">Try the demo</a><a href="start.html">Start a show</a><a href="pledge.html">Fan page</a><a href="manage.html">Artist's show page</a></nav>
+
+<script type="module" src="/src/web/pages/start.ts"></script>
 </body>
 </html>

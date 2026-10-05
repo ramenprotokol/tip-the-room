@@ -26,3 +26,22 @@ test("production build: / loads, GSAP config ran, demo keys run clean", async ({
 
   expect(errors).toEqual([]);
 });
+
+test("production build: /start.html loads, GSAP config ran, fill runs clean", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  page.on("console", (m) => { if (m.type() === "error") errors.push(`console: ${m.text()}`); });
+
+  await page.goto(`${PROD_BASE}start.html`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => Boolean((window as ProdWindow).__marquee?.ready), undefined, { timeout: 20_000 });
+
+  // The reference start page creates one sign (the live preview).
+  expect(await page.evaluate(() => (window as ProdWindow).__marquee?.views?.length)).toBe(1);
+  expect(await page.evaluate(() => (window as ProdWindow).gsap?.config().force3D)).toBe(false);
+
+  await page.click("#fill");
+  await page.waitForTimeout(1500);
+  await expect(page.locator("[data-target-sentence]")).toContainText("You need 21 fans at $15");
+
+  expect(errors).toEqual([]);
+});
