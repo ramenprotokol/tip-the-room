@@ -61,7 +61,7 @@ No accounts or passwords in the demo. An artist's show is reached by its own pri
 - **What it looks like:** two lacquered red theatre signs with brass trim on a warm paper page. Each fan is a border bulb, and the show name is a dot-grid of glass bulbs.
   - **Tip:** chaser → flare → the name bursts into sparks that spell IT'S ON → three payout signs drop on brass rods.
   - **Miss:** bulbs switch off in a wave and each fan's light floats home.
-- **Fonts:** Big Shoulders Display, Doto, IBM Plex Sans and IBM Plex Mono, self-hosted with `@fontsource`.
+- **Fonts:** Big Shoulders Display, Doto, IBM Plex Sans and IBM Plex Mono, loaded from Google Fonts with the same `<link>` as the reference so glyphs match exactly.
 - **The app must match the reference exactly.** Visual parity tests (section 9) compare the app against the reference at frozen clock times, and a failing parity test blocks the merge.
 - **Fixes over the preview:**
   1. Capture happens **at tipping**, not at the deadline (section 6.2).
