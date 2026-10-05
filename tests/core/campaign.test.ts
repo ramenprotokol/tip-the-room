@@ -265,6 +265,30 @@ describe("campaign reducer: money paths", () => {
     expect(() => reduce(cancelled, charged)).not.toThrow();
   });
 
+  it("lowers the target while live without tipping when still short", () => {
+    const { c, effects } = run([{ type: "mandate_signed", threshold: 5, deadline: DEADLINE }, held, { type: "threshold_lowered", newThreshold: 3 }]);
+    expect(c.state).toBe("live");
+    expect(c.threshold).toBe(3);
+    expect(effects).toEqual([]);
+  });
+  it("tips at once when the lowered target is already met, and captures every hold", () => {
+    const { c, effects } = run([{ type: "mandate_signed", threshold: 5, deadline: DEADLINE }, held, held, held, { type: "threshold_lowered", newThreshold: 3 }]);
+    expect(c.state).toBe("tipped");
+    expect(c.threshold).toBe(3);
+    expect(effects).toEqual(["capture_all_held"]);
+  });
+  it("rejects a lowered target that is not a whole number, below 1, or not lower", () => {
+    const live = run([{ type: "mandate_signed", threshold: 5, deadline: DEADLINE }]).c;
+    for (const newThreshold of [0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY, 5, 6]) {
+      expect(() => reduce(live, { type: "threshold_lowered", newThreshold })).toThrow(IllegalTransition);
+    }
+  });
+  it("rejects lowering the target outside live", () => {
+    const tipped = run([signed, held, held, held]).c;
+    expect(() => reduce(tipped, { type: "threshold_lowered", newThreshold: 2 })).toThrow(IllegalTransition);
+    expect(() => reduce(initialCampaign(), { type: "threshold_lowered", newThreshold: 2 })).toThrow(IllegalTransition);
+  });
+
   it("throws on an unknown event type", () => {
     const bad = { type: "pledge_teleported" } as unknown as CampaignEvent;
     expect(() => reduce(run([signed]).c, bad)).toThrow(IllegalTransition);

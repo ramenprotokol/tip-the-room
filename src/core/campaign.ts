@@ -27,6 +27,7 @@ export type CampaignEvent =
   | { type: "payouts_sent" }
   | { type: "holds_released"; count: number }
   | { type: "deadline_extended"; newDeadline: number }
+  | { type: "threshold_lowered"; newThreshold: number }
   | { type: "show_cancelled" }
   | { type: "refunds_sent"; count: number };
 
@@ -124,6 +125,17 @@ export function reduce(c: Campaign, e: CampaignEvent): Step {
       if (c.extensionsUsed >= 1) throw new IllegalTransition(c.state, e.type, "only one extension is allowed");
       if (e.newDeadline <= c.deadline) throw new IllegalTransition(c.state, e.type, "an extension must move the deadline later");
       return same({ ...c, deadline: e.newDeadline, extensionsUsed: c.extensionsUsed + 1 });
+
+    case "threshold_lowered": {
+      if (c.state !== "live") throw new IllegalTransition(c.state, e.type);
+      if (!Number.isInteger(e.newThreshold) || e.newThreshold < 1 || e.newThreshold >= c.threshold) {
+        throw new IllegalTransition(c.state, e.type, "the new target must be a whole number from 1 up to one below the current target");
+      }
+      const next = { ...c, threshold: e.newThreshold };
+      // Fans already committed may meet the lower target right away.
+      if (fansCommitted(next) >= e.newThreshold) return same({ ...next, state: "tipped" }, [{ type: "capture_all_held" }]);
+      return same(next);
+    }
 
     case "show_cancelled":
       if (c.state !== "tipped") throw new IllegalTransition(c.state, e.type);
