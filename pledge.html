@@ -1,11 +1,91 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Tip the Room</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tip the Room · Hold my spot</title>
+<meta name="description" content="Hold a spot at Acoustic Set, Lucky's Café. PayPal holds $15 and you're only charged if the show happens.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 </head>
 <body>
-  <main id="app"><h1>Tip the Room</h1><p>Nobody's charged unless the show happens.</p></main>
+<header class="bar">
+  <a class="brand" href="demo.html">
+    <span class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</span>
+    <span class="tagline">Nobody's charged unless the show happens.</span>
+  </a>
+  <p class="mode">Fan page · sample show</p>
+  <div class="bar-right">
+    <button class="sound" id="sound" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      <span data-label>Sound off</span>
+    </button>
+  </div>
+</header>
+<ol class="steps" aria-label="How it works">
+  <li><b>1</b><span>Fans hold a spot, PayPal holds the money</span></li>
+  <li><b>2</b><span>Enough fans by the deadline, everyone is charged and paid</span></li>
+  <li><b>3</b><span>Not enough, every hold is cancelled, nobody pays</span></li>
+</ol>
+
+<main>
+  <div class="pledge-grid">
+    <section class="show" id="show" aria-labelledby="show-title">
+      <div class="stage" data-stage role="img" aria-label="Marquee sign for Acoustic Set">
+        <svg class="ph" data-ph aria-hidden="true"></svg>
+        <div class="bulb-tip" data-tip hidden></div>
+      </div>
+      <div class="panel">
+        <div class="row-top">
+          <p class="eyebrow">Fri Nov 20, 8pm · Lucky’s Café</p>
+          <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>Waiting for fans</b><span data-said>· $0 charged</span></p>
+        </div>
+        <h1 class="title" id="show-title">Acoustic Set</h1>
+        <p class="bill">Maya, playing acoustic · the back room at Lucky’s Café</p>
+        <dl class="stats">
+          <div class="stat clock"><dt>Fans needed by · Thu Nov 12, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
+          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>12</span><span>of 21 fans</span></span><span class="sub" data-fans-sub>9 more to make it happen</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>180</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <div class="side">
+      <section class="card pledge-card" id="pledge-card" aria-labelledby="h-pledge">
+        <h2 class="title" id="h-pledge">Hold my spot · $15</h2>
+        <p style="margin:0;font-size:17px">PayPal holds $15 on your account. You’re only charged if 21 fans join by Thu 6pm. If not, the hold is cancelled automatically.</p>
+        <div class="field"><label for="initials">Your initials on the bulb (optional)</label><input id="initials" class="input" maxlength="3" autocomplete="off" autocapitalize="characters" placeholder="e.g. MR"></div>
+        <div class="pp-slot" id="pp-slot" role="region" aria-label="PayPal checkout">PayPal checkout button renders here</div>
+        <button class="linkish" type="button" id="simulate" data-ref-only>Simulate PayPal approval (reference only)</button>
+      </section>
+      <section class="confirm" id="confirm" hidden aria-live="polite">
+        <h2 data-confirm-title>You’re on hold</h2>
+        <p data-confirm-text>PayPal is holding $15 — you’ll only be charged if 21 fans join by Thu 6pm. If not, the hold is cancelled automatically.</p>
+        <p data-confirm-bulb style="font-size:16px;color:var(--ink-2)"></p>
+      </section>
+      <section aria-labelledby="h-faq">
+        <h2 class="section-title" id="h-faq">Questions</h2>
+        <div class="faq">
+          <details><summary>What does “on hold” mean?</summary><p>PayPal sets $15 aside on your account, like a hotel deposit. It isn’t charged unless the show happens.</p></details>
+          <details><summary>When am I charged?</summary><p>Only once 21 fans have joined, and only if that happens by Thu Nov 12, 6pm. Then everyone is charged at once, and the room and the artist are paid at the deadline.</p></details>
+          <details><summary>What if not enough fans join?</summary><p>Every hold is cancelled automatically at the deadline. Nobody pays anything, and you don’t need to do a thing.</p></details>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+<footer class="key" aria-label="What the sign shows">
+  <ul>
+    <li><i class="sw sw-held" aria-hidden="true"></i>Dim bulb = a fan on hold</li>
+    <li><i class="sw sw-lit" aria-hidden="true"></i>Lit bulb = charged</li>
+    <li><i class="sw sw-rel" aria-hidden="true"></i>Light floating away = hold cancelled</li>
+  </ul>
+</footer>
+<nav class="ref-nav" data-ref-only aria-label="Reference pages">Reference pages: <a href="demo.html">Try the demo</a><a href="start.html">Start a show</a><a href="pledge.html">Fan page</a><a href="manage.html">Artist's show page</a></nav>
+
+<script type="module" src="/src/web/pages/pledge.ts"></script>
 </body>
 </html>

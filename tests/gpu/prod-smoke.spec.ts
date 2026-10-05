@@ -45,3 +45,28 @@ test("production build: /start.html loads, GSAP config ran, fill runs clean", as
 
   expect(errors).toEqual([]);
 });
+
+test("production build: /pledge.html loads, GSAP config ran, approval runs clean", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  page.on("console", (m) => { if (m.type() === "error") errors.push(`console: ${m.text()}`); });
+
+  await page.goto(`${PROD_BASE}pledge.html`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => Boolean((window as ProdWindow).__marquee?.ready), undefined, { timeout: 20_000 });
+
+  // The reference fan page creates one sign.
+  expect(await page.evaluate(() => (window as ProdWindow).__marquee?.views?.length)).toBe(1);
+  expect(await page.evaluate(() => (window as ProdWindow).gsap?.config().force3D)).toBe(false);
+
+  // Reference hook shapes: setInitials(string) and approve() with no arguments.
+  await page.evaluate(() => {
+    const m = (window as unknown as { __marquee: { setInitials(s: string): void; approve(): void } }).__marquee;
+    m.setInitials("MR");
+    m.approve();
+  });
+  await page.waitForTimeout(2000);
+  await expect(page.locator("#confirm")).toBeVisible();
+  await expect(page.locator("[data-confirm-bulb]")).toContainText("MR");
+
+  expect(errors).toEqual([]);
+});
