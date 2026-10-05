@@ -1,12 +1,122 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Tip the Room</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tip the Room · Try the demo</title>
+<meta name="description" content="Two sample shows side by side: one reaches its fans and everyone is charged and paid, one misses and every hold is cancelled.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 </head>
 <body>
-  <main id="app"><h1>Tip the Room</h1><p>Nobody's charged unless the show happens.</p></main>
-  <script type="module" src="/src/main.ts"></script>
+<header class="bar">
+  <a class="brand" href="/">
+    <span class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</span>
+    <span class="tagline">Nobody's charged unless the show happens.</span>
+  </a>
+  <p class="mode">Try the demo · PayPal sandbox · sample shows</p>
+  <div class="bar-right">
+    <p class="keys" aria-hidden="true"><kbd>T</kbd>tip <kbd>P</kbd>pay out <kbd>M</kbd>miss <kbd>R</kbd>start over</p>
+    <button class="sound" id="sound" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      <span data-label>Sound off</span>
+    </button>
+  </div>
+</header>
+<ol class="steps" aria-label="How it works">
+  <li><b>1</b><span>Fans hold a spot, PayPal holds the money</span></li>
+  <li><b>2</b><span>Enough fans by the deadline, everyone is charged and paid</span></li>
+  <li><b>3</b><span>Not enough, every hold is cancelled, nobody pays</span></li>
+</ol>
+
+<main>
+  <div class="front">
+    <section class="show" id="show-a" aria-labelledby="a-title">
+      <div class="stage" data-stage role="img" aria-label="Marquee sign for Juniper Vale">
+        <svg class="ph" data-ph aria-hidden="true"></svg>
+        <div class="bulb-tip" data-tip hidden></div>
+      </div>
+      <div class="panel">
+        <div class="row-top">
+          <p class="eyebrow">Show A · Fri Nov 20</p>
+          <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>Waiting for fans</b><span data-said>· $0 charged</span></p>
+        </div>
+        <h2 class="title" id="a-title">Juniper Vale</h2>
+        <p class="bill">Acoustic set with The Low Tides · Back room, Spindle Records</p>
+        <dl class="stats">
+          <div class="stat clock"><dt>Deadline · Wed Nov 18, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
+          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>29</span><span data-of>of 34 fans</span></span><span class="sub" data-fans-sub>5 more to make it happen</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>435</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
+        </dl>
+        <p class="rules-line"><span><b>$15</b> a spot</span><span>Money rules: Room $80 → Opener $100 → Artist gets the rest</span></p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="add">Add 5 fans</button>
+          <button class="btn btn-red" type="button" data-act="ff">Skip to the deadline</button>
+          <button class="btn btn-ghost" type="button" data-act="reset">Start over</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="show" id="show-b" aria-labelledby="b-title">
+      <div class="stage" data-stage role="img" aria-label="Marquee sign for Marlow Finch">
+        <svg class="ph" data-ph aria-hidden="true"></svg>
+        <div class="bulb-tip" data-tip hidden></div>
+      </div>
+      <div class="panel">
+        <div class="row-top">
+          <p class="eyebrow">Show B · Sun Nov 22</p>
+          <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>Waiting for fans</b><span data-said>· $0 charged</span></p>
+        </div>
+        <h2 class="title" id="b-title">Marlow Finch</h2>
+        <p class="bill">Songs from the kitchen · Living room, Elm St house show</p>
+        <dl class="stats">
+          <div class="stat clock"><dt>Deadline · Fri Nov 20, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
+          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>19</span><span data-of>of 28 fans</span></span><span class="sub" data-fans-sub>9 more to make it happen</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>228</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
+        </dl>
+        <p class="rules-line"><span><b>$12</b> a spot</span><span>Money rules: Room $60 → Opener $40 → Artist gets the rest</span></p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="add">Add 5 fans</button>
+          <button class="btn btn-red" type="button" data-act="ff">Skip to the deadline</button>
+          <button class="btn btn-ghost" type="button" data-act="reset">Start over</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="ledger" aria-label="What the agent did">
+    <div>
+      <h2 class="section-title">What the agent did</h2>
+      <ol class="log" id="log" aria-live="polite"></ol>
+      <ul class="money-rules" aria-label="The money rules">
+        <li><b>Rule 1</b>Fans’ money is only held, never charged early.</li>
+        <li><b>Rule 2</b>When a show gets enough fans, everyone is charged at once.</li>
+        <li><b>Rule 3</b>At the deadline: pay the room, then the opener, then the host. The artist gets the rest.</li>
+        <li><b>Rule 4</b>If the deadline passes short, every hold is cancelled.</li>
+        <li><b>Rule 5</b>Anything else, like a new deadline or target, the artist approves first.</li>
+      </ul>
+    </div>
+    <div class="payout" id="payout">
+      <h2 class="section-title">Payout · Juniper Vale</h2>
+      <div class="strip"></div>
+      <p class="pay-note" data-pay-note data-idle="Fills at the deadline, once the show is on. Until then, nobody is paid.">Fills at the deadline, once the show is on. Until then, nobody is paid.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="key" aria-label="What the sign shows">
+  <ul>
+    <li><i class="sw sw-held" aria-hidden="true"></i>Dim bulb = a fan on hold</li>
+    <li><i class="sw sw-lit" aria-hidden="true"></i>Lit bulb = charged</li>
+    <li><i class="sw sw-rel" aria-hidden="true"></i>Light floating away = hold cancelled</li>
+    <li><i class="sw sw-paid" aria-hidden="true"><b></b><b></b><b></b></i>Signs drop below = everyone's paid</li>
+  </ul>
+</footer>
+<nav class="ref-nav" data-ref-only aria-label="Reference pages">Reference pages: <a href="demo.html">Try the demo</a><a href="start.html">Start a show</a><a href="pledge.html">Fan page</a><a href="manage.html">Artist's show page</a></nav>
+
+<script type="module" src="/src/web/pages/demo.ts"></script>
 </body>
 </html>
