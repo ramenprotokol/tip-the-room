@@ -14,6 +14,9 @@ export default defineConfig({
         pledge: resolve(root, "pledge.html"),
         manage: resolve(root, "manage.html"),
       },
+      // gsap-global must evaluate before ui.ts so its module-load GSAP config (lagSmoothing, force3D) runs;
+      // keeping gsap in its own chunk makes the entry import it before the shared ui chunk.
+      output: { codeSplitting: { groups: [{ name: "gsap", test: /node_modules\/gsap|gsap-global/ }] } },
     },
   },
   test: {
