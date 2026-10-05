@@ -1,11 +1,121 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Tip the Room</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tip the Room · Your show</title>
+<meta name="description" content="Maya's show page: the sign, the countdown, the agent and every money move.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 </head>
 <body>
-  <main id="app"><h1>Tip the Room</h1><p>Nobody's charged unless the show happens.</p></main>
+<header class="bar">
+  <a class="brand" href="demo.html">
+    <span class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</span>
+    <span class="tagline">Nobody's charged unless the show happens.</span>
+  </a>
+  <p class="mode">Your show page · sample show</p>
+  <div class="bar-right">
+    <button class="sound" id="sound" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      <span data-label>Sound off</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <div class="manage-hero">
+    <div class="stage" data-stage role="img" aria-label="Your marquee sign">
+      <svg class="ph" data-ph aria-hidden="true"></svg>
+      <div class="bulb-tip" data-tip hidden></div>
+    </div>
+    <div class="panel">
+      <div class="row-top">
+        <p class="eyebrow">Your show · Fri Nov 20, 8pm · Lucky’s Café</p>
+        <p class="status" data-status data-state="held" aria-live="polite"><span class="lamp" aria-hidden="true"></span><b data-word>Waiting for fans</b><span data-said>· $0 charged</span></p>
+      </div>
+      <h1 class="title">Acoustic Set</h1>
+      <p class="status-sentence" data-sentence aria-live="polite"></p>
+      <dl class="stats">
+        <div class="stat clock"><dt data-deadline-label>Deadline · Thu Nov 12, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
+        <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>12</span><span data-of>of 21 fans</span></span><span class="sub" data-fans-sub>9 more to make it happen</span></dd></div>
+        <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>180</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span></dd></div>
+      </dl>
+      <div class="demo-controls" data-ref-only>
+        <p class="eyebrow">Demo controls · sample show only</p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="add">Add 5 fans</button>
+          <button class="btn btn-red" type="button" data-act="ff">Skip to the deadline</button>
+          <button class="btn btn-ghost" type="button" data-act="reset">Start over</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="manage-grid">
+    <section class="agent" aria-labelledby="h-agent">
+      <h2 class="section-title" id="h-agent">Your agent</h2>
+      <div class="ask" id="ask" role="group" aria-labelledby="ask-q">
+        <p class="ask-k">Ask me first</p>
+        <p>Lucky’s Café is at <b>12 of 21</b> with 3 days left. At this pace it lands near 17.</p>
+        <p id="ask-q"><b>Extend the deadline 4 days, to Mon Nov 16, 6pm?</b></p>
+        <p class="why">Your money rules allow one extension of up to 7 days. The show is Fri Nov 20, so fans still get 4 days’ notice.</p>
+        <div class="actions">
+          <button class="btn btn-hold" type="button" id="approve" aria-describedby="approve-hint" style="min-height:48px;padding:0 18px;font-size:16px"><span class="lbl"><span data-approve-label>Hold to approve</span></span></button>
+          <button class="btn btn-ghost" type="button" id="decline">Not now</button>
+        </div>
+        <p class="hold-hint" id="approve-hint">Press and hold for 1.5 seconds, or hold Space or Enter.</p>
+      </div>
+      <ol class="log" id="log" aria-live="polite"></ol>
+    </section>
+    <section aria-labelledby="h-share" style="display:grid;gap:12px;align-content:start">
+      <h2 class="section-title" id="h-share">Share your show</h2>
+      <div class="field">
+        <span class="label" id="l-share">Your share link</span>
+        <div class="share-link"><output class="linkbox" id="share-url" aria-labelledby="l-share">https://tiptheroom.example/s/acoustic-set-nov20</output><button class="btn" type="button" id="copy">Copy link</button></div>
+        <span class="hint" data-copied aria-live="polite">Fans hold a spot from this link.</span>
+      </div>
+      <figure class="qr" style="margin:6px 0 0;justify-items:start"><canvas id="qr" width="132" height="132"></canvas><figcaption>Print it for the door or the café counter</figcaption></figure>
+    </section>
+  </div>
+
+  <section class="block payout" id="payout" aria-labelledby="h-pay">
+    <h2 class="section-title" id="h-pay">Who gets paid</h2>
+    <div class="strip"></div>
+    <p class="pay-note" data-pay-note data-idle="Paid at the deadline once the show is on: Lucky’s Café first, then you get the rest.">Paid at the deadline once the show is on: Lucky’s Café first, then you get the rest.</p>
+  </section>
+
+  <section class="block" aria-labelledby="h-ledger">
+    <h2 class="section-title" id="h-ledger">Every money move</h2>
+    <div class="ag-root-wrapper ag-theme-marquee" role="grid" aria-labelledby="h-ledger">
+      <div class="ag-body-viewport" tabindex="0">
+        <div class="ag-header" role="rowgroup"><div class="ag-header-row ag-header-row-column" role="row">
+          <div class="ag-header-cell" role="columnheader" col-id="when">When</div>
+          <div class="ag-header-cell" role="columnheader" col-id="what">What happened</div>
+          <div class="ag-header-cell" role="columnheader" col-id="who">Who</div>
+          <div class="ag-header-cell num" role="columnheader" col-id="amount">Amount</div>
+          <div class="ag-header-cell" role="columnheader" col-id="ref">PayPal ref</div>
+          <div class="ag-header-cell ag-pinned-right" role="columnheader" col-id="status">Status</div>
+        </div></div>
+        <div class="ag-center-cols-container" role="rowgroup" id="rows"></div>
+      </div>
+    </div>
+    <p class="grid-note">Newest first. Sample refs: the live app shows real PayPal sandbox IDs. Sort, filter and export to CSV there.</p>
+  </section>
+</main>
+<footer class="key" aria-label="What the sign shows">
+  <ul>
+    <li><i class="sw sw-held" aria-hidden="true"></i>Dim bulb = a fan on hold</li>
+    <li><i class="sw sw-lit" aria-hidden="true"></i>Lit bulb = charged</li>
+    <li><i class="sw sw-rel" aria-hidden="true"></i>Light floating away = hold cancelled</li>
+    <li><i class="sw sw-paid" aria-hidden="true"><b></b><b></b></i>Signs drop below = everyone's paid</li>
+  </ul>
+</footer>
+<nav class="ref-nav" data-ref-only aria-label="Reference pages">Reference pages: <a href="demo.html">Try the demo</a><a href="start.html">Start a show</a><a href="pledge.html">Fan page</a><a href="manage.html">Artist's show page</a></nav>
+
+<script type="module" src="/src/web/pages/manage.ts"></script>
 </body>
 </html>
