@@ -4,6 +4,7 @@ import { dispatch } from "../../src/agent/dispatch";
 import { commit } from "../../src/agent/executor";
 import { sha256Hex } from "../../src/agent/ids";
 import { PayPalError } from "../../src/paypal/errors";
+import { MAX_ORDERS_PER_SHOW, ORDER_OPEN_MS } from "../../src/agent/policy";
 import { DRAFT, makeService, pledge, SIGN_TOKEN, signedService } from "./harness";
 import { DEADLINE, SHOW } from "./fixtures";
 
@@ -158,6 +159,55 @@ describe("orders and authorize", () => {
     expect(h.store.jobs().filter((j) => j.kind === "capture" && j.status === "pending")).toHaveLength(3);
     expect(h.paypal.count("captureHold")).toBe(0);
     expect(h.store.logs().some((l) => l.rule === "rule-2-capture-at-tip")).toBe(true);
+  });
+
+  it("an order nobody authorized within ORDER_OPEN_MS can't be authorized later, and nothing is asked of PayPal's authorize", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.clock.t += ORDER_OPEN_MS;
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.paypal.count("authorizeOrder")).toBe(0);
+    expect(h.paypal.count("getOrderPayments")).toBe(1);
+    expect(h.svc.project().orders.get(o.orderId)?.resolved).toBe(true);
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
+  });
+
+  it("an abandoned order that PayPal did hold is refused and its hold queued to be cancelled", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.clock.t += ORDER_OPEN_MS + 1;
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-stray", status: "CREATED" }], captures: [] }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.store.job("void:A-stray")?.status).toBe("pending");
+  });
+
+  it("when PayPal can't say what an abandoned order holds, the order stays open for a later look", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.clock.t += ORDER_OPEN_MS;
+    h.paypal.script("getOrderPayments", () => {
+      throw new PayPalError(503, "SERVICE_UNAVAILABLE", "busy");
+    });
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.svc.project().orders.get(o.orderId)?.resolved).toBe(false);
+  });
+
+  it("abandoned orders stop counting toward the per-show order cap", async () => {
+    const h = await signedService();
+    for (let i = 0; i < MAX_ORDERS_PER_SHOW; i += 1) await h.svc.createOrder({ initials: "AB" });
+    await expect(h.svc.createOrder({ initials: "AB" })).rejects.toMatchObject({ status: 409 });
+    h.clock.t += ORDER_OPEN_MS;
+    await expect(h.svc.createOrder({ initials: "AB" })).resolves.toHaveProperty("orderId");
+  });
+
+  it("an order authorized in time still counts after ORDER_OPEN_MS", async () => {
+    const h = await signedService();
+    for (let i = 0; i < MAX_ORDERS_PER_SHOW - 1; i += 1) await h.svc.createOrder({ initials: "AB" });
+    await pledge(h.svc);
+    h.clock.t += ORDER_OPEN_MS;
+    // 499 abandoned orders no longer count; the held one does.
+    for (let i = 0; i < MAX_ORDERS_PER_SHOW - 1; i += 1) await h.svc.createOrder({ initials: "AB" });
+    await expect(h.svc.createOrder({ initials: "AB" })).rejects.toMatchObject({ status: 409 });
   });
 });
 

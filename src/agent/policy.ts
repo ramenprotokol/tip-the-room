@@ -92,6 +92,11 @@ export const DEMO_COPIES_PER_DAY = 50;
 export const SIM_CAP_PER_SHOW = 60;
 export const SIM_ADD_MAX = 20;
 export const MAX_ORDERS_PER_SHOW = 500;
+/**
+ * An order nobody authorized within this long is abandoned: it stops counting toward MAX_ORDERS_PER_SHOW and is never
+ * authorized (a stray hold on it is cancelled). Three hours is far longer than any PayPal checkout takes.
+ */
+export const ORDER_OPEN_MS = 3 * 60 * 60 * 1000;
 /** Jobs that move or release money; a show isn't finished while one is pending. */
 export const MONEY_JOBS: JobKind[] = ["capture", "void", "refund", "payout", "payout_retry", "reconcile", "sim_hold"];
 /** A payout PayPal already had (recovered) with no batch id after this long is flagged for the artist. */

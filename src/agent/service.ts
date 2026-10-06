@@ -20,7 +20,7 @@ import { sweepStuckHolds, sweepWakes } from "./hold-runner";
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { DEMO_GRACE_MS, DEMO_PACE_POINT, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
+import { DEMO_GRACE_MS, DEMO_PACE_POINT, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, ORDER_OPEN_MS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
 import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
 import { SIM_INITIALS } from "./sim-runner";
@@ -209,7 +209,10 @@ export class CampaignService {
     const p = this.applyDeadline();
     const m = this.requireMandate(p);
     if (p.campaign.state !== "live" && p.campaign.state !== "tipped") throw new ServiceError(409, "conflict", "Pledging has closed for this show.");
-    if (p.orders.size >= MAX_ORDERS_PER_SHOW) throw new ServiceError(409, "conflict", "This show has taken as many pledges as it can.");
+    const at = this.now();
+    let open = 0;
+    for (const o of p.orders.values()) if (o.resolved || at - o.createdAt < ORDER_OPEN_MS) open += 1;
+    if (open >= MAX_ORDERS_PER_SHOW) throw new ServiceError(409, "conflict", "This show has taken as many pledges as it can.");
     const pledgeId = newId("p", this.deps.random);
     let orderId: string;
     try {
@@ -241,6 +244,10 @@ export class CampaignService {
       const existing = p.pledges.get(order.pledgeId);
       if (!existing) throw new ServiceError(409, "conflict", "This order was already used and didn't become a pledge.");
       return { pledgeId: existing.pledgeId, status: "held", tipped: p.campaign.state !== "live", show: this.publicView(p) };
+    }
+    if (this.now() - order.createdAt >= ORDER_OPEN_MS) {
+      await this.retireAbandoned(orderId, order);
+      throw new ServiceError(409, "conflict", "This pledge took too long to finish, so nothing was held or charged. Please start again.");
     }
     if (p.campaign.state !== "live" && p.campaign.state !== "tipped") throw new ServiceError(409, "conflict", "Pledging has closed for this show. Nothing was held or charged.");
     let hold: Hold;
@@ -280,6 +287,27 @@ export class CampaignService {
     if (held.appended) this.log({ saw: sawCounts(p), did: `${fanName(pledge)} held a spot. PayPal is holding ${formatUSD(hold.amountCents)}; nobody is charged yet.`, rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: hold.authorizationId });
     if (held.appended && wasLive && p.campaign.state === "tipped") this.log({ saw: sawCounts(p), did: "The show reached its target. Charging every hold now.", rule: "rule-2-capture-at-tip" });
     return { pledgeId: pledge.pledgeId, status: "held", tipped: p.campaign.state !== "live", show: this.publicView(p) };
+  }
+
+  /**
+   * An order older than ORDER_OPEN_MS that never became a pledge. Ask PayPal (GET) whether it holds anything; close the
+   * order either way and queue any live hold to be cancelled. If PayPal can't say, the order stays open (it no longer
+   * counts toward the cap, and a later call looks again).
+   */
+  private async retireAbandoned(orderId: string, order: OrderView): Promise<void> {
+    let live: string | null;
+    try {
+      const found = await this.deps.paypal.getOrderPayments(orderId);
+      live = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && SAFE_REF.test(a.id))?.id ?? null;
+    } catch {
+      return;
+    }
+    const now = this.now();
+    commit(this.deps.store, now, { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: live, reason: "the order was abandoned" });
+    if (live) {
+      queueVoid(this.deps.store, live, now);
+      this.log({ saw: `Order ${orderId} was never finished, but PayPal holds money on it.`, did: "Refused it and queued the hold to be cancelled. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: live });
+    }
   }
 
   /**
