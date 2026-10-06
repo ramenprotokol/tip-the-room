@@ -39,6 +39,6 @@ for (const [slug, scenario, viewport, frames] of [
   ["manage-phone-initial", async () => {}, PHONE, MANAGE_SCRIPTS.tipped],
 ] as const) {
   test(`parity: ${slug}`, async ({ browser }) => {
-    await expectParity(browser, P.refPath, P.appPath, scenario, { viewport, fullPage: true, slug, api: () => manageApi([...frames]), dataFields: P.dataFields, skip: P.skip });
+    await expectParity(browser, P.refPath, P.appPath, scenario, { viewport, fullPage: true, slug, api: () => manageApi([...frames]), dataFields: P.dataFields, skip: P.skip, appOnly: P.appOnly });
   });
 }

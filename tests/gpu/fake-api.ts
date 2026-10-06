@@ -11,6 +11,8 @@ export interface FakeReply {
   status?: number;
   body: unknown;
 }
+/** Requests seen, plus the ones `api` did not answer (they got the fake 404). Parity runs fail if any exist. */
+export type SeenRequests = FakeRequest[] & { unanswered: FakeRequest[] };
 export type FakeApi = (req: FakeRequest) => FakeReply | undefined;
 
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type, x-manage-key", "access-control-allow-methods": "GET, POST, OPTIONS", "cache-control": "no-store" };
@@ -18,8 +20,8 @@ const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers
 export const apiError = (status: number, code: string, message: string, extra: Record<string, unknown> = {}): FakeReply => ({ status, body: { error: { code, message, ...extra } } });
 
 /** Routes every request whose path starts with /api/ to `api`. Unknown requests get a 404 error body. Returns the requests seen. */
-export async function installFakeApi(target: Page | BrowserContext, api: FakeApi): Promise<FakeRequest[]> {
-  const seen: FakeRequest[] = [];
+export async function installFakeApi(target: Page | BrowserContext, api: FakeApi): Promise<SeenRequests> {
+  const seen: SeenRequests = Object.assign([] as FakeRequest[], { unanswered: [] as FakeRequest[] });
   await target.route(
     (url) => url.pathname.startsWith("/api/"),
     async (route: Route) => {
@@ -34,7 +36,9 @@ export async function installFakeApi(target: Page | BrowserContext, api: FakeApi
       }
       const r: FakeRequest = { method: req.method(), path: new URL(req.url()).pathname, body, key: req.headers()["x-manage-key"] ?? null };
       seen.push(r);
-      const reply = api(r) ?? apiError(404, "not_found", "There's nothing here.");
+      const answer = api(r);
+      if (!answer) seen.unanswered.push(r);
+      const reply = answer ?? apiError(404, "not_found", "There's nothing here.");
       await route.fulfill({ status: reply.status ?? 200, headers: { ...CORS, "content-type": "application/json; charset=utf-8" }, body: JSON.stringify(reply.body) });
     },
   );

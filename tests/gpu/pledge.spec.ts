@@ -19,6 +19,6 @@ for (const [slug, scenario, viewport] of [
   ["pledge-phone-initial", async () => {}, PHONE],
 ] as const) {
   test(`parity: ${slug}`, async ({ browser }) => {
-    await expectParity(browser, P.refPath, P.appPath, scenario, { viewport, fullPage: true, slug, api: P.api, dataFields: P.dataFields, skip: P.skip });
+    await expectParity(browser, P.refPath, P.appPath, scenario, { viewport, fullPage: true, slug, api: P.api, dataFields: P.dataFields, skip: P.skip, appOnly: P.appOnly });
   });
 }

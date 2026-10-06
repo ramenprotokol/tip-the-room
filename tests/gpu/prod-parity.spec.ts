@@ -7,6 +7,6 @@ import { PAGES } from "./pages";
 for (const p of [PAGES.demo, PAGES.start, PAGES.pledge, PAGES.manage]) {
   const slug = `${p.name === "demo" ? "demo-rest" : `${p.name}-initial`}`;
   test(`prod parity: ${slug}`, async ({ browser }) => {
-    await expectParity(browser, p.refPath, p.prodPath, async () => {}, { viewport: DESKTOP, fullPage: true, slug: `prod-${slug}`, appBase: PROD_BASE, api: p.api, dataFields: p.dataFields, skip: p.skip });
+    await expectParity(browser, p.refPath, p.prodPath, async () => {}, { viewport: DESKTOP, fullPage: true, slug: `prod-${slug}`, appBase: PROD_BASE, api: p.api, dataFields: p.dataFields, skip: p.skip, appOnly: p.appOnly });
   });
 }

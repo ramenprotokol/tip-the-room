@@ -2,7 +2,7 @@ import { expect, type Browser, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { installFakeApi, type FakeApi } from "./fake-api";
+import { installFakeApi, type FakeApi, type SeenRequests } from "./fake-api";
 
 export const REF_BASE = "http://127.0.0.1:5198/v2/";
 export const APP_BASE = "http://127.0.0.1:5199/";
@@ -22,6 +22,8 @@ export interface Frozen {
   page: Page;
   errors: string[];
   viewCount: number;
+  /** Requests the page made to the fake API (undefined when no fake API was installed). */
+  seen?: SeenRequests;
   run(ms: number): Promise<void>;
   toAnim(view: number, t: number): Promise<void>;
   close(): Promise<void>;
@@ -32,7 +34,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function openFrozen(browser: Browser, url: string, viewport: Viewport, opts: { reduced?: boolean; api?: FakeApi } = {}): Promise<Frozen> {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1.5, reducedMotion: opts.reduced ? "reduce" : "no-preference" });
   const page = await ctx.newPage();
-  if (opts.api) await installFakeApi(page, opts.api);
+  const seen = opts.api ? await installFakeApi(page, opts.api) : undefined;
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => { if (m.type() === "error") errors.push(`console: ${m.text()}`); });
@@ -59,7 +61,7 @@ export async function openFrozen(browser: Browser, url: string, viewport: Viewpo
     if (ms === null) throw new Error(`toAnim: window.__marquee.views[${view}] or its anim is missing (no WebGL, or the animation never started)`);
     if (ms > 0) await page.clock.runFor(Math.ceil(ms));
   };
-  return { page, errors, viewCount, run, toAnim, close: () => ctx.close() };
+  return { page, errors, viewCount, seen, run, toAnim, close: () => ctx.close() };
 }
 
 /**
@@ -128,17 +130,42 @@ async function hide(page: Page, selectors: string[]): Promise<void> {
 async function equalize(ref: Page, app: Page, selectors: string[]): Promise<void> {
   for (const sel of selectors) {
     const box = await ref.evaluate((s) => {
-      const r = document.querySelector(s)?.getBoundingClientRect();
-      return r ? { w: r.width, h: r.height } : null;
+      const all = document.querySelectorAll(s);
+      const r = all[0]?.getBoundingClientRect();
+      return { n: all.length, w: r?.width ?? 0, h: r?.height ?? 0 };
     }, sel);
-    if (!box) throw new Error(`data field ${sel} is missing on the reference page`);
+    if (box.n !== 1) throw new Error(`data field ${sel} must match exactly one element on the reference page (found ${box.n})`);
+    const appBox = await app.evaluate((s) => {
+      const all = document.querySelectorAll(s);
+      const r = all[0]?.getBoundingClientRect();
+      return { n: all.length, w: r?.width ?? 0, h: r?.height ?? 0 };
+    }, sel);
+    if (appBox.n !== 1) throw new Error(`data field ${sel} must match exactly one element on the app page (found ${appBox.n})`);
+    if (box.w <= 0 || box.h <= 0) {
+      // Not shown in this state (e.g. the start form before "Fill it in"): fine only if the app hides it too, so nothing is masked blindly.
+      if (appBox.w > 0 || appBox.h > 0) throw new Error(`data field ${sel} has an empty box on the reference page but is shown on the app page`);
+      continue;
+    }
     const found = await app.evaluate(([s, w, h]) => {
       const el = document.querySelector<HTMLElement>(s);
       if (!el) return false;
-      if (h > 0) Object.assign(el.style, { boxSizing: "border-box", width: `${w}px`, height: `${h}px`, overflow: "hidden" });
+      Object.assign(el.style, { boxSizing: "border-box", width: `${w}px`, height: `${h}px`, overflow: "hidden" });
       return true;
     }, [sel, box.w, box.h] as const);
     if (!found) throw new Error(`data field ${sel} is missing on the app page`);
+  }
+}
+
+/**
+ * Every [data-app-only] element on the app page must match this page's allowlist, and the reference must have no
+ * element matching it: app-only is for new real controls, never a way to hide a difference.
+ */
+async function checkAppOnly(ref: Page, app: Page, allowed: string[], slug: string): Promise<void> {
+  const stray = await app.evaluate((sels) => Array.from(document.querySelectorAll<HTMLElement>("[data-app-only]")).filter((el) => !sels.some((s) => el.matches(s))).map((el) => el.outerHTML.slice(0, 80)), allowed);
+  expect(stray, `${slug}: [data-app-only] elements outside this page's allowlist`).toEqual([]);
+  if (allowed.length) {
+    const inRef = await ref.evaluate((sel) => document.querySelectorAll(sel).length, allowed.join(", "));
+    expect(inRef, `${slug}: the reference page must not contain any app-only element`).toBe(0);
   }
 }
 
@@ -153,6 +180,8 @@ export interface ParityOptions {
   api?: () => FakeApi;
   dataFields?: string[];
   skip?: string[];
+  /** Selectors this page may tag [data-app-only] (see AppPage.appOnly). */
+  appOnly: string[];
 }
 
 export async function expectParity(browser: Browser, refPath: string, appPath: string, scenario: Scenario, opts: ParityOptions): Promise<number> {
@@ -169,6 +198,7 @@ export async function expectParity(browser: Browser, refPath: string, appPath: s
     }
     await scenario(ref);
     await scenario(app);
+    await checkAppOnly(ref.page, app.page, opts.appOnly, opts.slug);
     await hide(ref.page, skip);
     await hide(app.page, [...skip, APP_ONLY]);
     await equalize(ref.page, app.page, fields);
@@ -189,6 +219,7 @@ export async function expectParity(browser: Browser, refPath: string, appPath: s
       writeFileSync(`test-results/parity/${opts.slug}-ref.txt`, refText + "\n");
       writeFileSync(`test-results/parity/${opts.slug}-app.txt`, appText + "\n");
     }
+    expect(app.seen?.unanswered ?? [], `${opts.slug}: the app made requests the fake API doesn't answer`).toEqual([]);
     expect(ref.errors, "reference page errors").toEqual([]);
     expect(app.errors, "app page errors").toEqual([]);
     expect(refText.length, `${opts.slug}: reference page has no visible text, so the text check would prove nothing`).toBeGreaterThan(50);

@@ -107,6 +107,7 @@ const ML = {
   five: line(5, T(11, 9, 9, 12), "5 more fans held a spot. PayPal is holding their $75.", "5 PayPal authorizations", "rule-1-hold-only"),
   four: line(6, T(11, 9, 9, 13), "4 more fans held a spot. PayPal is holding their $60.", "4 PayPal authorizations", "rule-1-hold-only"),
   tip: line(7, T(11, 9, 9, 15), "Your show reached 21 fans. It’s on! Everyone was charged at once: $315.", "captured 21 PayPal authorizations at tipping", "rule-2-capture-at-tip"),
+  // Deliberate: the paid and missed lines are stamped Thu Nov 12 6pm (the original deadline) even after the extension, because reference/v2/manage.html prints exactly that.
   paid: line(8, T(11, 12, 18), "Deadline reached. Paid Lucky’s Café $100, then you $215.", "1 PayPal payout batch · 2 items", "rule-4-pay-the-split"),
   declined: line(4, T(11, 9, 9, 11), "You said not now. I’ll check the pace again tomorrow morning.", "proposal declined · no change"),
   missed: line(5, T(11, 12, 18), "Your show ended at 12 of 21. Every hold was cancelled. Nobody paid.", "voided 12 PayPal authorizations", "rule-3-void-on-miss"),

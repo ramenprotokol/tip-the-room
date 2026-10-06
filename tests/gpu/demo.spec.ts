@@ -42,6 +42,6 @@ const cases: Array<{ slug: string; scenario: Scenario; viewport: typeof DESKTOP;
 
 for (const c of cases) {
   test(`parity: ${c.slug}`, async ({ browser }) => {
-    await expectParity(browser, P.refPath, P.appPath, c.scenario, { viewport: c.viewport, fullPage: c.fullPage, slug: c.slug, api: P.api, dataFields: P.dataFields, skip: P.skip });
+    await expectParity(browser, P.refPath, P.appPath, c.scenario, { viewport: c.viewport, fullPage: c.fullPage, slug: c.slug, api: P.api, dataFields: P.dataFields, skip: P.skip, appOnly: P.appOnly });
   });
 }
