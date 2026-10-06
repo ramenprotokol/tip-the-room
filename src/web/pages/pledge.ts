@@ -2,6 +2,7 @@ import "../shared/gsap-global";
 import "../shared/styles.css";
 import "../shared/boot.css";
 import { watchIdle } from "../shared/idle";
+import { compareVersion } from "../shared/version";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, Placeholder, setStatus, countdownHTML, enter, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
@@ -117,22 +118,33 @@ function onHeld(res: AuthorizeResponse, ini: string) {
 }
 
 /** A hold confirmed after a reload: the fan is already counted in the show we loaded, so no bulb animation. */
-function onResumed(ini: string) {
+function onResumed(res: AuthorizeResponse, ini: string) {
   st.busy = false;
+  show = res.show; st.fans = res.show.fans.committed; st.mine = Math.max(0, st.fans - 1);
+  if (res.tipped) { st.phase = 'tipped'; setStatus(el.status, 'tipped', 'It’s on!', '· everyone’s charged', true); texts(res.show); }
+  render(true); view?.reset();
   el.card.hidden = true; el.confirm.hidden = false;
+  if (res.tipped) {
+    $('[data-confirm-title]').textContent = 'You’re in';
+    $('[data-confirm-text]').textContent = `The show is on, so PayPal charged your ${dollars(price())}.`;
+  }
   $('[data-confirm-bulb]').textContent = `Your bulb is the one marked ${ini}.`;
 }
 
 function onFlow(e: PledgeEvent) {
   const sim = simulateBtn();
+  checkAgain.hidden = e.kind !== 'unconfirmed';
   if (e.kind === 'busy') { say(''); st.busy = true; if (sim) sim.disabled = true; return; }
-  if (e.kind === 'held') { if (e.resumed) onResumed(e.initials); else onHeld(e.res, e.initials); return; }
+  if (e.kind === 'held') { if (e.resumed) onResumed(e.res, e.initials); else onHeld(e.res, e.initials); return; }
   st.busy = false; if (sim) sim.disabled = false; say(e.message);
 }
+const checkAgain = $<HTMLButtonElement>('#check-again');
 const flow = new PledgeFlow({
   createOrder: (initials) => act(() => api.createOrder(showId ?? '', { initials })),
   authorize: (orderId) => act(() => api.authorize(showId ?? '', orderId)),
 }, onFlow, () => cleanInitials(el.initials.value), { memory: showId && !PARITY ? sessionMemory(showId) : noMemory });
+
+checkAgain.addEventListener('click', () => { void act(() => flow.resume()); });
 
 function mountButton() {
   if (st.phase === 'closed') return;
@@ -164,7 +176,7 @@ async function poll() {
   if (!show || !showId || st.busy || st.phase === 'closed' || document.hidden || idle.idle()) return;
   let s: PublicShow;
   try { s = await api.getShow(showId); } catch { return; }
-  if (s.version === show.version || st.busy) return;
+  if (compareVersion(s.version, show.version) <= 0 || st.busy) return;
   const wasLive = st.phase === 'held';
   const termsChanged = s.threshold !== show.threshold || s.deadline !== show.deadline;
   show = s; clock?.sync(s.now);

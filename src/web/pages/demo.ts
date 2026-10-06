@@ -2,6 +2,7 @@ import "../shared/gsap-global";
 import "../shared/styles.css";
 import "../shared/boot.css";
 import { watchIdle } from "../shared/idle";
+import { compareVersion } from "../shared/version";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
@@ -360,7 +361,7 @@ async function poll() {
   await act(async () => {
     for (const c of [A, B]) {
       if (!c.show) continue;
-      try { const s = await api.getShow(c.show.showId); if (s.version !== c.show.version) await applyShow(c, s); }
+      try { const s = await api.getShow(c.show.showId); if (compareVersion(s.version, c.show.version) > 0) await applyShow(c, s); }
       catch (e) {
         if (e instanceof ApiFailure && e.status === 404) {
           // The server forgot this copy. Start a new one, but back off after a refusal (429) instead of asking again every 4 s.

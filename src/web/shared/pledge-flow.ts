@@ -11,7 +11,9 @@ export type PledgeEvent =
   | { kind: "busy" }
   | { kind: "held"; res: AuthorizeResponse; initials: string; resumed?: boolean }
   | { kind: "cancelled"; message: string }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; message: string }
+  /** The answer for an approved order never arrived. The order is kept; only "Check again" (resume) or a reload may settle it. */
+  | { kind: "unconfirmed"; message: string };
 
 /** An order PayPal approved whose answer from our server hasn't arrived yet. */
 export interface ApprovedOrder {
@@ -76,7 +78,9 @@ export interface PledgeFlowOptions {
 }
 
 export const CANCELLED = "No hold was placed. You can try again whenever you like.";
-export const STALLED = "PayPal didn’t open or didn’t answer. Nothing was charged. Please try again, and allow pop-ups for this site.";
+export const STALLED = "PayPal didn't open or didn’t answer. Nothing was charged. Please try again, and allow pop-ups for this site.";
+export const UNCONFIRMED = "We didn't hear back. Your pledge may have gone through. Checking again…";
+export const REFUSED_RESUME = "Your last try didn't go through. Nothing was charged.";
 const PAYPAL_TROUBLE = "PayPal didn't answer as expected. Nothing was charged. Please try again.";
 const UNKNOWN = "PayPal couldn't finish. Nothing was charged. Please try again.";
 
@@ -90,13 +94,16 @@ export function failureMessage(e: unknown): string {
   return UNKNOWN;
 }
 
-const lostOnTheWay = (e: unknown) => e instanceof ApiFailure && e.status === 0;
+/** Not a definite answer: no reply (status 0), a server or PayPal error (5xx), or something we can't read. PayPal may have placed the hold. */
+const uncertain = (e: unknown) => !(e instanceof ApiFailure) || e.status === 0 || e.status >= 500;
 
 export class PledgeFlow {
   busy = false;
   done = false;
   /** The initials sent with the order in flight; the confirmation uses these, not whatever the box says later. */
   private sent = "YOU";
+  /** The order this flow is working on. A late approval for any other order is ignored. */
+  private current: string | null = null;
   private readonly delays: number[];
   private readonly memory: OrderMemory;
   private readonly stallMs: number;
@@ -115,20 +122,22 @@ export class PledgeFlow {
     this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
-  /** The button checks this before opening PayPal: false while an order is in flight or after the fan is on hold. */
+  /** The button checks this before opening PayPal: false while an order is in flight, after the fan is on hold, or while an approved order is still unconfirmed. */
   canStart(): boolean {
-    return !this.busy && !this.done;
+    return !this.busy && !this.done && this.memory.get() === null;
   }
 
   /** The PayPal button calls this for every attempt, so a failed or cancelled order is never reused. */
   async createOrder(): Promise<string> {
     if (this.done) throw new Error("This fan is already on hold.");
     if (this.busy) throw new Error("A pledge is already in progress.");
+    if (this.memory.get()) throw new Error("An earlier pledge is still being checked.");
     this.busy = true;
     this.sent = this.initials();
     this.emit({ kind: "busy" });
     try {
       const { orderId } = await this.api.createOrder(this.sent);
+      this.current = orderId;
       this.armStall();
       return orderId;
     } catch (e) {
@@ -139,7 +148,7 @@ export class PledgeFlow {
 
   /** PayPal approved this order. A lost answer is asked again on the SAME order; it is never replaced by a new one. */
   async approve(orderId: string): Promise<void> {
-    if (this.done) return;
+    if (this.done || orderId !== this.current) return;
     this.disarmStall();
     this.memory.set({ orderId, initials: this.sent });
     for (let attempt = 0; ; attempt += 1) {
@@ -147,12 +156,15 @@ export class PledgeFlow {
         this.finish(await this.api.authorize(orderId), false);
         return;
       } catch (e) {
-        if (lostOnTheWay(e) && attempt < this.delays.length) {
+        if (uncertain(e) && attempt < this.delays.length) {
           await this.sleep(this.delays[attempt] ?? 0);
           continue;
         }
-        if (!lostOnTheWay(e)) this.memory.clear();
-        this.fail(e);
+        if (uncertain(e)) this.unconfirmed();
+        else {
+          this.memory.clear();
+          this.fail(e);
+        }
         return;
       }
     }
@@ -163,13 +175,19 @@ export class PledgeFlow {
     const o = this.memory.get();
     if (!o || this.done || this.busy) return;
     this.busy = true;
+    this.current = o.orderId;
+    this.emit({ kind: "busy" });
     try {
       const res = await this.api.authorize(o.orderId);
       this.sent = o.initials;
       this.finish(res, true);
     } catch (e) {
-      this.busy = false;
-      if (!lostOnTheWay(e)) this.memory.clear();
+      if (uncertain(e)) this.unconfirmed();
+      else {
+        this.memory.clear();
+        this.busy = false;
+        this.emit({ kind: "failed", message: REFUSED_RESUME });
+      }
     }
   }
 
@@ -200,6 +218,12 @@ export class PledgeFlow {
     this.busy = false;
     this.done = true;
     this.emit(resumed ? { kind: "held", res, initials: this.sent, resumed: true } : { kind: "held", res, initials: this.sent });
+  }
+
+  private unconfirmed(): void {
+    this.disarmStall();
+    this.busy = false;
+    this.emit({ kind: "unconfirmed", message: UNCONFIRMED });
   }
 
   private armStall(): void {

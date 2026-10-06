@@ -28,6 +28,6 @@ const LEDGER_APP_GRID = ".ledger-grid";
 export const PAGES: Record<AppPage["name"], AppPage> = {
   demo: { name: "demo", refPath: "demo.html", appPath: "?e2e=parity", prodPath: "?e2e=parity", signs: 2, api: demoApi, dataFields: [], skip: [], appOnly: ["#judge"] },
   start: { name: "start", refPath: "start.html", appPath: "start?e2e=parity", prodPath: "start?e2e=parity", signs: 1, api: () => startApi(), dataFields: [".mode", ".field:has(#f-deadline) .hint"], skip: [], appOnly: ["[data-start-msg]", "#problems"] },
-  pledge: { name: "pledge", refPath: "pledge.html", appPath: `s/${MAYA_ID}?e2e=parity`, prodPath: `s/${MAYA_ID}?e2e=parity`, signs: 1, api: () => pledgeApi(), dataFields: [".row-top .eyebrow", ".bill"], skip: [], appOnly: ["[data-pledge-msg]", "#notice"] },
+  pledge: { name: "pledge", refPath: "pledge.html", appPath: `s/${MAYA_ID}?e2e=parity`, prodPath: `s/${MAYA_ID}?e2e=parity`, signs: 1, api: () => pledgeApi(), dataFields: [".row-top .eyebrow", ".bill"], skip: [], appOnly: ["[data-pledge-msg]", "#check-again", "#notice"] },
   manage: { name: "manage", refPath: "manage.html", appPath: `s/${MAYA_ID}/manage?e2e=parity#${MAYA_KEY}`, prodPath: `s/${MAYA_ID}/manage?e2e=parity#${MAYA_KEY}`, signs: 1, api: () => manageApi(MANAGE_SCRIPTS.tipped), dataFields: [".row-top .eyebrow"], skip: [LEDGER_REF_GRID, LEDGER_APP_GRID], appOnly: ["#manage-notice", "#attention", "#ask-alt", "[data-ask-msg]", "#calloff", "#csv"] },
 };
