@@ -33,3 +33,6 @@ __pycache__/
 .playwright-cli/
 test-results/
 playwright-report/
+
+# Spike scratch output
+docs/superpowers/spikes/.spike-results.json

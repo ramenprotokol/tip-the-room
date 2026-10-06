@@ -33,7 +33,7 @@ type RefundBody = { id: string; status: string; seller_payable_breakdown?: Break
 /** Amount plus currency code only; nothing personal. */
 const money = (a?: Amt) => (a ? `${a.value} ${a.currency_code}` : "absent");
 
-const CARDS =["4111111111111111", "4032039317984658"];
+const CARDS = ["4111111111111111", "4032039317984658"];
 let cardIdx = 0;
 
 /** Spike 3, option 1: a server-side card authorization (no buyer login). */
