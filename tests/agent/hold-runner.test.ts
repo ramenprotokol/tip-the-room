@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { commit, drain, type ExecDeps } from "../../src/agent/executor";
 import { paypalPort } from "../../src/agent/paypal-port";
 import type { PayPalHttp } from "../../src/paypal/http";
-import { HOLD_RUNNERS } from "../../src/agent/hold-runner";
+import { HOLD_RUNNERS, recordCharge } from "../../src/agent/hold-runner";
+import { TURN_CALL_BUDGET, jobCost } from "../../src/agent/policy";
 import { SIM_CARD } from "../../src/agent/paypal-port";
 import { project } from "../../src/agent/project";
 import { Store } from "../../src/agent/store";
@@ -226,7 +227,7 @@ describe("cancelled shows and refunds", () => {
     commit(h.store, h.clock.now(), { type: "show_cancelled" });
     for (let i = 0; i < 12; i++) {
       h.paypal.script("refundCharge", (c: string) => {
-        if (c === "C-A1") throw new PayPalError(422, "UNPROCESSABLE_ENTITY", "no", undefined, [{ issue: "INSUFFICIENT_FUNDS" }]);
+        if (c === "C-A1") throw new PayPalError(503, "SERVICE_UNAVAILABLE", "busy");
         return { refundId: `R-${c}`, captureId: c, status: "COMPLETED" };
       });
     }
@@ -343,5 +344,160 @@ describe("review requirements", () => {
   it("refuses a malformed show id before building payout ids", async () => {
     const port = paypalPort({} as PayPalHttp);
     await expect(port.sendPayouts("bad id!", [], false)).rejects.toThrow(RangeError);
+  });
+});
+
+describe("per-turn PayPal call budget", () => {
+  it("documents worst-case costs and a budget below the free plan's 50 subrequests", () => {
+    expect(TURN_CALL_BUDGET).toBeLessThan(50);
+    expect(jobCost("capture", 1)).toBe(3);
+    expect(jobCost("capture", 2)).toBe(5);
+    expect(jobCost("payout", 1)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("stops starting capture jobs before the budget runs out; the rest run next drain", async () => {
+    const h = await setup(30);
+    h.paypal.fetchesPerCall = 3; // a token fetch plus a retry on every call
+    const seen: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const r = await drain(h.d, HOLD_RUNNERS, 100);
+      seen.push(h.paypal.meter.used);
+      expect(r.ran).toBeLessThanOrEqual(12);
+      if (i < 2) expect(r.more).toBe(true);
+    }
+    expect(Math.max(...seen)).toBeLessThanOrEqual(TURN_CALL_BUDGET);
+    expect(h.store.projection().campaign.pledges.charged).toBe(30);
+    expect(h.paypal.count("captureHold")).toBe(30);
+  });
+
+  it("counts payout jobs against the same budget", async () => {
+    const h = await setup(0);
+    h.paypal.fetchesPerCall = 20;
+    for (let i = 1; i <= 3; i++) h.store.putJob({ key: `poll:B-${i}:1`, kind: "payout_poll", target: `B-${i}`, nextAt: 0 }, 0);
+    const poll = async (d: ExecDeps, job: { key: string; target: string }) => {
+      await d.paypal.getPayoutBatch(job.target);
+      d.store.updateJob(job.key, { status: "done" });
+    };
+    const r = await drain(h.d, { payout_poll: poll }, 100);
+    expect(r.ran).toBe(2);
+    expect(r.more).toBe(true);
+    expect(h.store.job("poll:B-3:1")?.status).toBe("pending");
+    const r2 = await drain(h.d, { payout_poll: poll }, 100);
+    expect(r2.ran).toBe(1);
+  });
+});
+
+describe("fix round 1", () => {
+  const order = (captures: { id: string; status: string }[], auth = "CAPTURED") => () => ({ orderId: "O1", status: "COMPLETED", authorizations: [{ id: "A1", status: auth }], captures });
+
+  it("a benign duplicate capture_ok stays quiet; a genuine conflict still says Needs attention", async () => {
+    const h = await setup(3);
+    const stale = h.store.projection();
+    const pledge = stale.pledges.get("p1")!;
+    const charge = { captureId: "C-A1", authorizationId: "A1", status: "COMPLETED", grossCents: 1500, feeCents: 88, netCents: 1412 };
+    expect(recordCharge(h.d, stale, pledge, charge)).toBe(true);
+    const n = h.store.logs().length;
+    expect(recordCharge(h.d, stale, pledge, charge)).toBe(true);
+    expect(h.store.logs()).toHaveLength(n);
+
+    const h2 = await setup(3);
+    const stale2 = h2.store.projection();
+    commit(h2.store, h2.clock.now(), { type: "capture_failed", authorizationId: "A1", reason: "x" });
+    recordCharge(h2.d, stale2, stale2.pledges.get("p1")!, charge);
+    expect(h2.store.logs().some((l) => l.did.startsWith("Needs attention:"))).toBe(true);
+  });
+
+  it("attempt 2 with a PENDING live capture reconciles instead of re-sending the capture", async () => {
+    const h = await setup(1);
+    h.store.putJob({ key: "capture:A1", kind: "capture", target: "A1", nextAt: 0, }, 0);
+    h.store.updateJob("capture:A1", { attempts: 1 });
+    h.paypal.script("getOrderPayments", order([{ id: "C-A1", status: "PENDING" }], "CAPTURED"));
+    h.paypal.script("getCapture", (c: string, a: string) => ({ captureId: c, authorizationId: a, status: "PENDING" }));
+    commit(h.store, h.clock.now(), held(2));
+    commit(h.store, h.clock.now(), held(3));
+    h.store.updateJob("capture:A1", { status: "pending", nextAt: 0, attempts: 1 });
+    await drain(h.d, HOLD_RUNNERS);
+    expect(h.paypal.calls.some((c) => c.op === "captureHold" && c.args[0] === "A1")).toBe(false);
+    expect(h.store.job("reconcile:A1")?.status).toBe("pending");
+  });
+
+  it("a refund PayPal refuses outright fails fast", async () => {
+    const h = await setup(3);
+    await drain(h.d, HOLD_RUNNERS);
+    commit(h.store, h.clock.now(), { type: "show_cancelled" });
+    h.paypal.script("refundCharge", (c: string) => {
+      if (c === "C-A1") throw unprocessable("INSUFFICIENT_FUNDS");
+      return { refundId: `R-${c}`, captureId: c, status: "COMPLETED" };
+    });
+    await settle(h, 30 * 24 * 60 * 60 * 1000);
+    expect(h.paypal.calls.filter((c) => c.op === "refundCharge" && c.args[0] === "C-A1")).toHaveLength(1);
+    expect(h.store.job("refund:C-A1")?.status).toBe("failed");
+  });
+
+  it("an unusable (empty) refund answer still retries", async () => {
+    const h = await setup(3);
+    await drain(h.d, HOLD_RUNNERS);
+    commit(h.store, h.clock.now(), { type: "show_cancelled" });
+    h.paypal.script("refundCharge", () => {
+      throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "empty");
+    });
+    await settle(h);
+    expect(h.store.projection().pledges.get("p1")?.status).toBe("refunded");
+  });
+
+  it("reconcile does not try to record a failed charge while the show is live; it needs attention instead", async () => {
+    const h = await setup(1);
+    expect(h.store.projection().campaign.state).toBe("live");
+    h.store.putJob({ key: "reconcile:A1", kind: "reconcile", target: "A1", nextAt: 0 }, 0);
+    h.paypal.script("getOrderPayments", order([], "VOIDED"));
+    await drain(h.d, HOLD_RUNNERS);
+    expect(h.store.job("reconcile:A1")?.status).toBe("failed");
+    expect(h.store.projection().pledges.get("p1")?.status).toBe("held");
+    expect(h.store.logs().some((l) => l.did.startsWith("Needs attention:"))).toBe(true);
+  });
+
+  /** PayPal did the thing, then the process died before recording; the lease expired and the job re-ran. */
+  const crashThenRerun = async (h: Awaited<ReturnType<typeof setup>>, kind: "capture" | "void" | "refund", target: string, call: (d: ExecDeps) => Promise<unknown>) => {
+    await drain(h.d, { [kind]: async (d: ExecDeps) => void (await call(d)) });
+    expect(h.store.job(`${kind}:${target}`)?.status).toBe("pending");
+    h.clock.t += 61_000;
+    await drain(h.d, HOLD_RUNNERS);
+  };
+  const countEvents = (h: Awaited<ReturnType<typeof setup>>, type: string) => h.store.events().filter((e) => e.event.type === type).length;
+
+  it("crash after PayPal captured: the re-run records it once and money moves once", async () => {
+    const h = await setup(3);
+    for (let i = 2; i <= 3; i++) h.store.updateJob(`capture:A${i}`, { status: "done" });
+    h.paypal.script("getOrderPayments", order([{ id: "C-A1", status: "COMPLETED" }]));
+    await crashThenRerun(h, "capture", "A1", (d) => d.paypal.captureHold("A1"));
+    expect(h.store.projection().pledges.get("p1")).toMatchObject({ status: "charged", captureId: "C-A1" });
+    expect(countEvents(h, "capture_ok")).toBe(1);
+    expect(h.paypal.effects.size).toBe(1);
+  });
+
+  it("crash after PayPal voided: the re-run records it once and money moves once", async () => {
+    const h = await setup(1);
+    h.clock.t = DEADLINE;
+    commit(h.store, DEADLINE, { type: "deadline_reached", now: DEADLINE, deadline: DEADLINE });
+    await crashThenRerun(h, "void", "A1", (d) => d.paypal.voidHold("A1"));
+    expect(h.store.projection().campaign.pledges).toMatchObject({ held: 0, released: 1 });
+    expect(countEvents(h, "void_ok")).toBe(1);
+    expect(h.paypal.effects.size).toBe(1);
+    expect(h.paypal.count("voidHold")).toBe(2);
+  });
+
+  it("crash after PayPal refunded: the re-run records it once and money moves once", async () => {
+    const h = await setup(1);
+    h.store.updateJob("capture:A1", { status: "done" });
+    commit(h.store, h.clock.now(), held(2));
+    commit(h.store, h.clock.now(), held(3));
+    await drain(h.d, HOLD_RUNNERS);
+    commit(h.store, h.clock.now(), { type: "show_cancelled" });
+    h.paypal.effects.clear();
+    for (const t of ["C-A2", "C-A3"]) h.store.updateJob(`refund:${t}`, { status: "done" });
+    await crashThenRerun(h, "refund", "C-A1", (d) => d.paypal.refundCharge("C-A1"));
+    expect(h.store.projection().pledges.get("p1")).toMatchObject({ status: "refunded" });
+    expect(countEvents(h, "refund_ok")).toBe(1);
+    expect(h.paypal.effects.size).toBe(1);
   });
 });

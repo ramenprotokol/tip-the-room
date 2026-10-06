@@ -2,6 +2,7 @@ import { formatUSD } from "../core/money";
 import type { RuleId } from "../core/rules";
 import { PayPalError } from "../paypal/errors";
 import { requestIds, type Charge, type OrderPayments, type Refund } from "../paypal/payments";
+import { eventKey } from "./events";
 import { commit, decide, done, fail, logStep, requestReconcile, retryLater, skip, type ExecDeps, type Runner, type Runners } from "./executor";
 import { backoffMs, MAX_JOB_ATTEMPTS, RECHECK_MS } from "./policy";
 import type { PledgeView, Projection } from "./project";
@@ -33,7 +34,11 @@ export function recordCharge(d: ExecDeps, p: Projection, pledge: PledgeView, cha
   const saw = sawCounts(p);
   const res = commit(d.store, d.clock.now(), { type: "capture_ok", authorizationId: pledge.authorizationId, captureId: charge.captureId, grossCents: gross, feeCents: fee, netCents: net });
   if (!res.appended) {
-    // The key was already used (e.g. by an earlier failure record). Never double-write; tell the artist.
+    // The same capture already recorded (a reconcile and a capture raced, or a lease ran out): nothing to say.
+    const key = eventKey({ type: "capture_ok", authorizationId: pledge.authorizationId, captureId: charge.captureId, grossCents: gross, feeCents: fee, netCents: net });
+    const existing = d.store.events().find((s) => s.key === key)?.event;
+    if (existing && existing.type === "capture_ok" && existing.captureId === charge.captureId) return true;
+    // The key was used by something else (e.g. an earlier failure record). Never double-write; tell the artist.
     logStep(d, { saw, did: `Needs attention: ${fanName(pledge)}'s charge went through at PayPal, but this show's record already says otherwise.`, rule: "rule-2-capture-at-tip", requestId: requestIds.capture(pledge.authorizationId), resultId: charge.captureId });
     return true;
   }
@@ -93,7 +98,15 @@ const runCapture: Runner = async (d, job, attempt) => {
   if (!decision.allowed) return skip(d, job, p, decision, `Did not charge ${fanName(pledge)}.`);
   let charge: Charge;
   try {
-    if (attempt > 1 && (await checkOrderForCapture(d, p, pledge)) === "recorded") return done(d, job, "Found the charge at PayPal.");
+    if (attempt > 1) {
+      const seen = await checkOrderForCapture(d, p, pledge);
+      if (seen === "recorded") return done(d, job, "Found the charge at PayPal.");
+      if (seen === "unclear") {
+        // A live capture exists but isn't final: never send the capture again, look again shortly.
+        done(d, job, "A charge is in progress at PayPal. Checking again shortly.");
+        return requestReconcile(d.store, pledge.authorizationId, d.clock.now() + RECHECK_MS, "capture in progress");
+      }
+    }
     charge = await d.paypal.captureHold(pledge.authorizationId);
   } catch (e) {
     if (e instanceof PayPalError && e.retryable) return retryLater(d, job, attempt, errText(e));
@@ -197,7 +210,10 @@ const runRefund: Runner = async (d, job, attempt) => {
       }
       return retryLater(d, job, attempt, "PayPal says fully refunded, but the charge doesn't show it yet.");
     }
-    // Refunds retry with backoff whatever the error (the retry path for a cancelled show), then need attention.
+    // A refusal retrying cannot fix fails fast. Network/5xx/429 and unusable answers (maybe already refunded) retry.
+    if (e instanceof PayPalError && !e.retryable && e.paypalName !== "EMPTY_RESPONSE_BODY") {
+      return fail(d, job, `PayPal refused the refund (${errText(e)}).`, `PayPal couldn't finish ${fanName(pledge)}'s refund. It was not retried; it needs a look.`);
+    }
     return retryLater(d, job, attempt, errText(e));
   }
   if (refund.status === "COMPLETED") {
@@ -231,6 +247,9 @@ const runReconcile: Runner = async (d, job, attempt) => {
     return retryLater(d, job, attempt, errText(e));
   }
   const closing = p.campaign.state === "missed" || p.campaign.state === "cancelled";
+  // The reducer accepts capture_failed only in these states (src/core/campaign.ts); elsewhere it would throw.
+  const canFail = p.campaign.state === "tipped" || p.campaign.state === "paying_out";
+  const cannotRecord = () => fail(d, job, `The hold is ${status}, but a failed charge can't be recorded while the show is ${p.campaign.state}.`, "a hold's state at PayPal doesn't match this show, so it needs a look.");
   const capture = order.captures.find((c) => !FAILED_CAPTURE.has(c.status));
   if (pledge && capture) {
     let charge: Charge;
@@ -246,6 +265,7 @@ const runReconcile: Runner = async (d, job, attempt) => {
   const now = d.clock.now();
   if (GONE_AUTH.has(status)) {
     if (pledge && !closing) {
+      if (!canFail) return cannotRecord();
       writeCaptureFailed(d, p, pledge, "The hold ended before it could be charged", "PayPal says the hold has ended.", `${fanName(pledge)}'s hold ended before the charge. Their money was never taken.`, auth);
     } else {
       commit(d.store, now, { type: "void_ok", authorizationId: auth });
@@ -254,6 +274,7 @@ const runReconcile: Runner = async (d, job, attempt) => {
     return done(d, job, `The hold is ${status}.`);
   }
   if (status === "CREATED" && pledge && !closing) {
+    if (!canFail) return cannotRecord();
     // A capture may still be settling at PayPal: only record a failure on the second look.
     if (attempt < 2) return retryLater(d, job, attempt, "The hold is still open and no charge shows yet; looking once more.");
     writeCaptureFailed(d, p, pledge, "PayPal refused the charge; the hold is still open", "PayPal refused the charge and the hold is still open.", `Counted ${fanName(pledge)} as not charged. The hold lapses on its own; nobody is charged.`, auth);

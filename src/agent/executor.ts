@@ -5,7 +5,7 @@ import type { TestCard } from "../paypal/payments";
 import { eventKey, type AiSource, type LedgerEvent } from "./events";
 import type { Clock } from "./ids";
 import type { PayPalPort } from "./paypal-port";
-import { backoffMs, LEASE_MS, MAX_JOB_ATTEMPTS, MAX_JOBS_PER_TURN } from "./policy";
+import { backoffMs, jobCost, LEASE_MS, MAX_JOB_ATTEMPTS, MAX_JOBS_PER_TURN, TURN_CALL_BUDGET } from "./policy";
 import { campaignEventFor, chargedPledges, heldPledges, type Projection } from "./project";
 import type { Job, JobKind, Store } from "./store";
 import { errText, sawCounts } from "./words";
@@ -74,12 +74,18 @@ export interface DrainResult {
   more: boolean;
 }
 
-/** Runs due jobs one at a time, at most `maxJobs` per invocation (free plan subrequest limit). */
+/**
+ * Runs due jobs one at a time, at most `maxJobs` per invocation. It also keeps a per-turn PayPal fetch budget
+ * (free plan: 50 subrequests): the port's meter is reset here, and a job whose worst-case cost no longer fits the
+ * remaining budget is not started; it stays queued (`more` is true) for the next turn.
+ */
 export async function drain(d: ExecDeps, runners: Runners, maxJobs = MAX_JOBS_PER_TURN): Promise<DrainResult> {
   let ran = 0;
+  d.paypal.meter.reset();
   while (ran < maxJobs) {
     const [job] = d.store.dueJobs(d.clock.now(), 1);
     if (!job) break;
+    if (TURN_CALL_BUDGET - d.paypal.meter.used < jobCost(job.kind, job.attempts + 1)) break;
     ran += 1;
     await runJob(d, runners, job);
   }

@@ -1,7 +1,7 @@
 import { DAY_MS } from "../../src/core/holds";
 import type { PayoutLine } from "../../src/core/split";
 import { isShowId, type Clock } from "../../src/agent/ids";
-import type { PayPalPort } from "../../src/agent/paypal-port";
+import { CallMeter, type PayPalPort } from "../../src/agent/paypal-port";
 import type { Charge, Hold, OrderPayments, PledgeRef, Refund, TestCard } from "../../src/paypal/payments";
 import { payoutBatchId, payoutItemId, type PayoutBatch, type PayoutItem, type SentBatch } from "../../src/paypal/payouts";
 
@@ -14,6 +14,11 @@ type Answer = (...args: never[]) => unknown;
  */
 export class FakePayPal implements PayPalPort {
   readonly calls: { op: Op; args: unknown[] }[] = [];
+  readonly meter = new CallMeter();
+  /** Money-moving effects that really happened (a replayed request id does not add one). */
+  readonly effects = new Set<string>();
+  /** Fetches each call is counted as (3 simulates a token fetch plus one retry). */
+  fetchesPerCall = 1;
   private readonly scripted = new Map<Op, Answer[]>();
   private readonly orders = new Map<string, PledgeRef>();
   private readonly batches = new Map<string, PayoutItem[]>();
@@ -33,6 +38,7 @@ export class FakePayPal implements PayPalPort {
 
   private async answer<T>(op: Op, args: unknown[], fallback: () => T): Promise<T> {
     this.calls.push({ op, args });
+    this.meter.add(this.fetchesPerCall);
     const next = this.scripted.get(op)?.shift();
     return (next ? (next as (...a: unknown[]) => T)(...args) : fallback()) as T;
   }
@@ -63,15 +69,15 @@ export class FakePayPal implements PayPalPort {
   }
 
   captureHold(authorizationId: string): Promise<Charge> {
-    return this.answer("captureHold", [authorizationId], () => ({ captureId: `C-${authorizationId}`, authorizationId, status: "COMPLETED", grossCents: 1500, feeCents: 88, netCents: 1412 }));
+    return this.answer("captureHold", [authorizationId], () => (this.effects.add(`capture:${authorizationId}`), { captureId: `C-${authorizationId}`, authorizationId, status: "COMPLETED", grossCents: 1500, feeCents: 88, netCents: 1412 }));
   }
 
   voidHold(authorizationId: string): Promise<void> {
-    return this.answer("voidHold", [authorizationId], () => undefined);
+    return this.answer("voidHold", [authorizationId], () => void this.effects.add(`void:${authorizationId}`));
   }
 
   refundCharge(captureId: string): Promise<Refund> {
-    return this.answer("refundCharge", [captureId], () => ({ refundId: `R-${captureId}`, captureId, status: "COMPLETED" }));
+    return this.answer("refundCharge", [captureId], () => (this.effects.add(`refund:${captureId}`), { refundId: `R-${captureId}`, captureId, status: "COMPLETED" }));
   }
 
   getOrderPayments(orderId: string): Promise<OrderPayments> {

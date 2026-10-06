@@ -1,5 +1,6 @@
 import type { PayoutLine } from "../core/split";
-import type { PayPalHttp } from "../paypal/http";
+import type { PayPalConfig } from "../paypal/config";
+import { PayPalHttp, type ClientOptions, type FetchLike } from "../paypal/http";
 import {
   authorizeOrder,
   captureHold,
@@ -19,8 +20,37 @@ import {
 import { getPayoutBatch, sendPayouts, type PayoutBatch, type SentBatch } from "../paypal/payouts";
 import { isShowId } from "./ids";
 
+/** Counts outbound PayPal fetches in the current turn (token fetches and retries included). */
+export class CallMeter {
+  used = 0;
+  reset(): void {
+    this.used = 0;
+  }
+  add(n = 1): void {
+    this.used += n;
+  }
+}
+
+/** Wraps a fetch so every outbound call is counted. */
+export function meteredFetch(inner: FetchLike, meter: CallMeter): FetchLike {
+  return (input, init) => {
+    meter.add();
+    return inner(input, init);
+  };
+}
+
+/** Builds the PayPal client with a counting fetch, and the port that shares its meter. */
+export function meteredPayPal(config: PayPalConfig, opts: ClientOptions = {}): { http: PayPalHttp; port: PayPalPort; meter: CallMeter } {
+  const meter = new CallMeter();
+  const inner: FetchLike = opts.fetch ?? ((input, init) => fetch(input, init));
+  const http = new PayPalHttp(config, { ...opts, fetch: meteredFetch(inner, meter) });
+  return { http, port: paypalPort(http, meter), meter };
+}
+
 /** Every PayPal call the runtime makes. The Durable Object wires it to src/paypal; tests use a fake. */
 export interface PayPalPort {
+  /** Fetches made this turn. drain resets it and stops starting jobs that would not fit the budget. */
+  readonly meter: CallMeter;
   createPledgeOrder(p: PledgeRef): Promise<{ orderId: string }>;
   authorizeOrder(orderId: string): Promise<Hold>;
   createCardHold(p: PledgeRef, card: TestCard): Promise<Hold>;
@@ -33,8 +63,10 @@ export interface PayPalPort {
   getPayoutBatch(batchId: string): Promise<PayoutBatch>;
 }
 
-export function paypalPort(http: PayPalHttp): PayPalPort {
+/** `meter` must be the one counting `http`'s fetches (see meteredPayPal); otherwise the budget is blind. */
+export function paypalPort(http: PayPalHttp, meter: CallMeter = new CallMeter()): PayPalPort {
   return {
+    meter,
     createPledgeOrder: (p) => createPledgeOrder(http, p),
     authorizeOrder: (orderId) => authorizeOrder(http, orderId),
     createCardHold: (p, card) => createCardHold(http, p, card),
