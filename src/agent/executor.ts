@@ -76,12 +76,13 @@ export interface DrainResult {
 
 /**
  * Runs due jobs one at a time, at most `maxJobs` per invocation. It also keeps a per-turn PayPal fetch budget
- * (free plan: 50 subrequests): the port's meter is reset here, and a job whose worst-case cost no longer fits the
+ * (free plan: 50 subrequests): the port's meter is reset here (unless the caller says it already spent some of this turn), and a job whose worst-case cost no longer fits the
  * remaining budget is not started; it stays queued (`more` is true) for the next turn.
  */
-export async function drain(d: ExecDeps, runners: Runners, maxJobs = MAX_JOBS_PER_TURN): Promise<DrainResult> {
+export async function drain(d: ExecDeps, runners: Runners, maxJobs = MAX_JOBS_PER_TURN, resetMeter = true): Promise<DrainResult> {
   let ran = 0;
-  d.paypal.meter.reset();
+  // A caller that already spent subrequests this turn (AI and quota calls) passes resetMeter = false to keep them counted.
+  if (resetMeter) d.paypal.meter.reset();
   while (ran < maxJobs) {
     const [job] = d.store.dueJobs(d.clock.now(), 1);
     if (!job) break;

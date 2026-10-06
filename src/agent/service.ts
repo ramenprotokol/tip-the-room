@@ -1,20 +1,28 @@
 import { fansCommitted, IllegalTransition, reduce } from "../core/campaign";
+import { DAY_MS } from "../core/holds";
+import { guard, type AgentAction } from "../core/guard";
 import { buildMandate, MandateDraftError, signMandate, type Mandate } from "../core/mandate";
 import { formatUSD } from "../core/money";
+import { splitPayout } from "../core/split";
 import { assertPayPalId } from "../paypal/amount";
 import { PayPalError } from "../paypal/errors";
 import { requestIds, type Hold, type TestCard } from "../paypal/payments";
-import type { AuthorizeResponse, CreateOrderRequest, CreateOrderResponse, ManageView, PublicShow, SignRequest, SignResponse } from "../worker/api-types";
+import { isKnownEventType, type PayPalLedgerEvent } from "../paypal/webhooks";
+import type { ApproveRequest, ApproveResponse, AuthorizeResponse, CallOffResponse, CreateOrderRequest, CreateOrderResponse, ManageView, PublicShow, SignRequest, SignResponse } from "../worker/api-types";
 import type { AiDeps } from "./ai";
+import { paceNote, settlementNote, type PaceFacts } from "./ai-jobs";
 import { toMandateDraft } from "./draft";
 import { ServiceError } from "./errors";
-import { commit, logStep, queueVoid, type ExecDeps } from "./executor";
-import { customIdFor, newId, newSecret, sameHex, sha256Hex, type Clock, type Random } from "./ids";
+import type { ProposalOption, SettlementNote } from "./events";
+import { commit, drain, logStep, queueVoid, requestReconcile, type ExecDeps } from "./executor";
+import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
+import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { MAX_ORDERS_PER_SHOW } from "./policy";
-import type { OrderView, Projection } from "./project";
+import { MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, TURN_CALL_BUDGET } from "./policy";
+import type { OrderView, PledgeView, Projection } from "./project";
+import { RUNNERS } from "./runners";
 import type { Store } from "./store";
-import { attentionLines, ledgerRows, logRows, manageParties, proposalRows, publicShow } from "./views";
+import { attentionLines, ledgerRows, logRows, manageParties, payoutStateOf, proposalRows, publicShow, reversalLines } from "./views";
 import { fanName, holdDescription, sawCounts } from "./words";
 
 export interface ServiceDeps {
@@ -41,6 +49,20 @@ function holdProblem(h: Hold, orderId: string, order: OrderView, m: Mandate): st
   if (h.customId !== customIdFor(m.showId, order.pledgeId)) return "PayPal's hold belongs to a different pledge";
   return null;
 }
+
+/** The guard action an approved option stands for. A missing number becomes NaN, which the guard refuses. */
+function actionFor(o: ProposalOption, p: Projection): AgentAction {
+  switch (o.id) {
+    case "extend":
+      return { kind: "extend_deadline", newDeadline: o.newDeadline ?? Number.NaN };
+    case "lower":
+      return { kind: "lower_threshold", newThreshold: o.newThreshold ?? Number.NaN };
+    case "pay_short":
+      return { kind: "send_payouts", lines: p.mandate ? splitPayout(p.collectedNet, p.mandate.parties).lines : [] };
+  }
+}
+
+const SAFE_REF = /^[A-Za-z0-9-]{1,64}$/;
 
 /** One campaign. Every public method is safe to call again (deterministic keys, deadline applied first). */
 export class CampaignService {
@@ -275,8 +297,268 @@ export class CampaignService {
       proposals: proposalRows(p),
       parties: manageParties(p, showId),
       notes: (p.notes ?? []).map((n) => ({ role: n.role, label: n.label, text: n.text, source: n.source })),
-      attention: attentionLines(this.deps.store.jobs()),
+      attention: [...attentionLines(this.deps.store.jobs()), ...reversalLines(this.deps.store.events())],
       collectedNetCents: p.collectedNet,
     };
+  }
+
+  /** The model ports for ONE call: metered on the turn's subrequest meter, and templates-only when a call no longer fits. */
+  private modelDeps(): AiDeps {
+    const { ai, budget } = this.deps.ai;
+    const meter = this.deps.paypal.meter;
+    if (!ai || TURN_CALL_BUDGET - meter.used < MODEL_CALL_COST) return { ai: null, budget };
+    return {
+      ai: {
+        run: (model, input) => {
+          meter.add();
+          return ai.run(model, input);
+        },
+      },
+      budget: {
+        tryReserve: (n) => {
+          meter.add();
+          return budget.tryReserve(n);
+        },
+      },
+    };
+  }
+
+  /** One alarm turn: deadline first, then a due pace check, then due money jobs, then notes. */
+  async tick(): Promise<{ expired: boolean }> {
+    if (!this.exists()) return { expired: false };
+    // One meter for the whole turn: pace-check and note model calls share it with the PayPal jobs.
+    this.deps.paypal.meter.reset();
+    let p = this.applyDeadline();
+    if (p.mandate) {
+      const due = duePaceCheck(p.mandate, p.campaign, p.paceChecks, this.now());
+      for (const n of due.mark) commit(this.deps.store, this.now(), { type: "pace_checked", check: n });
+      if (due.run !== null) await this.runPaceCheck(due.run);
+    }
+    await drain(this.exec(), RUNNERS, MAX_JOBS_PER_TURN, false);
+    p = this.applyDeadline();
+    if (this.notesDue(p)) await this.writeNotes(p);
+    return { expired: false };
+  }
+
+  private async runPaceCheck(check: 1 | 2): Promise<void> {
+    const store = this.deps.store;
+    const p = this.project();
+    const m = this.requireMandate(p);
+    const c = p.campaign;
+    const nums = paceNumbers(m, c, this.now());
+    const saw = `${nums.committed} of ${nums.threshold} fans with ${nums.daysLeft} day${nums.daysLeft === 1 ? "" : "s"} left (${nums.percentElapsed}% of the way). At this pace, about ${nums.projected}.`;
+    if (nums.projected >= c.threshold) {
+      commit(store, this.now(), { type: "pace_checked", check });
+      return this.log({ saw, did: "On pace. Nothing to change.", rule: null });
+    }
+    const options = paceOptions(m, c, p.approvals, p.collectedNet, nums);
+    if (options.length === 0) {
+      commit(store, this.now(), { type: "pace_checked", check });
+      return this.log({ saw, did: "Behind pace, but the signed rules leave nothing to propose.", rule: "rule-5-ask-first" });
+    }
+    const extend = options.find((o) => o.id === "extend");
+    const lower = options.find((o) => o.id === "lower");
+    const facts: PaceFacts = { ...nums, options, extendDays: extend?.newDeadline !== undefined ? Math.ceil((extend.newDeadline - c.deadline) / DAY_MS) : null, lowerTo: lower?.newThreshold ?? null };
+    // The model's answer is schema- and number-checked inside paceNote before anything else looks at it.
+    const note = await paceNote(this.modelDeps(), facts);
+    // The model call took time: apply the deadline, then re-check the options against the campaign as it is NOW.
+    const after = this.applyDeadline();
+    if (after.campaign.state !== "live") {
+      commit(store, this.now(), { type: "pace_checked", check });
+      return;
+    }
+    const again = paceOptions(m, after.campaign, after.approvals, after.collectedNet, paceNumbers(m, after.campaign, this.now()));
+    if (JSON.stringify(again) !== JSON.stringify(options)) return; // things changed while the model wrote: check again next turn
+    commit(store, this.now(), { type: "proposal_made", proposalId: `pace${check}`, options, explanation: note.value.text, recommend: note.value.recommend, source: note.source });
+    commit(store, this.now(), { type: "pace_checked", check });
+    const resting = note.source === "resting" ? " The AI is resting until 00:00 UTC, so a plain template wrote this." : "";
+    this.log({ saw, did: `Proposed: ${options.map((o) => o.label).join(" or ")}. Waiting for the artist.${resting}`, rule: "rule-5-ask-first", source: note.source });
+  }
+
+  /** The artist approves one option. Deadline first, then the guard with the option's approval key. */
+  async approve(proposalId: string, req: ApproveRequest): Promise<ApproveResponse> {
+    const store = this.deps.store;
+    const p = this.applyDeadline();
+    const m = this.requireMandate(p);
+    const proposal = typeof proposalId === "string" ? p.proposals.get(proposalId) : undefined;
+    if (!proposal) throw new ServiceError(404, "not_found", "There's no such proposal.");
+    if (proposal.approved) throw new ServiceError(409, "conflict", "That proposal was already approved.");
+    const option = proposal.options.find((o) => o.id === req?.option);
+    if (!option) throw new ServiceError(422, "invalid", "Pick one of the proposal's options.");
+    const action = actionFor(option, p);
+    const decision = guard(action, { mandate: m, campaign: p.campaign, approvals: new Set([...p.approvals, option.approvalKey]), collectedNet: p.collectedNet });
+    const saw = sawCounts(p);
+    if (!decision.allowed) {
+      this.log({ saw, did: `Did not apply "${option.label}". ${decision.reason}`, rule: decision.rule });
+      throw new ServiceError(409, "conflict", decision.reason);
+    }
+    const now = this.now();
+    let after: Projection;
+    try {
+      // The approval and what it unlocks are written together: no half-approved proposal.
+      after = store.transaction(() => {
+        const a = commit(store, now, { type: "proposal_approved", proposalId, option: option.id, approvalKey: option.approvalKey });
+        if (!a.appended) throw new ServiceError(409, "conflict", "That proposal was already approved.");
+        let last = a.projection;
+        if (action.kind === "extend_deadline") last = commit(store, now, { type: "deadline_extended", newDeadline: action.newDeadline }).projection;
+        if (action.kind === "lower_threshold") last = commit(store, now, { type: "threshold_lowered", newThreshold: action.newThreshold }).projection;
+        if (action.kind === "send_payouts") {
+          const key = `payout:${m.showId}`;
+          if (store.job(key)?.status === "blocked") store.updateJob(key, { status: "pending", nextAt: now });
+        }
+        return last;
+      });
+    } catch (e) {
+      if (e instanceof IllegalTransition) throw new ServiceError(409, "conflict", "That change can't be applied any more.");
+      throw e;
+    }
+    this.log({ saw, did: `The artist approved "${option.label}". ${decision.reason}`, rule: decision.rule });
+    if (p.campaign.state === "live" && after.campaign.state === "tipped") this.log({ saw: sawCounts(after), did: "The lower target is already met. Charging every hold now.", rule: "rule-2-capture-at-tip" });
+    return { proposalId, option: option.id, rule: decision.rule, show: this.publicView(after) };
+  }
+
+  /** Spec 3.7: only a tipped show can be called off. Open holds are voided, every charge refunded. */
+  async callOff(): Promise<CallOffResponse> {
+    const p = this.applyDeadline();
+    this.requireMandate(p);
+    if (p.campaign.state !== "tipped") {
+      throw new ServiceError(409, "conflict", p.campaign.state === "live" ? "A show that hasn't reached its target can't be called off; if it misses, every hold is cancelled at the deadline." : "This show can no longer be called off.");
+    }
+    const saw = sawCounts(p);
+    const r = commit(this.deps.store, this.now(), { type: "show_cancelled" });
+    this.log({ saw, did: "The artist called the show off. Cancelling open holds and refunding every charge.", rule: "rule-5-ask-first" });
+    return { show: this.publicView(r.projection) };
+  }
+
+  /**
+   * Records a verified PayPal webhook once. It never changes counts or money: a webhook's capture amount is GROSS,
+   * so collected money only ever comes from the net of a capture response we fetched ourselves. Webhooks only ask for a GET check.
+   */
+  async ingestWebhook(e: PayPalLedgerEvent): Promise<{ recorded: boolean }> {
+    const store = this.deps.store;
+    if (typeof e?.eventId !== "string" || e.eventId.length === 0 || e.eventId.length > 128) return { recorded: false };
+    const p = this.applyDeadline();
+    const now = this.now();
+    const r = commit(store, now, { type: "webhook_received", eventId: e.eventId, kind: e.kind, ref: String(e.ref).slice(0, 128), amountCents: e.amountCents ?? null, customId: typeof e.customId === "string" ? e.customId.slice(0, 200) : null });
+    if (!r.appended) return { recorded: false };
+    const safeRef = SAFE_REF.test(e.ref);
+    let did = "Recorded it. Amounts only come from PayPal answers we fetch ourselves.";
+    switch (e.kind) {
+      case "charged":
+      case "charge_failed":
+      case "hold_voided": {
+        const auth = this.authForWebhook(p, e);
+        if (auth) {
+          requestReconcile(store, auth, now, `PayPal sent ${e.kind}`);
+          did = "Checking that hold with PayPal before counting anything.";
+        }
+        break;
+      }
+      case "payout_batch_done":
+      case "payout_batch_failed": {
+        const payout = e.customId ? p.payouts.find((x) => x.senderBatchId === e.customId) : undefined;
+        if (payout && safeRef && (payout.batchId === null || payout.batchId === e.ref)) {
+          // A duplicate-recovered batch has no batch id yet: this webhook (customId = sender_batch_id) supplies it.
+          if (payout.batchId === null) commit(store, now, { type: "payout_batch_seen", senderBatchId: payout.senderBatchId, batchId: e.ref });
+          store.putJob({ key: `poll:${e.ref}:hook-${e.eventId}`, kind: "payout_poll", target: e.ref, nextAt: now, note: "1" }, now);
+          did = "Checking the payout batch with PayPal.";
+        }
+        break;
+      }
+      case "payout_item_paid":
+      case "payout_item_failed":
+      case "payout_item_pending": {
+        const retry = e.customId?.endsWith("-r1") ?? false;
+        const batchId = p.payouts.find((x) => x.retry === retry)?.batchId;
+        if (batchId) {
+          store.putJob({ key: `poll:${batchId}:hook-${e.eventId}`, kind: "payout_poll", target: batchId, nextAt: now, note: "1" }, now);
+          did = e.kind === "payout_item_pending" ? "A payout is waiting (the person may need to claim it). Checking the payout batch with PayPal." : "Checking the payout batch with PayPal.";
+        }
+        break;
+      }
+      case "charge_reversed":
+        did = "Needs attention: PayPal reversed a charge (a chargeback). Nothing was changed automatically.";
+        break;
+      default:
+        break;
+    }
+    this.log({ saw: `PayPal sent a notice (${e.kind}).`, did, rule: null, resultId: safeRef ? e.ref : null });
+    return { recorded: true };
+  }
+
+  /** A PayPal event of a type we know came through verification but could not be read. Say so; never act on it. */
+  noteUnreadableWebhook(eventType: unknown): { recorded: boolean } {
+    if (!isKnownEventType(eventType)) return { recorded: false };
+    const type = eventType as string;
+    const about = type.startsWith("PAYMENT.AUTHORIZATION") ? "a hold" : type.startsWith("PAYMENT.CAPTURE") ? "a charge" : type.startsWith("PAYMENT.PAYOUTSBATCH") ? "a payout batch" : "a payout";
+    this.log({ saw: `PayPal sent a notice about ${about} that we couldn't read.`, did: "Ignored it. Nothing was changed.", rule: null, resultId: type });
+    return { recorded: true };
+  }
+
+  private authForWebhook(p: Projection, e: PayPalLedgerEvent): string | null {
+    if (p.pledgeByAuth.has(e.ref) || p.retired.has(e.ref)) return e.ref;
+    const pid = e.customId ? pledgeIdFromCustomId(e.customId) : null;
+    if (!pid) return null;
+    const pledge: PledgeView | undefined = p.pledges.get(pid) ?? [...p.pledges.values()].find((x) => x.paypalPledgeId === pid);
+    return pledge && pledge.status === "held" ? pledge.authorizationId : null;
+  }
+
+  /** Notes run once, after every money job is done and every payout check has finished. */
+  private notesDue(p: Projection): boolean {
+    if (!p.mandate || p.notes) return false;
+    const s = p.campaign.state;
+    if (s !== "settled" && s !== "missed" && s !== "cancelled") return false;
+    if (p.campaign.pledges.held > 0) return false;
+    if (s === "cancelled" && p.campaign.pledges.charged > 0) return false;
+    return !this.deps.store.hasPending([...MONEY_JOBS, "payout_poll"]);
+  }
+
+  private async writeNotes(p: Projection): Promise<void> {
+    const m = this.requireMandate(p);
+    const s = p.campaign.state;
+    const outcome = s === "settled" ? "paid" : s === "missed" ? "called_off" : "refunded";
+    const first = p.payouts.find((x) => !x.retry);
+    const fans = s === "settled" ? p.campaign.pledges.charged : s === "missed" ? p.campaign.pledges.released : p.campaign.pledges.refunded;
+    const saw = sawCounts(p);
+    const notes: SettlementNote[] = [];
+    for (const party of m.parties) {
+      const amountCents = outcome === "paid" ? (first?.lines.find((l) => l.role === party.role)?.amount ?? 0) : 0;
+      const state = outcome === "paid" ? payoutStateOf(p, m.showId, party.role) : "none";
+      if (outcome === "paid" && (state === "pending" || state === "failed")) {
+        // Never say "paid" before PayPal has confirmed it.
+        const text = state === "failed" ? `${party.label}'s payout of ${formatUSD(amountCents)} didn't go through, so it is not counted as paid. Check the PayPal email.` : `${party.label}'s payout of ${formatUSD(amountCents)} is still waiting on PayPal.`;
+        notes.push({ role: party.role, label: party.label, text, source: "template" });
+        continue;
+      }
+      if (outcome === "paid" && amountCents === 0) {
+        notes.push({ role: party.role, label: party.label, text: `${m.showName} happened, but no money was left for ${party.label} under the money rules the artist signed.`, source: "template" });
+        continue;
+      }
+      const facts = { role: party.role, label: party.label, showName: m.showName, outcome, amountCents, fans, ticketPriceCents: m.ticketPrice } as const;
+      const r = await settlementNote(this.modelDeps(), facts);
+      notes.push({ role: party.role, label: party.label, text: r.value, source: r.source });
+    }
+    const { appended } = commit(this.deps.store, this.now(), { type: "notes_written", notes });
+    if (appended) this.log({ saw, did: `Wrote a plain-English settlement note for each of the ${notes.length} people involved.`, rule: null, source: notes.some((n) => n.source === "model") ? "model" : (notes[0]?.source ?? "template") });
+  }
+
+  /** When the Durable Object alarm should next fire, in REAL time; null when nothing is left to do. */
+  nextWakeAt(): number | null {
+    if (!this.exists()) return null;
+    const p = this.project();
+    const now = this.now();
+    const c = p.campaign;
+    const times: number[] = [];
+    if (p.mandate && (c.state === "live" || c.state === "tipped")) times.push(c.deadline);
+    if (p.mandate && c.state === "live") {
+      const [half, late] = paceCheckTimes(p.mandate, c);
+      if (!p.paceChecks.has(1)) times.push(half);
+      if (late !== null && !p.paceChecks.has(2)) times.push(late);
+    }
+    const job = this.deps.store.nextJobAt();
+    if (job !== undefined) times.push(job);
+    if (this.notesDue(p)) times.push(now);
+    if (times.length === 0) return null;
+    return Math.max(Math.min(...times), now) - this.clockOffset();
   }
 }

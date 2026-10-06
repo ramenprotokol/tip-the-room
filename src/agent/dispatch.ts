@@ -1,5 +1,6 @@
 import { PayPalError } from "../paypal/errors";
-import type { ApiError, CreateOrderRequest, SignRequest } from "../worker/api-types";
+import type { PayPalLedgerEvent } from "../paypal/webhooks";
+import type { ApiError, ApproveRequest, CreateOrderRequest, SignRequest } from "../worker/api-types";
 import { ServiceError } from "./errors";
 import { isShowId } from "./ids";
 import type { CampaignService } from "./service";
@@ -11,7 +12,11 @@ export type CampaignOp =
   | { op: "public" }
   | { op: "order"; body: CreateOrderRequest }
   | { op: "authorize"; orderId: string }
-  | { op: "manage"; manageKey: string | null };
+  | { op: "manage"; manageKey: string | null }
+  | { op: "approve"; manageKey: string | null; proposalId: string; body: ApproveRequest }
+  | { op: "call_off"; manageKey: string | null }
+  | { op: "webhook"; event: PayPalLedgerEvent }
+  | { op: "webhook_unreadable"; eventType: string };
 
 export type CampaignReply = { ok: true; data: unknown } | { ok: false; status: number; error: ApiError["error"] };
 
@@ -44,6 +49,16 @@ async function run(service: CampaignService, op: CampaignOp): Promise<unknown> {
     case "manage":
       await service.checkKey(op.manageKey);
       return service.manageView();
+    case "approve":
+      await service.checkKey(op.manageKey);
+      return service.approve(op.proposalId, op.body);
+    case "call_off":
+      await service.checkKey(op.manageKey);
+      return service.callOff();
+    case "webhook":
+      return service.ingestWebhook(op.event);
+    case "webhook_unreadable":
+      return service.noteUnreadableWebhook(op.eventType);
   }
 }
 

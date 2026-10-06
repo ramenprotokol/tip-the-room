@@ -16,6 +16,11 @@ const HOUR_MS = 60 * 60 * 1000;
 export const SUBREQUEST_LIMIT = 50;
 export const SUBREQUEST_RESERVE = 12;
 export const TURN_CALL_BUDGET = SUBREQUEST_LIMIT - SUBREQUEST_RESERVE;
+/**
+ * One model call is two subrequests: the daily-budget reservation (a Durable Object call) and the AI binding call.
+ * They are metered on the same meter as PayPal fetches, so a turn's total stays inside TURN_CALL_BUDGET.
+ */
+export const MODEL_CALL_COST = 2;
 /** A hard cap on jobs per turn too (cheap jobs would otherwise starve other work such as AI notes). */
 export const MAX_JOBS_PER_TURN = 12;
 

@@ -7,6 +7,7 @@ import type { PayoutItemStatus } from "./events";
 import { PAYOUT_FAILED } from "./payout-runner";
 import type { PledgeStatus, PledgeView, Projection } from "./project";
 import type { Job, LoggedEntry, StoredEvent } from "./store";
+import type { Role } from "../core/split";
 import { fanName } from "./words";
 
 export function statusWords(s: CampaignState): StatusWords {
@@ -157,20 +158,33 @@ export function proposalRows(p: Projection): ProposalDto[] {
     .reverse();
 }
 
+/** Where one party's payout stands: the retry batch's answer wins over the first batch's. */
+export function payoutStateOf(p: Projection, showId: string, role: Role): "none" | "pending" | "paid" | "failed" {
+  const first = p.payouts.find((x) => !x.retry);
+  if (!first || !first.lines.some((l) => l.role === role && l.amount > 0)) return "none";
+  const retry = p.payouts.find((x) => x.retry);
+  const s = retry?.items[payoutItemId(showId, role, true)]?.status ?? first.items[payoutItemId(showId, role)]?.status;
+  if (s === "SUCCESS") return "paid";
+  if (s && PAYOUT_FAILED.has(s)) return "failed";
+  return "pending";
+}
+
+/** Chargebacks PayPal told us about. We never change money on a webhook, so the artist is told to look. */
+export function reversalLines(events: StoredEvent[]): string[] {
+  const n = events.filter((s) => s.event.type === "webhook_received" && s.event.kind === "charge_reversed").length;
+  return n === 0 ? [] : [`PayPal reported ${n === 1 ? "a charge" : `${n} charges`} reversed (a chargeback). Nothing was changed automatically, so please check your PayPal account.`];
+}
+
 export function manageParties(p: Projection, showId: string): ManageParty[] {
   const m = p.mandate;
   if (!m) return [];
   const first = p.payouts.find((x) => !x.retry);
-  const retry = p.payouts.find((x) => x.retry);
   return m.parties.map((x) => {
     const line = first?.lines.find((l) => l.role === x.role);
     const payoutStatus = ((): ManageParty["payoutStatus"] => {
       if (!first) return "planned";
       if (!line) return "none";
-      const s = retry?.items[payoutItemId(showId, x.role, true)]?.status ?? first.items[payoutItemId(showId, x.role)]?.status;
-      if (s === "SUCCESS") return "paid";
-      if (s && PAYOUT_FAILED.has(s)) return "failed";
-      return "pending";
+      return payoutStateOf(p, showId, x.role);
     })();
     return { role: x.role, label: x.label, fixedCents: x.fixed ?? null, minimumCents: x.minimum ?? null, paypalEmail: x.paypalEmail, payoutCents: line?.amount ?? null, payoutStatus };
   });
