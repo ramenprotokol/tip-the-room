@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AuthorizeResponse } from "../../src/worker/api-types";
 import { ApiFailure } from "../../src/web/shared/api";
-import { CANCELLED, cleanInitials, failureMessage, PledgeFlow, REFUSED_RESUME, STALLED, UNCONFIRMED, type ApprovedOrder, type OrderMemory, type PledgeApi, type PledgeEvent } from "../../src/web/shared/pledge-flow";
+import { CANCELLED, cleanInitials, failureMessage, PledgeFlow, REFUSED_RESUME, STALLED, UNCONFIRMED, type ApprovedOrder, type OrderMemory, type PledgeApi, sessionMemory, type PledgeEvent } from "../../src/web/shared/pledge-flow";
 
 const held = { pledgeId: "p1", status: "held", tipped: false, show: {} } as unknown as AuthorizeResponse;
 
@@ -208,5 +208,34 @@ describe("pledge flow", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("an unconfirmed order keeps the page locked", () => {
+  it("even when browser storage is switched off", async () => {
+    vi.stubGlobal("window", { get sessionStorage(): Storage { throw new Error("blocked"); } });
+    try {
+      let orders = 0;
+      const api: PledgeApi = {
+        createOrder: async () => { orders += 1; return { orderId: `ORDER${orders}`, pledgeId: "p", amountCents: 1500 }; },
+        authorize: async () => { throw new ApiFailure(0, "network", "lost"); },
+      };
+      const flow = new PledgeFlow(api, () => undefined, () => "MR", { retryDelaysMs: [0], memory: sessionMemory("s1") });
+      await flow.approve(await flow.createOrder());
+      expect(flow.canStart()).toBe(false);
+      await expect(flow.createOrder()).rejects.toThrow();
+      expect(orders).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a 429 after a lost attempt is uncertain: same order, memory kept", async () => {
+    const t = setup(async (_id, n) => { throw n === 1 ? new ApiFailure(0, "network", "lost") : new ApiFailure(429, "rate_limited", "Too many tries."); });
+    await t.flow.approve(await t.flow.createOrder());
+    expect(t.authorized).toEqual(["ORDER1", "ORDER1", "ORDER1"]);
+    expect(t.events.at(-1)?.kind).toBe("unconfirmed");
+    expect(t.memory.value).toEqual({ orderId: "ORDER1", initials: "MR" });
+    expect(t.flow.canStart()).toBe(false);
   });
 });

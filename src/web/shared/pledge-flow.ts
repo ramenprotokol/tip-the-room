@@ -33,6 +33,8 @@ export const noMemory: OrderMemory = { get: () => null, set: () => undefined, cl
 /** This tab only (sessionStorage), per show. Storage that is switched off just means no resume after a reload. */
 export function sessionMemory(showId: string): OrderMemory {
   const key = `ttr:approved:${showId}`;
+  /** Kept in the page too: with storage switched off, the "an order is still unconfirmed" lock must still hold until a reload. */
+  let inPage: ApprovedOrder | null = null;
   const store = (): Storage | null => {
     try {
       return window.sessionStorage;
@@ -44,14 +46,15 @@ export function sessionMemory(showId: string): OrderMemory {
     get() {
       try {
         const v = JSON.parse(store()?.getItem(key) ?? "null") as Partial<ApprovedOrder> | null;
-        if (!v || typeof v.orderId !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(v.orderId)) return null;
-        if (typeof v.initials !== "string" || !/^[A-Z]{1,3}$/.test(v.initials)) return null;
+        if (!v || typeof v.orderId !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(v.orderId)) return inPage;
+        if (typeof v.initials !== "string" || !/^[A-Z]{1,3}$/.test(v.initials)) return inPage;
         return { orderId: v.orderId, initials: v.initials };
       } catch {
-        return null;
+        return inPage;
       }
     },
     set(o) {
+      inPage = o;
       try {
         store()?.setItem(key, JSON.stringify(o));
       } catch {
@@ -59,6 +62,7 @@ export function sessionMemory(showId: string): OrderMemory {
       }
     },
     clear() {
+      inPage = null;
       try {
         store()?.removeItem(key);
       } catch {
@@ -78,7 +82,7 @@ export interface PledgeFlowOptions {
 }
 
 export const CANCELLED = "No hold was placed. You can try again whenever you like.";
-export const STALLED = "PayPal didn't open or didn’t answer. Nothing was charged. Please try again, and allow pop-ups for this site.";
+export const STALLED = "PayPal didn't open or didn't answer. Nothing was charged. Please try again, and allow pop-ups for this site.";
 export const UNCONFIRMED = "We didn't hear back. Your pledge may have gone through. Checking again…";
 export const REFUSED_RESUME = "Your last try didn't go through. Nothing was charged.";
 const PAYPAL_TROUBLE = "PayPal didn't answer as expected. Nothing was charged. Please try again.";
@@ -94,8 +98,8 @@ export function failureMessage(e: unknown): string {
   return UNKNOWN;
 }
 
-/** Not a definite answer: no reply (status 0), a server or PayPal error (5xx), or something we can't read. PayPal may have placed the hold. */
-const uncertain = (e: unknown) => !(e instanceof ApiFailure) || e.status === 0 || e.status >= 500;
+/** Not a definite answer: no reply (status 0), a server or PayPal error (5xx), a rate limit (429, which says nothing about the order), or something we can't read. PayPal may have placed the hold. */
+const uncertain = (e: unknown) => !(e instanceof ApiFailure) || e.status === 0 || e.status === 429 || e.status >= 500;
 
 export class PledgeFlow {
   busy = false;

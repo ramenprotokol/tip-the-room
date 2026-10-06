@@ -207,8 +207,7 @@ const hooks: PledgeHooks = {
 };
 if (HOOKS) { window.__marquee = hooks; simulateBtn()?.addEventListener('click', () => hooks.approve()); }
 
-await boot();
-markBooted();
+try { await boot(); } finally { markBooted(); }
 let host: SignHost | null = null;
 const booted = current();
 if (booted) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ } }

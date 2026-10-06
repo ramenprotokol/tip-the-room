@@ -361,8 +361,7 @@ if (HOOKS) {
   document.querySelector('[data-act=reset]')?.addEventListener('click', () => hooks.reset());
 }
 
-await boot();
-markBooted();
+try { await boot(); } finally { markBooted(); }
 let host: SignHost | null = null;
 if (mv) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ } }
 if (host && mv) {

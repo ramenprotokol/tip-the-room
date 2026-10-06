@@ -1,7 +1,7 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
 import "../shared/boot.css";
-import { watchIdle } from "../shared/idle";
+import { IDLE_MS, watchIdle } from "../shared/idle";
 import { compareVersion } from "../shared/version";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
@@ -314,6 +314,7 @@ function links() {
   set('#manage-b', `/s/${encodeURIComponent(B.show.showId)}/manage#${demo.demoKey}`, `${B.show.showName}’s show page`);
 }
 function start(r: DemoResponse) {
+  lastChangeAt = Date.now();
   demo = { demoId: r.demoId, demoKey: r.demoKey, expiresAt: r.expiresAt }; saveDemo(store, demo);
   log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links();
 }
@@ -357,13 +358,19 @@ async function boot() {
     : 'Sandbox buyer login coming soon';
   $('#judge').hidden = false;
 }
-let retryAt = 0;
+let retryAt = 0, lastChangeAt = Date.now();
+/** A passive watcher must not see the demo freeze: keep going while a copy is still seating fans or settling, and for a while after its last change. */
+const settling = () => Date.now() - lastChangeAt < IDLE_MS || ctls.some(c => c.busy || c.phase === 'ff' || c.phase === 'paying' || (c.show !== null && c.fans !== c.show.fans.committed));
+function pausedLine(paused: boolean) { const p = $('#paused'); p.hidden = PARITY || !paused; p.textContent = p.hidden ? '' : 'Paused · move the mouse to keep watching'; }
 async function poll() {
-  if (!demo || document.hidden || inflight || idle.idle()) return;
+  if (!demo || document.hidden || inflight) return;
+  const paused = idle.idle() && !settling();
+  pausedLine(paused);
+  if (paused) return;
   await act(async () => {
     for (const c of [A, B]) {
       if (!c.show) continue;
-      try { const s = await api.getShow(c.show.showId); if (compareVersion(s.version, c.show.version) > 0) await applyShow(c, s); }
+      try { const s = await api.getShow(c.show.showId); if (compareVersion(s.version, c.show.version) > 0) { lastChangeAt = Date.now(); await applyShow(c, s); } }
       catch (e) {
         if (e instanceof ApiFailure && e.status === 404) {
           // The server forgot this copy. Start a new one, but back off after a refusal (429) instead of asking again every 4 s.
@@ -398,8 +405,7 @@ if (HOOKS) addEventListener('keydown', e => {
 const hooks: DemoHooks = { page: 'demo', ctls, views: [], host: null, ready: false, get pending() { return pendingCount(); } };
 if (HOOKS) window.__marquee = hooks;
 
-await boot();
-markBooted();
+try { await boot(); } finally { markBooted(); }
 // 3D layer (optional): one shared WebGL renderer for both signs
 let host: SignHost | null = null;
 if (A.show && B.show) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { /* 3D is optional: host stays null, the flat SVG signs remain */ } }
