@@ -24,7 +24,7 @@ Built for the PayPal AI Hackathon (2026) by Ramen Protocol. **PayPal sandbox onl
 ## What a judge can do (about 5 minutes)
 
 1. Open the site. You get your own private copy of two sample shows (fictional artists and rooms). Their starting fans are real PayPal sandbox holds; the agent seats them a few at a time, so the signs fill over a few minutes.
-2. **Hold a spot on show A** with the real PayPal sandbox popup, using the sandbox buyer above. Your bulb lights; the ledger says "on hold", not charged.
+2. **Hold a spot on show A** with the real PayPal sandbox popup, using the sandbox buyer above (if its login stops working, tell us in the Devpost comments; we keep a spare). Your bulb lights; the ledger says "on hold", not charged.
 3. **Check pace now**: show B is behind, so the agent proposes a fix (extend the deadline or lower the target) and waits for the artist. Open B's show page to approve or say not now.
 4. **Add fans**, then **Skip to the deadline**: show A tips, every hold is charged and one PayPal payout batch pays the room, the opener and the artist; show B misses and every hold is cancelled.
 5. Open **A's show page**: the settlement ledger (AG Grid: sort, filter, CSV) lists every hold, charge, cancellation and payout with its PayPal sandbox id, and the agent log shows what the agent saw, what it did and which signed rule allowed it.
@@ -33,7 +33,7 @@ Built for the PayPal AI Hackathon (2026) by Ramen Protocol. **PayPal sandbox onl
 ## How it works
 
 - **The model proposes, the mandate decides.** Every money action (capture, void, payout, refund) passes a plain-code guard that checks it against the frozen, hashed mandate the artist signed. The model writes drafts, explanations and notes; it never moves money, and no money step depends on it being available (templates take over when the daily AI budget is spent).
-- **Charging happens at tipping**, inside PayPal's 3-day honour period; holds are valid for 29 days ([PayPal: authorize and capture later](https://developer.paypal.com/docs/checkout/standard/customize/authorization/)). So a campaign window is at most 21 days. Payouts go out at the deadline in one batch.
+- **Charging happens at tipping, which can be after day 3.** PayPal holds are valid for 29 days, but PayPal only guarantees the funds for the first 3 ([PayPal: authorize and capture later](https://developer.paypal.com/docs/checkout/standard/customize/authorization/)). A show is charged when it tips, so a late capture can fail; that is recorded as a failed charge, and reauthorizing is not relied on. The 21-day campaign cap is our own design choice, to stay well inside the 29 days. Payouts go out at the deadline in one batch.
 - **Every money call is idempotent** (`PayPal-Request-Id`, a deterministic payout `sender_batch_id`), and the runtime reconciles with PayPal (GET) before retrying anything whose answer was lost.
 
 ## Tools used
@@ -70,7 +70,7 @@ Real artists would be onboarded through PayPal's multiparty platform, so money g
 
 - **Sandbox only.** Fictional shows; play money.
 - **Demo capacity.** Each visitor gets a private demo copy that lasts 24 hours. Copies are capped per visitor (12 an hour) and per day for the public; judges with the judge link have a reserved daily pool. Heavy public traffic can use up the public pool for the day.
-- **Read limit.** Show reads are limited per visitor, using a counter held in memory in each Worker isolate, so the cap is per isolate and resets when the isolate restarts. An edge cache (3 seconds) is configured on public show reads; whether it takes effect on the hosting domain is unverified, and its effect will be measured at launch.
+- **Read limit.** Show reads are limited per visitor, using a counter held in memory in each Worker isolate, so the cap is per isolate and resets when the isolate restarts. An edge cache (3 seconds) is configured on public show reads; whether it takes effect on the hosting domain is unverified, and its effect will be measured at launch. Heavy traffic can use up the free daily quota, and the site stops answering until the daily reset.
 - **Agent toolkit: NO-GO on Workers.** The PayPal Agent Toolkit does not run its OAuth step on Cloudflare Workers, so this project calls PayPal's REST API directly (see Tools used).
 - **Reauthorizing holds is unverified.** On the sandbox account used, card holds offer no reauthorize link, and a reauthorize on day 0 is refused. We did not verify the day 4 to day 29 reauthorize path, so a hold near expiry is voided and replaced with a fresh hold.
 - **Payouts to the example receivers stay pending.** The sample shows pay example receivers. Payouts to them stay pending until real sandbox personal accounts are set as the payees.

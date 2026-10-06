@@ -16,7 +16,7 @@ How Tip the Room was built, and which AI model did what. No session or conversat
 |---|---|---|---|---|
 | 1 · Foundation + money core | The money rules, the mandate guard and the pure settlement logic, with the fixes from review | `0f055b6` | Task reviews clean; final fixes applied | Fable 5.1 |
 | 2 · Marquee port + visual parity | The marquee signs ported to TypeScript, pixel-compared to the approved reference | `0938522` | GPU 39/39 | Fable 5.1 |
-| 3 · PayPal sandbox | A small REST client, webhook verification, a live sandbox run, and the Agent Toolkit evaluation (NO-GO on Workers) | `f693340` | 250 unit tests; sandbox:check 11/11 | Claude Opus 5.5 |
+| 3 · PayPal sandbox | A small REST client, webhook verification, a live sandbox run, and the Agent Toolkit evaluation (NO-GO on Workers) | `f693340` | live sandbox:check 11/11 | Claude Opus 5.5 |
 | 4 · Agent runtime | The Worker API, one Durable Object per show, the money executor, payouts, AI with template fallbacks, the judge demo | `5a4ec21` | 565 unit tests; GPU 39/39; worker:check 19/19 | Claude Opus 5.5 |
 | 5 · Product surfaces | The start, pledge (PayPal v6) and manage pages with the AG Grid ledger, wired to the real API and pixel-locked to the reference | `32685e1` | 622 unit tests; GPU 100; e2e:local PASS | Claude Opus 5.5 |
 | 6 · Ship | Abandoned-order and held-order fixes, judge pool and limits, lost-answer retry on the pledge page, live check scripts, docs | in progress | 670 unit tests on the branch when this was written; completed at merge | Claude Opus 5.5 |

@@ -19,7 +19,7 @@ Fans hold a spot with a PayPal hold, not a charge. The artist signs the money ru
 - We evaluated the PayPal Agent Toolkit; its OAuth step doesn't run on Workers, so the agent's tools wrap our REST client with the same guard.
 
 ## Challenges
-Hold timing (capture inside the 3-day honour period, 29-day validity) shaped the whole design: we charge at tipping and pay out at the deadline. Every money call had to survive lost answers and retries without double-charging or double-paying, so each one is idempotent and reconciled with PayPal before any retry.
+Hold timing shaped the whole design. PayPal holds are valid for 29 days, but PayPal only guarantees the funds for the first 3, and we charge when a show tips, which can be after day 3. A late capture can fail; we record it as a failed charge and do not rely on reauthorizing. The 21-day campaign cap is our own choice, to stay well inside the 29 days. Every money call also had to survive lost answers and retries without double-charging or double-paying, so each one is idempotent and reconciled with PayPal before any retry.
 
 ## Accomplishments
 The model proposes, the mandate decides: the AI can explain and suggest, but it can never move money outside the rules the artist signed, and the show still settles when the AI budget runs out.
@@ -37,4 +37,4 @@ Sandbox only, play money. Payouts to the sample shows' example receivers stay pe
 paypal-orders-v2, paypal-payments-v2, paypal-payouts, paypal-webhooks, paypal-js-sdk-v6, cloudflare-workers, cloudflare-durable-objects, cloudflare-workers-ai, cloudflare-pages, ag-grid, three.js, gsap, typescript, vite, vitest, playwright
 
 ## For judges (testing instructions field)
-Open {{SITE_ORIGIN}}/?judge={{JUDGE_CODE}} (the judge link reserves demo capacity for judges). Use the sandbox buyer {{BUYER_EMAIL}} / {{BUYER_PASSWORD}} in the PayPal popup. Play money only.
+Paste the judge link and the sandbox buyer login into Devpost's private 'testing instructions for judges' field, not here.
