@@ -5,6 +5,8 @@ export interface FakeResponse {
   body?: unknown;
   /** Throw instead of answering (simulates a network failure). */
   networkError?: boolean;
+  /** Extra response headers, e.g. { "retry-after": "2" }. */
+  headers?: Record<string, string>;
 }
 
 export interface RecordedCall {
@@ -30,8 +32,8 @@ export function fakeFetch(responses: FakeResponse[], tokenExpiresIn = 32400) {
     const next = queue.shift();
     if (!next) throw new Error(`fakeFetch: no response queued for ${init.method} ${url}`);
     if (next.networkError) throw new TypeError("fetch failed");
-    if (next.status === 204) return new Response(null, { status: 204 });
-    return new Response(next.body === undefined ? "" : JSON.stringify(next.body), { status: next.status });
+    if (next.status === 204) return new Response(null, { status: 204, headers: next.headers });
+    return new Response(next.body === undefined ? "" : JSON.stringify(next.body), { status: next.status, headers: next.headers });
   };
   return { fetch, calls, apiCalls: () => calls.filter((c) => !c.url.endsWith("/v1/oauth2/token")), tokenCalls: () => tokenCalls };
 }

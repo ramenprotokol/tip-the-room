@@ -2,3 +2,10 @@
 # They do NOT change which Cloudflare account wrangler deploys to.
 # Deploy ONLY with ~/RamenProtocol/_ops/infra/ramen-deploy.sh — it refuses unless the Ramen
 # account id and token are set, so the global wrangler login is never used.
+
+# Plan 4 (optional). Webhooks are refused until PAYPAL_WEBHOOK_ID is set.
+# PAYPAL_WEBHOOK_ID=
+# Sandbox PERSONAL accounts that receive demo payouts (unset -> example.com addresses that stay UNCLAIMED).
+# PAYPAL_RECEIVER_ROOM=
+# PAYPAL_RECEIVER_OPENER=
+# PAYPAL_RECEIVER_ARTIST=

@@ -108,6 +108,11 @@ function usdValue(event: WebhookEvent, amount: R | undefined, currencyKey: strin
   return value;
 }
 
+/** True for an event type we know how to map. When such an event still maps to null, the caller should log it. */
+export function isKnownEventType(type: unknown): boolean {
+  return typeof type === "string" && Object.hasOwn(KINDS, type);
+}
+
 export function mapWebhookEvent(event: WebhookEvent): PayPalLedgerEvent | null {
   const kind = KINDS[event.event_type];
   if (!kind) return null;

@@ -4,7 +4,7 @@ import type { PayoutLine } from "../../src/core/split";
 import { SANDBOX_BASE } from "../../src/paypal/config";
 import { PayPalError } from "../../src/paypal/errors";
 import { PayPalHttp } from "../../src/paypal/http";
-import { getPayoutBatch, isDuplicateBatch, payoutBatchId, sendPayouts } from "../../src/paypal/payouts";
+import { getPayoutBatch, isDuplicateBatch, payoutBatchId, payoutItemId, sendPayouts } from "../../src/paypal/payouts";
 import { fakeFetch } from "./fake-fetch";
 
 const fixture = (name: string) => JSON.parse(readFileSync(`tests/paypal/fixtures/${name}.json`, "utf8"));
@@ -93,10 +93,61 @@ describe("getPayoutBatch", () => {
     expect(batch.status).toBe(body.batch_header.batch_status);
     expect(batch.items).toEqual([{ senderItemId: "spike-1791256675621-room", status: "PENDING", transactionId: undefined, amountCents: 100 }]);
   });
+  it("throws BAD_RESPONSE_BODY when payout_batch_id is missing or a different batch", async () => {
+    const body = fixture("payout-get");
+    body.batch_header.payout_batch_id = "OTHERBATCH";
+    await expect(getPayoutBatch(client([{ status: 200, body }]).http, "V8PDK75HD9EW4")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+    const body2 = fixture("payout-get");
+    delete body2.batch_header.payout_batch_id;
+    await expect(getPayoutBatch(client([{ status: 200, body: body2 }]).http, "V8PDK75HD9EW4")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+  });
+  it("throws BAD_RESPONSE_BODY when sender_batch_id is missing", async () => {
+    const body = fixture("payout-get");
+    delete body.batch_header.sender_batch_header.sender_batch_id;
+    await expect(getPayoutBatch(client([{ status: 200, body }]).http, "V8PDK75HD9EW4")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+  });
   it("refuses an item that isn't in USD", async () => {
     const body = fixture("payout-get");
     body.items[0].payout_item.amount.currency = "CAD";
     const { http } = client([{ status: 200, body }]);
     await expect(getPayoutBatch(http, "V8PDK75HD9EW4")).rejects.toMatchObject({ paypalName: "UNEXPECTED_CURRENCY", status: 502 });
+  });
+});
+
+describe("retry batch ids", () => {
+  it("names the one retry batch and its items with -r1", () => {
+    expect(payoutBatchId("show1", true)).toBe("payout-show1-r1");
+    expect(payoutItemId("show1", "room")).toBe("show1-room");
+    expect(payoutItemId("show1", "room", true)).toBe("show1-room-r1");
+  });
+  it("refuses an item id longer than 63 characters", () => {
+    expect(() => payoutItemId("x".repeat(60), "artist")).toThrow(RangeError);
+  });
+  it("sends the retry batch with -r1 ids", async () => {
+    const body = fixture("payout-create");
+    const { f, http } = client([{ status: 201, body }]);
+    const sent = await sendPayouts(http, "show1", [lines[0]], { retry: true });
+    expect(sent.senderBatchId).toBe("payout-show1-r1");
+    const call = f.apiCalls()[0];
+    expect(call.headers["paypal-request-id"]).toBe("payout-show1-r1");
+    expect(JSON.parse(call.body!).items[0].sender_item_id).toBe("show1-room-r1");
+  });
+});
+
+describe("payout validation", () => {
+  it("refuses a line without a valid PayPal email, without calling PayPal", async () => {
+    const { f, http } = client([]);
+    await expect(sendPayouts(http, "s", [{ ...lines[0], paypalEmail: "not-an-email" }])).rejects.toThrow(/PayPal email/);
+    expect(f.apiCalls()).toHaveLength(0);
+  });
+  it("throws when PayPal's answer has no payout_batch_id", async () => {
+    const { http } = client([{ status: 201, body: { batch_header: { batch_status: "PENDING" } } }]);
+    await expect(sendPayouts(http, "s", [lines[0]])).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY" });
+  });
+  it("throws when a batch item has no sender_item_id", async () => {
+    const body = fixture("payout-get");
+    delete body.items[0].payout_item.sender_item_id;
+    const { http } = client([{ status: 200, body }]);
+    await expect(getPayoutBatch(http, "V8PDK75HD9EW4")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY" });
   });
 });

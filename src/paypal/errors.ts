@@ -5,13 +5,15 @@ export interface PayPalIssue {
 }
 
 /** Our own checks on a response that may already have succeeded, or that a retry cannot fix. */
-const NOT_RETRYABLE = new Set(["UNEXPECTED_CURRENCY", "BAD_AMOUNT", "BAD_RESPONSE_BODY", "BAD_TOKEN_RESPONSE"]);
+const NOT_RETRYABLE = new Set(["UNEXPECTED_CURRENCY", "BAD_AMOUNT", "BAD_RESPONSE_BODY", "BAD_TOKEN_RESPONSE", "EMPTY_RESPONSE_BODY"]);
 
 export class PayPalError extends Error {
   readonly status: number;
   readonly paypalName: string;
   readonly debugId?: string;
   readonly issues: PayPalIssue[];
+  /** Set when the order already existed at PayPal but its answer was unreadable, so callers can look it up (GET). */
+  orderId?: string;
 
   constructor(status: number, paypalName: string, message: string, debugId?: string, issues: PayPalIssue[] = []) {
     super(`PayPal ${status} ${paypalName}: ${message}${debugId ? ` (debug_id ${debugId})` : ""}`);
@@ -52,4 +54,10 @@ export async function errorFromResponse(res: Response): Promise<PayPalError> {
   const name = body.name ?? body.error ?? `HTTP_${res.status}`;
   const message = body.message ?? body.error_description ?? res.statusText ?? "request failed";
   return new PayPalError(res.status, name, message, body.debug_id, Array.isArray(body.details) ? body.details : []);
+}
+
+/** A 2xx with no body where we need one. The call may have succeeded, so callers reconcile instead of retrying blindly. */
+export function requireBody<T>(body: T | undefined, what: string): T {
+  if (body === undefined || body === null) throw new PayPalError(502, "EMPTY_RESPONSE_BODY", `PayPal returned no ${what}`);
+  return body;
 }

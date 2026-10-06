@@ -23,5 +23,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     exclude: ["tests/gpu/**", "node_modules/**"],
     testTimeout: 30_000,
+    // tests/agent/sqlite.ts uses node:sqlite, which prints an ExperimentalWarning in every worker.
+    execArgv: ["--disable-warning=ExperimentalWarning"],
   },
 });
