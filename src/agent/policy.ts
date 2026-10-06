@@ -89,6 +89,8 @@ export const DEMO_GRACE_TOTAL_MAX_MS = 30 * DAY_MS;
 export const SANDBOX_HOLD_LIFETIME_MS = 29 * DAY_MS;
 /** New demo copies allowed per day across all visitors. Each copy seats about 48 real sandbox holds. */
 export const DEMO_COPIES_PER_DAY = 50;
+/** Demo copies a day reserved for judges with the judge code, so public traffic can't use up the copies judges need. */
+export const DEMO_JUDGE_COPIES_PER_DAY = 30;
 export const SIM_CAP_PER_SHOW = 60;
 export const SIM_ADD_MAX = 20;
 export const MAX_ORDERS_PER_SHOW = 500;

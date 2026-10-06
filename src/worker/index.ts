@@ -37,6 +37,12 @@ function routerDeps(env: Env): RouterDeps {
       webhookId: env.PAYPAL_WEBHOOK_ID?.trim() || null,
       rateSalt: env.RATE_SALT ?? "tip-the-room",
       receivers: receiversFrom(env),
+      judgeCode: env.JUDGE_CODE?.trim() || null,
+      setup: {
+        rateSalt: Boolean(env.RATE_SALT?.trim()),
+        receivers: Boolean(env.PAYPAL_RECEIVER_ROOM?.trim() && env.PAYPAL_RECEIVER_OPENER?.trim() && env.PAYPAL_RECEIVER_ARTIST?.trim()),
+        paypalClientId: env.PAYPAL_CLIENT_ID?.trim() || null,
+      },
     },
     verifyWebhook: (headers, rawBody, webhookId) => verifyWebhook(new PayPalHttp(loadConfig(env)), headers, rawBody, webhookId),
   };

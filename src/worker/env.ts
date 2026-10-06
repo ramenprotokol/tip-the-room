@@ -17,4 +17,5 @@ export interface Env {
   PAYPAL_RECEIVER_ARTIST?: string;
   ALLOWED_ORIGINS?: string;
   RATE_SALT?: string;
+  JUDGE_CODE?: string;
 }

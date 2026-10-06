@@ -5,13 +5,13 @@ import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
-import { API_BASE, HOOKS, QUIET, SANDBOX_BUYER, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, QUIET, SANDBOX_BUYER, judgeCode, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
-const api = apiClient(API_BASE);
+const api = apiClient(API_BASE, undefined, { judgeCode });
 const store = safeStorage();
 
 type Key = 'a' | 'b';

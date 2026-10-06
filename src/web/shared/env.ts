@@ -40,3 +40,15 @@ export function safeStorage(): Storage | null {
     return null;
   }
 }
+
+/** The judge code from a judge's link (?judge=...), kept for this tab, so judges draw from their own pool of demo copies. */
+export function judgeCode(): string | null {
+  const ok = (v: string | null) => (v && /^[A-Za-z0-9_-]{8,64}$/.test(v) ? v : null);
+  const fromUrl = ok(query.get("judge"));
+  try {
+    if (fromUrl) window.sessionStorage.setItem("ttr:judge", fromUrl);
+    return fromUrl ?? ok(window.sessionStorage.getItem("ttr:judge"));
+  } catch {
+    return fromUrl;
+  }
+}

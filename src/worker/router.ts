@@ -4,11 +4,11 @@ import type { CampaignOp, CampaignReply } from "../agent/dispatch";
 import { draftFields, previewDraft } from "../agent/draft";
 import { ServiceError } from "../agent/errors";
 import { demoSeeds, type Receivers } from "../agent/demo";
-import { demoShowIds, isDemoId, isShowId, newId, newSecret, sha256Hex, showIdFromRef, type Clock, type Random } from "../agent/ids";
-import { DEMO_COPIES_PER_DAY, DEMO_TTL_MS } from "../agent/policy";
+import { demoShowIds, isDemoId, isShowId, newId, newSecret, sameHex, sha256Hex, showIdFromRef, type Clock, type Random } from "../agent/ids";
+import { DEMO_COPIES_PER_DAY, DEMO_JUDGE_COPIES_PER_DAY, DEMO_TTL_MS } from "../agent/policy";
 import type { QuotaPort } from "../agent/quota";
 import { isKnownEventType, mapWebhookEvent, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
-import { MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoPaceResponse, type DemoResponse, type ErrorCode, type PublicShow } from "./api-types";
+import { JUDGE_CODE_HEADER, MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoPaceResponse, type DemoResponse, type ErrorCode, type HealthResponse, type PublicShow, type SetupReport } from "./api-types";
 
 export interface CampaignsPort {
   call(showId: string, op: CampaignOp): Promise<CampaignReply>;
@@ -21,6 +21,10 @@ export interface RouterConfig {
   rateSalt: string;
   /** Demo payout receivers (example.com unless sandbox accounts are configured). */
   receivers: Receivers;
+  /** JUDGE_CODE secret, or null (then no request is a judge). */
+  judgeCode: string | null;
+  /** Facts for /api/health that the router can't derive itself. */
+  setup: Omit<SetupReport, "webhook" | "judgeCode">;
 }
 
 export interface RouterDeps {
@@ -40,13 +44,15 @@ export const LIMITS = {
   sign: { limit: 20, windowMs: HOUR },
   order: { limit: 30, windowMs: HOUR },
   manage: { limit: 1500, windowMs: HOUR },
-  demo: { limit: 5, windowMs: HOUR },
+  demo: { limit: 12, windowMs: HOUR },
+  demoJudge: { limit: 12, windowMs: HOUR },
+  demoJudgeGlobal: { limit: DEMO_JUDGE_COPIES_PER_DAY, windowMs: 24 * HOUR },
   demoFans: { limit: 12, windowMs: HOUR },
   demoFastForward: { limit: 30, windowMs: HOUR },
   demoPace: { limit: 30, windowMs: HOUR },
   demoGlobal: { limit: DEMO_COPIES_PER_DAY, windowMs: 24 * HOUR },
-  /** Webhook signature checks cost a PayPal call each, so they are capped per visitor and overall. PayPal retries a 429. */
-  webhookVisitor: { limit: 300, windowMs: HOUR },
+  /** Webhook signature checks cost a PayPal call each, so they are capped per visitor and overall. PayPal sends from a few IPs and retries a 429. */
+  webhookVisitor: { limit: 1000, windowMs: HOUR },
   webhookGlobal: { limit: 2000, windowMs: HOUR },
 } as const;
 type LimitName = keyof typeof LIMITS;
@@ -133,6 +139,47 @@ async function limit(c: Ctx, name: LimitName, scope?: string): Promise<void> {
   if (!r.ok) throw new HttpError(429, "rate_limited", "Too many tries. Please wait a moment and try again.", r.retryAfterSec);
 }
 
+/**
+ * Cheap reads (the public show, polled by every open page) are limited per Worker isolate in memory: no Durable
+ * Object call and no storage write per request. Approximate by design, since each isolate counts alone.
+ */
+export const READ_LIMIT = { limit: 3600, windowMs: HOUR };
+const reads = new Map<string, { start: number; count: number }>();
+export function resetReadLimits(): void {
+  reads.clear();
+}
+async function readLimit(c: Ctx): Promise<void> {
+  const who = await visitor(c);
+  const now = c.deps.clock.now();
+  const r = reads.get(who);
+  if (!r || now - r.start >= READ_LIMIT.windowMs) {
+    if (reads.size >= 10_000) reads.clear();
+    reads.set(who, { start: now, count: 1 });
+    return;
+  }
+  r.count += 1;
+  if (r.count > READ_LIMIT.limit) throw new HttpError(429, "rate_limited", "Too many tries. Please wait a moment and try again.", Math.max(1, Math.ceil((r.start + READ_LIMIT.windowMs - now) / 1000)));
+}
+
+/** Constant-time check: both sides are hashed to equal length first, then compared without early exit. */
+async function isJudge(c: Ctx): Promise<boolean> {
+  const want = c.deps.config.judgeCode;
+  const got = c.req.headers.get(JUDGE_CODE_HEADER);
+  if (!want || !got || got.length > 128) return false;
+  return sameHex(await sha256Hex(got), await sha256Hex(want));
+}
+
+/** A new demo copy: judges with the code use their own pool; everyone else the public one. Checked before anything changes. */
+async function demoCopyLimits(c: Ctx): Promise<void> {
+  if (await isJudge(c)) {
+    await limit(c, "demoJudge");
+    await limit(c, "demoJudgeGlobal", "all");
+    return;
+  }
+  await limit(c, "demo");
+  await limit(c, "demoGlobal", "all");
+}
+
 function showParam(c: Ctx): string {
   const id = c.params[0];
   if (!isShowId(id)) throw new HttpError(404, "not_found", "There's no show here.");
@@ -165,7 +212,10 @@ const sign: Handler = async (c) => {
   return fromReply(await c.deps.campaigns.call(id, { op: "sign", body: await readJson(c.req) }));
 };
 
-const getShow: Handler = async (c) => fromReply(await c.deps.campaigns.call(showParam(c), { op: "public" }));
+const getShow: Handler = async (c) => {
+  await readLimit(c);
+  return fromReply(await c.deps.campaigns.call(showParam(c), { op: "public" }));
+};
 
 const createOrder: Handler = async (c) => {
   await limit(c, "order");
@@ -293,8 +343,7 @@ async function newDemoCopy(c: Ctx): Promise<DemoResponse> {
 }
 
 const createDemo: Handler = async (c) => {
-  await limit(c, "demo");
-  await limit(c, "demoGlobal", "all");
+  await demoCopyLimits(c);
   return json(201, await newDemoCopy(c));
 };
 
@@ -330,8 +379,7 @@ const demoPace: Handler = async (c) => {
 
 /** Both limits are checked BEFORE the old copy is retired, so a refused reset never leaves the visitor with no demo. */
 const demoReset: Handler = async (c) => {
-  await limit(c, "demo");
-  await limit(c, "demoGlobal", "all");
+  await demoCopyLimits(c);
   for (const id of demoShowIds(demoParam(c))) {
     const r = await c.deps.campaigns.call(id, { op: "demo_retire", manageKey: manageKey(c) });
     // 404 means that show is already gone (a copy older than 24 h is deleted): carry on to a fresh copy.
@@ -340,8 +388,14 @@ const demoReset: Handler = async (c) => {
   return json(201, await newDemoCopy(c));
 };
 
+const health: Handler = async (c) => {
+  const s = c.deps.config;
+  const body: HealthResponse = { ok: true, setup: { ...s.setup, webhook: s.webhookId !== null, judgeCode: s.judgeCode !== null } };
+  return json(200, body);
+};
+
 const ROUTES: { method: string; pattern: RegExp; handler: Handler }[] = [
-  { method: "GET", pattern: /^\/api\/health$/, handler: async () => json(200, { ok: true }) },
+  { method: "GET", pattern: /^\/api\/health$/, handler: health },
   { method: "POST", pattern: /^\/api\/shows$/, handler: createShow },
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/sign$/, handler: sign },
   { method: "GET", pattern: /^\/api\/shows\/([a-z0-9]+)$/, handler: getShow },
@@ -364,7 +418,7 @@ function corsHeaders(origin: string | null, allowed: string[]): Record<string, s
   return {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": `content-type, ${MANAGE_KEY_HEADER}`,
+    "access-control-allow-headers": `content-type, ${MANAGE_KEY_HEADER}, ${JUDGE_CODE_HEADER}`,
     "access-control-max-age": "600",
     vary: "Origin",
   };

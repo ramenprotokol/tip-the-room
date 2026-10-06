@@ -27,6 +27,18 @@ describe("api client", () => {
     expect(f.seen[3].init.body).toBe(JSON.stringify({ show: "b" }));
   });
 
+  it("sends the judge code on demo create and reset only", async () => {
+    const f = fake(201, JSON.stringify({ demoId: "d1" }));
+    const api = apiClient("https://api.test", f.fetch, { judgeCode: () => "judge-code-123" });
+    await api.createDemo();
+    await api.demoReset("d1", "k123456");
+    await api.getShow("s1");
+    const h = (i: number) => f.seen[i].init.headers as Record<string, string>;
+    expect(h(0)["x-judge-code"]).toBe("judge-code-123");
+    expect(h(1)["x-judge-code"]).toBe("judge-code-123");
+    expect(h(2)["x-judge-code"]).toBeUndefined();
+  });
+
   it("encodes ids so a path can't be smuggled", async () => {
     const f = fake(200, "{}");
     await apiClient("", f.fetch).getShow("a/../b");

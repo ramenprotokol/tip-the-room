@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthorizeResponse, CreateOrderResponse, CreateShowResponse, ManageView, PublicShow, SignResponse } from "../../src/worker/api-types";
-import { LIMITS, route } from "../../src/worker/router";
+import { LIMITS, READ_LIMIT, route } from "../../src/worker/router";
 import { workerHarness } from "./harness";
 
 const SENTENCE = "Acoustic set at Lucky's Café, Nov 20, $15 tickets, café wants $100, I need $200";
@@ -16,7 +16,29 @@ describe("router", () => {
   it("answers health", async () => {
     const res = await workerHarness().call("GET", "/api/health");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(await res.json()).toEqual({ ok: true, setup: { rateSalt: true, webhook: false, judgeCode: false, receivers: false, paypalClientId: "test-client-id" } });
+  });
+
+  it("health reports judge code and webhook as booleans only, never the values", async () => {
+    const w = workerHarness({ judgeCode: "judge-code-123", webhookId: "WH-SECRET-1" });
+    const text = await (await w.call("GET", "/api/health")).text();
+    expect(JSON.parse(text).setup).toMatchObject({ judgeCode: true, webhook: true });
+    expect(text).not.toContain("judge-code-123");
+    expect(text).not.toContain("WH-SECRET-1");
+    expect(text).not.toContain("test-salt");
+  });
+
+  it("limits public show reads per visitor without touching a Durable Object", async () => {
+    const w = workerHarness();
+    const { c } = await createAndSign(w);
+    let last = 200;
+    for (let i = 0; i <= READ_LIMIT.limit; i += 1) last = (await w.call("GET", `/api/shows/${c.showId}`)).status;
+    expect(last).toBe(429);
+    expect((await w.call("GET", `/api/shows/${c.showId}`, undefined, { "cf-connecting-ip": "10.9.9.9" })).status).toBe(200);
+  });
+
+  it("per-sender webhook cap is 1000 an hour", () => {
+    expect(LIMITS.webhookVisitor.limit).toBe(1000);
   });
 
   it("creates a draft (code computes the target), signs it once, and serves the public show without emails", async () => {
