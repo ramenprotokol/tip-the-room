@@ -37,5 +37,12 @@ export default defineConfig({
       timeout: 120_000,
       env: { ...TEST_ENV, VITE_E2E_HOOKS: "1" },
     },
+    {
+      command: "npx vite build --outDir dist-nohooks && npx vite preview --outDir dist-nohooks --port 5201 --strictPort --host 127.0.0.1",
+      url: "http://127.0.0.1:5201/",
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: { ...TEST_ENV, VITE_E2E_HOOKS: "" },
+    },
   ],
 });

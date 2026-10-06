@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
-import type { Connect, Plugin } from "vite";
+import { loadEnv, type Connect, type Plugin } from "vite";
 import { resolve } from "node:path";
+import { headersFile } from "./src/web/build/pages";
 import { rewritePagePath } from "./src/web/build/routes";
 
 const root = import.meta.dirname;
@@ -22,17 +23,33 @@ function pagesRoutes(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [pagesRoutes()],
+/** dist/_headers with the CSP for this build's API origin. */
+function pagesFiles(apiBase: string): Plugin {
+  return {
+    name: "pages-files",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "_headers", source: headersFile(apiBase) });
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, root, "VITE_");
+  return {
+  plugins: [pagesRoutes(), pagesFiles((env.VITE_API_BASE ?? "").trim())],
   server: { hmr: false, host: "127.0.0.1" },
   optimizeDeps: { entries: ["index.html", "start.html", "pledge.html", "manage.html"] },
   build: {
+    // No inline modulepreload polyfill: the CSP allows no inline scripts.
+    modulePreload: { polyfill: false },
     rolldownOptions: {
       input: {
         main: resolve(root, "index.html"),
         start: resolve(root, "start.html"),
         pledge: resolve(root, "pledge.html"),
         manage: resolve(root, "manage.html"),
+        notfound: resolve(root, "404.html"),
       },
       // Guarantees module-evaluation order across chunks, so gsap-global (window.gsap) runs before ui.ts's
       // module-load GSAP config. Without it the shared ui chunk can evaluate first in the production build.
@@ -46,4 +63,5 @@ export default defineConfig({
     // tests/agent/sqlite.ts uses node:sqlite, which prints an ExperimentalWarning in every worker.
     execArgv: ["--disable-warning=ExperimentalWarning"],
   },
+};
 });
