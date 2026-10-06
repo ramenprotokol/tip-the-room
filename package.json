@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:gpu": "playwright test"
+    "test:gpu": "playwright test",
+    "spike": "node --env-file=.dev.vars --import tsx scripts/spikes/paypal-sandbox.ts",
+    "sandbox:check": "node --env-file=.dev.vars --import tsx scripts/sandbox-check.ts"
   },
   "engines": {
     "node": ">=22.13"
@@ -32,6 +34,7 @@
     "jsqr": "^1.4.0",
     "pixelmatch": "^7.2.0",
     "pngjs": "^7.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.0",
     "vite": "^8.3.2",
