@@ -1,4 +1,5 @@
 import { dispatch, type CampaignOp, type CampaignReply } from "../../src/agent/dispatch";
+import { receiversFrom } from "../../src/agent/demo";
 import { Quota } from "../../src/agent/quota";
 import type { CampaignService } from "../../src/agent/service";
 import type { Store } from "../../src/agent/store";
@@ -36,7 +37,7 @@ export function workerHarness(opts: WorkerHarnessOptions = {}) {
     ai: { ai: null, budget: { tryReserve: async () => true } },
     random: seqRandom(),
     clock,
-    config: { allowedOrigins: ["http://localhost:5173"], webhookId: opts.webhookId ?? null, rateSalt: "test-salt" },
+    config: { allowedOrigins: ["http://localhost:5173"], webhookId: opts.webhookId ?? null, rateSalt: "test-salt", receivers: receiversFrom({}) },
     verifyWebhook: opts.verify ?? (async () => false),
   };
   const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>

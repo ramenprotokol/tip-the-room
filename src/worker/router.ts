@@ -3,10 +3,11 @@ import { draftFromSentence } from "../agent/ai-jobs";
 import type { CampaignOp, CampaignReply } from "../agent/dispatch";
 import { draftFields, previewDraft } from "../agent/draft";
 import { ServiceError } from "../agent/errors";
-import { isShowId, newId, newSecret, sha256Hex, showIdFromRef, type Clock, type Random } from "../agent/ids";
+import { demoSeeds, type Receivers } from "../agent/demo";
+import { demoShowIds, isDemoId, isShowId, newId, newSecret, sha256Hex, showIdFromRef, type Clock, type Random } from "../agent/ids";
 import type { QuotaPort } from "../agent/quota";
 import { isKnownEventType, mapWebhookEvent, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
-import { MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type ErrorCode } from "./api-types";
+import { MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoResponse, type ErrorCode, type PublicShow } from "./api-types";
 
 export interface CampaignsPort {
   call(showId: string, op: CampaignOp): Promise<CampaignReply>;
@@ -17,6 +18,8 @@ export interface RouterConfig {
   /** Null when PAYPAL_WEBHOOK_ID is unset: webhooks are then refused. */
   webhookId: string | null;
   rateSalt: string;
+  /** Demo payout receivers (example.com unless sandbox accounts are configured). */
+  receivers: Receivers;
 }
 
 export interface RouterDeps {
@@ -38,6 +41,7 @@ export const LIMITS = {
   manage: { limit: 240, windowMs: HOUR },
   demo: { limit: 5, windowMs: HOUR },
   demoFans: { limit: 12, windowMs: HOUR },
+  demoFastForward: { limit: 30, windowMs: HOUR },
   demoGlobal: { limit: 300, windowMs: 24 * HOUR },
   /** Webhook signature checks cost a PayPal call each, so they are capped per visitor and overall. PayPal retries a 429. */
   webhookVisitor: { limit: 300, windowMs: HOUR },
@@ -248,6 +252,62 @@ const paypalWebhook: Handler = async (c) => {
   return json(500, errorBody("internal", "Couldn't record that message yet. Please retry."));
 };
 
+function demoParam(c: Ctx): string {
+  const id = c.params[0];
+  if (!isDemoId(id)) throw new HttpError(404, "not_found", "There's no demo here.");
+  return id;
+}
+
+async function newDemoCopy(c: Ctx): Promise<DemoResponse> {
+  const demoId = newId("d", c.deps.random);
+  const demoKey = newSecret(c.deps.random);
+  const demoKeyHash = await sha256Hex(demoKey);
+  const shows: PublicShow[] = [];
+  for (const seed of demoSeeds(c.deps.config.receivers)) {
+    const showId = `${demoId}${seed.key}`;
+    const reply = await c.deps.campaigns.call(showId, { op: "demo_init", showId, seed, demoKeyHash });
+    if (!reply.ok) throw new HttpError(reply.status, reply.error.code, reply.error.message);
+    shows.push(reply.data as PublicShow);
+  }
+  return { demoId, demoKey, shows: [shows[0], shows[1]] };
+}
+
+const createDemo: Handler = async (c) => {
+  await limit(c, "demo");
+  await limit(c, "demoGlobal", "all");
+  return json(201, await newDemoCopy(c));
+};
+
+const demoFans: Handler = async (c) => {
+  await limit(c, "demoFans");
+  const demoId = demoParam(c);
+  const body = await readJson<DemoFansRequest>(c.req);
+  if (body?.show !== "a" && body?.show !== "b") throw new HttpError(422, "invalid", "Pick show a or b.");
+  return fromReply(await c.deps.campaigns.call(`${demoId}${body.show}`, { op: "demo_fans", manageKey: manageKey(c), count: body.count }));
+};
+
+const demoFastForward: Handler = async (c) => {
+  await limit(c, "demoFastForward");
+  const [a, b] = demoShowIds(demoParam(c));
+  const ra = await c.deps.campaigns.call(a, { op: "demo_ff", manageKey: manageKey(c), topUp: true });
+  if (!ra.ok) return fromReply(ra);
+  const rb = await c.deps.campaigns.call(b, { op: "demo_ff", manageKey: manageKey(c), topUp: false });
+  if (!rb.ok) return fromReply(rb);
+  const res: DemoFastForwardResponse = { shows: [ra.data as PublicShow, rb.data as PublicShow] };
+  return json(200, res);
+};
+
+/** Both limits are checked BEFORE the old copy is retired, so a refused reset never leaves the visitor with no demo. */
+const demoReset: Handler = async (c) => {
+  await limit(c, "demo");
+  await limit(c, "demoGlobal", "all");
+  for (const id of demoShowIds(demoParam(c))) {
+    const r = await c.deps.campaigns.call(id, { op: "demo_retire", manageKey: manageKey(c) });
+    if (!r.ok) return fromReply(r);
+  }
+  return json(201, await newDemoCopy(c));
+};
+
 const ROUTES: { method: string; pattern: RegExp; handler: Handler }[] = [
   { method: "GET", pattern: /^\/api\/health$/, handler: async () => json(200, { ok: true }) },
   { method: "POST", pattern: /^\/api\/shows$/, handler: createShow },
@@ -259,6 +319,10 @@ const ROUTES: { method: string; pattern: RegExp; handler: Handler }[] = [
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/proposals\/([a-z0-9]+)\/approve$/, handler: approve },
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/call-off$/, handler: callOff },
   { method: "POST", pattern: /^\/api\/webhooks\/paypal$/, handler: paypalWebhook },
+  { method: "POST", pattern: /^\/api\/demo$/, handler: createDemo },
+  { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/fans$/, handler: demoFans },
+  { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/fast-forward$/, handler: demoFastForward },
+  { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/reset$/, handler: demoReset },
 ];
 
 function corsHeaders(origin: string | null, allowed: string[]): Record<string, string> {

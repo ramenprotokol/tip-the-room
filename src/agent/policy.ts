@@ -68,6 +68,10 @@ export const REHOLD_MARGIN_MS = 2 * DAY_MS;
 /** The second pace check runs this long before the deadline (spec 3.4). */
 export const PACE_LATE_MS = 72 * HOUR_MS;
 export const DEMO_TTL_MS = 24 * HOUR_MS;
+/** A show nobody signed is deleted this long after it was created. */
+export const UNSIGNED_TTL_MS = 24 * HOUR_MS;
+/** Demo fast-forward tops show A up to its target plus this many simulated fans, so the sandbox fee cannot leave it short. */
+export const DEMO_TOP_UP_EXTRA = 2;
 export const DEMO_GRACE_MS = HOUR_MS;
 export const DEMO_MAX_GRACES = 3;
 export const SIM_CAP_PER_SHOW = 60;

@@ -8,9 +8,10 @@ import { assertPayPalId } from "../paypal/amount";
 import { PayPalError } from "../paypal/errors";
 import { requestIds, type Hold, type TestCard } from "../paypal/payments";
 import { isKnownEventType, type PayPalLedgerEvent } from "../paypal/webhooks";
-import type { ApproveRequest, ApproveResponse, AuthorizeResponse, CallOffResponse, CreateOrderRequest, CreateOrderResponse, ManageView, PublicShow, SignRequest, SignResponse } from "../worker/api-types";
+import type { ApproveRequest, ApproveResponse, AuthorizeResponse, CallOffResponse, CreateOrderRequest, CreateOrderResponse, DemoFansResponse, ManageView, PublicShow, SignRequest, SignResponse } from "../worker/api-types";
 import type { AiDeps } from "./ai";
 import { paceNote, settlementNote, type PaceFacts } from "./ai-jobs";
+import type { DemoSeed } from "./demo";
 import { toMandateDraft } from "./draft";
 import { ServiceError } from "./errors";
 import type { ProposalOption, SettlementNote } from "./events";
@@ -18,9 +19,10 @@ import { commit, drain, logStep, queueVoid, requestReconcile, type ExecDeps } fr
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, TURN_CALL_BUDGET } from "./policy";
+import { DEMO_GRACE_MS, DEMO_MAX_GRACES, DEMO_TOP_UP_EXTRA, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
 import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
+import { SIM_INITIALS } from "./sim-runner";
 import type { Store } from "./store";
 import { attentionLines, ledgerRows, logRows, manageParties, payoutStateOf, proposalRows, publicShow, reversalLines, UNCONFIRMED_PAYOUT_LINE, unconfirmedPayoutLines, unconfirmedPayouts } from "./views";
 import { fanName, holdDescription, sawCounts } from "./words";
@@ -120,7 +122,10 @@ export class CampaignService {
       store.setMeta("show_id", input.showId);
       store.setMeta("kind", "real");
       store.setMeta("sign_token_hash", input.signTokenHash);
-      store.setMeta("created_at", String(this.deps.clock.now()));
+      const at = this.deps.clock.now();
+      store.setMeta("created_at", String(at));
+      // A show nobody signs is deleted after a day (the alarm does it). Signing removes this.
+      store.setMeta("expires_at", String(at + UNSIGNED_TTL_MS));
     });
     return { showId: input.showId };
   }
@@ -132,6 +137,8 @@ export class CampaignService {
     const at = new Date(now).toISOString();
     if (typeof req?.signToken !== "string" || req.signToken.length === 0 || req.signToken.length > 200) throw new ServiceError(403, "forbidden", "This sign link isn't valid.");
     if (this.project().mandate) throw new ServiceError(409, "conflict", "This show is already signed.");
+    const lapse = this.expiresAt();
+    if (lapse !== null && this.deps.clock.now() >= lapse) throw new ServiceError(404, "not_found", "This sign link has expired. Start a new show.");
     const stored0 = store.getMeta("sign_token_hash");
     if (!stored0 || !sameHex(await sha256Hex(req.signToken), stored0)) throw new ServiceError(403, "forbidden", "This sign link isn't valid.");
     const draft = toMandateDraft(showId, req.draft, at);
@@ -153,6 +160,7 @@ export class CampaignService {
     const { projection } = store.transaction(() => {
       store.setMeta("manage_key_hash", keyHash);
       store.deleteMeta("sign_token_hash");
+      store.deleteMeta("expires_at");
       return commit(store, now, { type: "mandate_signed", mandate: signed.mandate, hash: signed.hash, signedAt: signed.signedAt });
     });
     this.log({ saw: "The artist read the money rules and held to sign.", did: `Opened pledging: ${mandate.threshold} fans by ${new Date(Date.parse(mandate.deadline)).toUTCString()}.`, rule: null, resultId: signed.hash.slice(0, 12) });
@@ -323,22 +331,30 @@ export class CampaignService {
     };
   }
 
-  /** One alarm turn: deadline first, then a due pace check, then due money jobs, then notes. */
+  /** One alarm turn: demo fast-forward, deadline, a due pace check, money jobs, re-hold planning, notes, then expiry (unsigned shows and demo copies). */
   async tick(): Promise<{ expired: boolean }> {
     if (!this.exists()) return { expired: false };
+    const store = this.deps.store;
+    // Nobody signed this show: there is no money to move, so the only thing left is its 24 h expiry.
+    if (!this.project().mandate) return { expired: this.pastExpiry() };
     // One meter for the whole turn: pace-check and note model calls share it with the PayPal jobs.
     this.deps.paypal.meter.reset();
+    const demo = this.kind() === "demo";
+    // Fast-forward waits until every queued simulated fan is seated (or given up on), then jumps the demo clock.
+    if (demo && store.getMeta("ff_pending") && !store.hasPending(["sim_hold"])) this.jumpToDeadline();
     let p = this.applyDeadline();
     if (p.mandate) {
       const due = duePaceCheck(p.mandate, p.campaign, p.paceChecks, this.now());
-      for (const n of due.mark) commit(this.deps.store, this.now(), { type: "pace_checked", check: n });
+      for (const n of due.mark) commit(store, this.now(), { type: "pace_checked", check: n });
       if (due.run !== null) await this.runPaceCheck(due.run);
     }
     await drain(this.exec(), RUNNERS, MAX_JOBS_PER_TURN, false);
+    // After the drain, so fans seated this turn get their re-hold job now, not on some later wake-up.
+    this.planReholds(this.project());
     p = this.applyDeadline();
     this.flagUnconfirmedPayouts(p);
     if (this.notesDue(p)) await this.writeNotes(p);
-    return { expired: false };
+    return { expired: demo ? this.checkExpiry() : false };
   }
 
   /** Logs each recovered payout with no batch id after the wait, once (the log itself is the marker). */
@@ -559,6 +575,144 @@ export class CampaignService {
     if (appended) this.log({ saw, did: `Wrote a plain-English settlement note for each of the ${notes.length} people involved.`, rule: null, source: notes.some((n) => n.source === "model") ? "model" : (notes[0]?.source ?? "template") });
   }
 
+  private expiresAt(): number | null {
+    const v = this.deps.store.getMeta("expires_at");
+    if (v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  private pastExpiry(): boolean {
+    const at = this.expiresAt();
+    return at !== null && this.deps.clock.now() >= at;
+  }
+
+  /** A judge's private demo show: signed at once with fictional rules, starting fans queued as real sandbox holds. */
+  async initDemo(input: { showId: string; seed: DemoSeed; demoKeyHash: string }): Promise<PublicShow> {
+    const store = this.deps.store;
+    if (store.getMeta("show_id")) throw new ServiceError(409, "conflict", "That demo show already exists.");
+    const real = this.deps.clock.now();
+    const launchedAt = new Date(real).toISOString();
+    const deadline = real + input.seed.windowMs;
+    const mandate = buildMandate({ ...input.seed.draft, showId: input.showId, launchedAt, deadline: new Date(deadline).toISOString(), showDate: new Date(deadline + 3 * DAY_MS).toISOString().slice(0, 10) });
+    const signed = await signMandate(mandate, launchedAt);
+    // No awaits from here on: the check and the writes happen together.
+    if (store.getMeta("show_id")) throw new ServiceError(409, "conflict", "That demo show already exists.");
+    store.transaction(() => {
+      store.setMeta("show_id", input.showId);
+      store.setMeta("kind", "demo");
+      store.setMeta("manage_key_hash", input.demoKeyHash);
+      store.setMeta("created_at", String(real));
+      store.setMeta("expires_at", String(real + DEMO_TTL_MS));
+      commit(store, real, { type: "mandate_signed", mandate: signed.mandate, hash: signed.hash, signedAt: signed.signedAt });
+    });
+    this.log({ saw: "A judge opened the demo.", did: `Seeded ${mandate.showName}: ${mandate.threshold} fans needed. Simulated fans are real sandbox card holds; nobody is charged unless the show tips.`, rule: null, resultId: signed.hash.slice(0, 12) });
+    this.queueSimHolds(input.seed.startFans);
+    return this.publicView();
+  }
+
+  private requireDemo(): void {
+    if (this.kind() !== "demo") throw new ServiceError(404, "not_found", "Simulated fans and demo controls exist only in the demo.");
+  }
+
+  /** Simulated fans ever queued for this show (any outcome). Retries (-r1) are the same fan. This is the hard cap's counter. */
+  private simsUsed(): number {
+    return this.deps.store.jobs().filter((j) => j.kind === "sim_hold" && !j.target.endsWith("-r1")).length;
+  }
+
+  private pendingSims(): number {
+    return this.deps.store.jobs().filter((j) => j.kind === "sim_hold" && j.status === "pending").length;
+  }
+
+  /** Queues `count` simulated fans as jobs (one real PayPal hold each, run a few per turn by the alarm). Never past SIM_CAP_PER_SHOW. */
+  private queueSimHolds(count: number): number {
+    const store = this.deps.store;
+    const now = this.now();
+    const used = this.simsUsed();
+    const n = Math.max(0, Math.min(count, SIM_CAP_PER_SHOW - used));
+    const base = this.project().pledges.size + this.pendingSims();
+    for (let i = 0; i < n; i++) {
+      const pledgeId = newId("p", this.deps.random);
+      store.putJob({ key: `sim:${pledgeId}`, kind: "sim_hold", target: pledgeId, nextAt: now, note: SIM_INITIALS[(base + i) % SIM_INITIALS.length] }, now);
+    }
+    return n;
+  }
+
+  addSimFans(count: unknown): DemoFansResponse {
+    this.requireDemo();
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > SIM_ADD_MAX) throw new ServiceError(422, "invalid", `Add between 1 and ${SIM_ADD_MAX} fans at a time.`);
+    const p = this.applyDeadline();
+    if (p.campaign.state !== "live" && p.campaign.state !== "tipped") throw new ServiceError(409, "conflict", "Pledging has closed for this show.");
+    if (this.simsUsed() + count > SIM_CAP_PER_SHOW) throw new ServiceError(409, "conflict", `This demo show can take at most ${SIM_CAP_PER_SHOW} simulated fans.`);
+    const queued = this.queueSimHolds(count);
+    return { queued, show: this.publicView(p) };
+  }
+
+  /**
+   * topUp (show A): queue simulated holds until the show has its target plus DEMO_TOP_UP_EXTRA fans (the sandbox fee would
+   * otherwise leave it a few cents short), and jump once they are seated. Otherwise jump now (show B).
+   */
+  fastForward(topUp: boolean): PublicShow {
+    this.requireDemo();
+    const p = this.applyDeadline();
+    const c = p.campaign;
+    if (c.state !== "live" && c.state !== "tipped") return this.publicView(p);
+    if (topUp) {
+      const need = c.threshold + DEMO_TOP_UP_EXTRA - fansCommitted(c) - this.pendingSims();
+      if (need > 0) this.queueSimHolds(need);
+      this.deps.store.setMeta("ff_pending", "1");
+      return this.publicView(p);
+    }
+    this.jumpToDeadline();
+    return this.publicView();
+  }
+
+  /** Reset: jump the old copy to its deadline (open holds are voided) and let it delete itself within an hour. */
+  retire(): { retired: true } {
+    this.requireDemo();
+    this.jumpToDeadline();
+    const real = this.deps.clock.now();
+    const current = this.expiresAt();
+    this.deps.store.setMeta("expires_at", String(Math.min(current ?? real, real + DEMO_GRACE_MS)));
+    return { retired: true };
+  }
+
+  /** Demo only: move the campaign clock just past the deadline, then apply it. Does nothing once the show is over. */
+  private jumpToDeadline(): void {
+    const store = this.deps.store;
+    store.deleteMeta("ff_pending");
+    const p = this.project();
+    if (!p.mandate || (p.campaign.state !== "live" && p.campaign.state !== "tipped")) return;
+    const saw = sawCounts(p);
+    const offset = p.campaign.deadline + 1000 - this.deps.clock.now();
+    if (offset > this.clockOffset()) store.setMeta("clock_offset", String(offset));
+    this.log({ saw, did: "Demo: skipped ahead to the deadline.", rule: null });
+    this.applyDeadline();
+  }
+
+  /** Queues a re-hold for every seated simulated fan (one per current hold; the job moves itself to the due time). */
+  private planReholds(p: Projection): void {
+    if (p.campaign.state !== "live") return;
+    const now = this.now();
+    for (const x of p.pledges.values()) {
+      if (x.simulated && x.status === "held") this.deps.store.putJob({ key: `rehold:${x.authorizationId}`, kind: "rehold", target: x.pledgeId, nextAt: x.expiresAt - REHOLD_MARGIN_MS }, now);
+    }
+  }
+
+  /** True when a demo copy is past its expiry and has no money step left (the adapter then deletes the storage). */
+  private checkExpiry(): boolean {
+    const store = this.deps.store;
+    if (!this.pastExpiry()) return false;
+    this.jumpToDeadline();
+    const graces = Number(store.getMeta("expiry_graces") ?? "0");
+    if (store.hasPending(MONEY_JOBS) && graces < DEMO_MAX_GRACES) {
+      store.setMeta("expires_at", String(this.deps.clock.now() + DEMO_GRACE_MS));
+      store.setMeta("expiry_graces", String(graces + 1));
+      return false;
+    }
+    return true;
+  }
+
   /** When the Durable Object alarm should next fire, in REAL time; null when nothing is left to do. */
   nextWakeAt(): number | null {
     if (!this.exists()) return null;
@@ -576,6 +730,10 @@ export class CampaignService {
     if (job !== undefined) times.push(job);
     if (this.notesDue(p)) times.push(now);
     times.push(...this.unflaggedPayoutWakes(p));
+    const lapse = this.expiresAt();
+    // Expiry is stored in REAL time; `times` are campaign time (the final subtraction undoes the offset).
+    if (lapse !== null && (!p.mandate || this.kind() === "demo")) times.push(lapse + this.clockOffset());
+    if (this.kind() === "demo" && this.deps.store.getMeta("ff_pending") && !this.deps.store.hasPending(["sim_hold"])) times.push(now);
     if (times.length === 0) return null;
     return Math.max(Math.min(...times), now) - this.clockOffset();
   }

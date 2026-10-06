@@ -1,3 +1,4 @@
+import { receiversFrom } from "../agent/demo";
 import type { CampaignOp, CampaignReply } from "../agent/dispatch";
 import { cryptoRandom, systemClock } from "../agent/ids";
 import { loadConfig } from "../paypal/config";
@@ -35,6 +36,7 @@ function routerDeps(env: Env): RouterDeps {
         .filter(Boolean),
       webhookId: env.PAYPAL_WEBHOOK_ID?.trim() || null,
       rateSalt: env.RATE_SALT ?? "tip-the-room",
+      receivers: receiversFrom(env),
     },
     verifyWebhook: (headers, rawBody, webhookId) => verifyWebhook(new PayPalHttp(loadConfig(env)), headers, rawBody, webhookId),
   };
