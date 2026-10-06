@@ -8,7 +8,7 @@ import { loadConfig, type PayPalConfig } from "../../paypal/config";
 import { TokenHolder, type FetchLike } from "../../paypal/http";
 import type { Env } from "../env";
 import { budgetPort } from "../quota-client";
-import { cfDb } from "./sql-adapter";
+import { cfDb, type MeteredDb } from "./sql-adapter";
 
 const BAD_JSON: CampaignReply = { ok: false, status: 400, error: { code: "bad_request", message: "That request isn't valid JSON." } };
 const BROKEN: CampaignReply = { ok: false, status: 500, error: { code: "internal", message: "Something went wrong on our side." } };
@@ -34,6 +34,7 @@ export interface AgentOptions {
 /** One campaign = one Durable Object with SQLite storage. A thin adapter: the logic is in CampaignService. */
 export class CampaignAgent {
   private store: Store | null = null;
+  private db: MeteredDb | null = null;
   private readonly clock: Clock;
   private readonly makePort: (config: PayPalConfig) => PayPalPort;
   /** The OAuth token lives as long as this object, shared by every invocation. Each invocation still meters its own fetches. */
@@ -57,7 +58,8 @@ export class CampaignAgent {
     const config = loadConfig(this.env);
     const binding = this.env.AI;
     const ai: AiPort | null = binding ? { run: (model, input) => binding.run(model, input) } : null;
-    this.store ??= new Store(cfDb(this.ctx.storage));
+    this.db ??= cfDb(this.ctx.storage);
+    this.store ??= new Store(this.db);
     return new CampaignService({
       store: this.store,
       paypal: this.makePort(config),
@@ -67,6 +69,12 @@ export class CampaignAgent {
       paypalClientId: config.clientId,
       card: SIM_CARD,
     });
+  }
+
+  /** One line per invocation for the free-tier budget (scripts/tail-report.ts sums them). Lower bound: storage.put and setAlarm aren't counted. */
+  private logRows(kind: "fetch" | "alarm", op: string, before: number): void {
+    const name = /^[a-z_]{1,32}$/.test(op) ? op : "other";
+    console.log(`do_rows do=campaign kind=${kind} op=${name} rows=${(this.db?.rowsWritten() ?? 0) - before}`);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -83,8 +91,10 @@ export class CampaignAgent {
       // Missing sandbox keys: the message names a variable at most, never a value (see loadConfig).
       return Response.json(BROKEN);
     }
+    const before = this.db?.rowsWritten() ?? 0;
     const reply = await dispatch(service, op);
     await this.reschedule(service);
+    this.logRows("fetch", typeof op?.op === "string" ? op.op : "other", before);
     return Response.json(reply);
   }
 
@@ -97,6 +107,7 @@ export class CampaignAgent {
       await this.ctx.storage.setAlarm(this.clock.now() + (await this.bumpBackoff()));
       return;
     }
+    const before = this.db?.rowsWritten() ?? 0;
     if (!service.exists()) {
       await this.ctx.storage.deleteAlarm();
       await this.clearBackoff();
@@ -111,11 +122,13 @@ export class CampaignAgent {
       if (!expired) await this.reschedule(service, threw ? this.clock.now() + (await this.bumpBackoff()) : undefined);
       if (!threw && !expired) await this.clearBackoff();
     }
+    this.logRows("alarm", "tick", before);
     if (expired) {
       // A demo copy is 24 h old and has no money step left: delete everything it stored.
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();
       this.store = null;
+      this.db = null;
     }
   }
 

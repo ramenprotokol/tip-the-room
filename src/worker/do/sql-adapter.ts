@@ -2,7 +2,7 @@ import type { SqlDb, SqlRow, SqlValue } from "../../agent/sql";
 
 /** The slice of DurableObjectStorage used here (so Node tests can fake it). */
 export interface StorageLike {
-  sql: { exec(query: string, ...bindings: SqlValue[]): { toArray(): unknown[] } };
+  sql: { exec(query: string, ...bindings: SqlValue[]): { toArray(): unknown[]; readonly rowsWritten?: number } };
   transactionSync<T>(fn: () => T): T;
 }
 
@@ -11,12 +11,18 @@ export interface StorageLike {
  * Transactions are re-entrant: only the outermost level opens one; an inner level just runs, and a throw anywhere
  * propagates to the outermost level, which rolls everything back.
  */
-export function cfDb(storage: StorageLike): SqlDb {
+export type MeteredDb = SqlDb & { rowsWritten(): number };
+
+export function cfDb(storage: StorageLike): MeteredDb {
   let depth = 0;
+  let written = 0;
   return {
+    rowsWritten: () => written,
     sql: {
       exec<T extends SqlRow = SqlRow>(query: string, ...bindings: SqlValue[]) {
-        const rows = storage.sql.exec(query, ...bindings).toArray() as T[];
+        const cur = storage.sql.exec(query, ...bindings);
+        const rows = cur.toArray() as T[];
+        written += cur.rowsWritten ?? 0;
         return { toArray: () => rows };
       },
     },

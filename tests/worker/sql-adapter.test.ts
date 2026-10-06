@@ -64,3 +64,19 @@ describe("cfDb transactions", () => {
     expect(count()).toBe(1);
   });
 });
+
+describe("cfDb row meter", () => {
+  it("adds up rowsWritten from every cursor", () => {
+    const storage: StorageLike = { sql: { exec: () => ({ toArray: () => [], rowsWritten: 2 }) }, transactionSync: (fn) => fn() };
+    const db = cfDb(storage);
+    db.sql.exec("INSERT 1");
+    db.transaction(() => db.sql.exec("INSERT 2"));
+    db.sql.exec("SELECT 1");
+    expect(db.rowsWritten()).toBe(6);
+  });
+  it("counts 0 when the runtime gives no number", () => {
+    const db = cfDb({ sql: { exec: () => ({ toArray: () => [] }) }, transactionSync: (fn) => fn() });
+    db.sql.exec("SELECT 1");
+    expect(db.rowsWritten()).toBe(0);
+  });
+});
