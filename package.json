@@ -45,6 +45,7 @@
     "wrangler": "^4.147.0"
   },
   "dependencies": {
+    "ag-grid-community": "36.2.0",
     "gsap": "3.12.5",
     "three": "0.170.0"
   }
