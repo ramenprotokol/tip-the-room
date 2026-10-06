@@ -36,8 +36,8 @@ describe("Pages build files", () => {
   });
   it("routes share and manage links to their pages, manage first", () => {
     expect(readFileSync("public/_redirects", "utf8").trim().split("\n").map((l) => l.trim().split(/\s+/))).toEqual([
-      ["/s/:id/manage", "/manage.html", "200"],
-      ["/s/:id", "/pledge.html", "200"],
+      ["/s/:id/manage", "/manage", "200"],
+      ["/s/:id", "/pledge", "200"],
     ]);
   });
   it("has a plain 404 page that points to the demo and the start page", () => {

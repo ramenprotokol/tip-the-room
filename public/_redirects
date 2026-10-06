@@ -1,2 +1,2 @@
-/s/:id/manage  /manage.html  200
-/s/:id         /pledge.html  200
+/s/:id/manage  /manage  200
+/s/:id         /pledge  200
