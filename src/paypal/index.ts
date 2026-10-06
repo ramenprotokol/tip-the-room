@@ -4,3 +4,4 @@ export * from "./http";
 export * from "./amount";
 export * from "./payments";
 export * from "./payouts";
+export * from "./webhooks";
