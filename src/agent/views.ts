@@ -5,7 +5,8 @@ import { payoutItemId } from "../paypal/payouts";
 import type { AgentLogDto, BulbStatus, LedgerRowDto, LedgerStatus, ManageParty, ProposalDto, PublicShow, StatusWords } from "../worker/api-types";
 import type { PayoutItemStatus } from "./events";
 import { PAYOUT_FAILED } from "./payout-runner";
-import type { PledgeStatus, PledgeView, Projection } from "./project";
+import { RECOVERED_BATCH_ATTENTION_MS } from "./policy";
+import type { PayoutView, PledgeStatus, PledgeView, Projection } from "./project";
 import type { Job, LoggedEntry, StoredEvent } from "./store";
 import type { Role } from "../core/split";
 import { fanName } from "./words";
@@ -173,6 +174,17 @@ export function payoutStateOf(p: Projection, showId: string, role: Role): "none"
 export function reversalLines(events: StoredEvent[]): string[] {
   const n = events.filter((s) => s.event.type === "webhook_received" && s.event.kind === "charge_reversed").length;
   return n === 0 ? [] : [`PayPal reported ${n === 1 ? "a charge" : `${n} charges`} reversed (a chargeback). Nothing was changed automatically, so please check your PayPal account.`];
+}
+
+export const UNCONFIRMED_PAYOUT_LINE = "A payout PayPal already had still isn't confirmed. Please check your PayPal account.";
+
+/** Payouts PayPal already had (recovered) whose batch id never arrived, and that have waited too long. */
+export function unconfirmedPayouts(p: Projection, now: number): PayoutView[] {
+  return p.payouts.filter((x) => x.recovered && x.batchId === null && now - x.sentAt > RECOVERED_BATCH_ATTENTION_MS);
+}
+
+export function unconfirmedPayoutLines(p: Projection, now: number): string[] {
+  return unconfirmedPayouts(p, now).map(() => UNCONFIRMED_PAYOUT_LINE);
 }
 
 export function manageParties(p: Projection, showId: string): ManageParty[] {

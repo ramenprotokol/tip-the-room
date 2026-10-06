@@ -75,3 +75,5 @@ export const SIM_ADD_MAX = 20;
 export const MAX_ORDERS_PER_SHOW = 500;
 /** Jobs that move or release money; a show isn't finished while one is pending. */
 export const MONEY_JOBS: JobKind[] = ["capture", "void", "refund", "payout", "payout_retry", "reconcile", "sim_hold"];
+/** A payout PayPal already had (recovered) with no batch id after this long is flagged for the artist. */
+export const RECOVERED_BATCH_ATTENTION_MS = 6 * HOUR_MS;

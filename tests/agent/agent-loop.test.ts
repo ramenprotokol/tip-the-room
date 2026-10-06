@@ -339,6 +339,72 @@ describe("task 7 hardening", () => {
   });
 });
 
+describe("pace option comparison", () => {
+  it("keeps a valid model answer when only the lowered target drifted during the model call", async () => {
+    let ref: Awaited<ReturnType<typeof signedService>> | null = null;
+    const ai: AiPort = {
+      run: async () => {
+        ref!.clock.t = HALF + 2 * DAY_MS; // projected fans fall from 2 to 1, so the "lower" target moves
+        return json({ text: "You have 1 of 3 fans with 4 days left. Extending 7 days gives fans time.", recommend: "extend" });
+      },
+    };
+    const h = await signedService({ ai: { ai, budget: fakeBudget().port } });
+    ref = h;
+    await pledge(h.svc);
+    h.clock.t = HALF;
+    await h.svc.tick();
+    const proposal = h.svc.project().proposals.get("pace1");
+    expect(proposal?.source).toBe("model");
+    expect(proposal?.options.map((o) => o.id)).toEqual(["extend", "lower"]);
+  });
+});
+
+describe("recovered payout batch with no id", () => {
+  const SIX = 6 * 60 * 60 * 1000;
+  async function recovered() {
+    const h = await signedService();
+    for (const i of ["AA", "BB", "CC"]) await pledge(h.svc, i);
+    await h.svc.tick();
+    h.paypal.script("sendPayouts", () => {
+      throw new PayPalError(400, "USER_BUSINESS_ERROR", "dup", undefined, [{ field: "SENDER_BATCH_ID", issue: "Batch with given sender_batch_id already exists" }]);
+    });
+    h.clock.t = DEADLINE;
+    await h.svc.tick();
+    expect(h.svc.project().payouts[0]).toMatchObject({ recovered: true, batchId: null });
+    return h;
+  }
+  const LINE = "A payout PayPal already had still isn't confirmed. Please check your PayPal account.";
+
+  it("shows no line before 6 hours", async () => {
+    const h = await recovered();
+    h.clock.t = DEADLINE + SIX - 1000;
+    await h.svc.tick();
+    expect(h.svc.manageView().attention).not.toContain(LINE);
+    expect(h.store.logs().filter((l) => l.did === LINE)).toHaveLength(0);
+  });
+
+  it("after 6 hours shows the line and logs it exactly once across ticks", async () => {
+    const h = await recovered();
+    expect(h.svc.nextWakeAt()).toBe(DEADLINE + SIX + 1);
+    h.clock.t = DEADLINE + SIX + 1;
+    await h.svc.tick();
+    await h.svc.tick();
+    h.clock.t = DEADLINE + 2 * SIX;
+    await h.svc.tick();
+    expect(h.svc.manageView().attention).toContain(LINE);
+    expect(h.store.logs().filter((l) => l.did === LINE)).toHaveLength(1);
+    expect(h.svc.nextWakeAt()).toBeNull();
+  });
+
+  it("shows no line once a batch id arrives", async () => {
+    const h = await recovered();
+    await h.svc.ingestWebhook(hook({ eventId: "WH-9", kind: "payout_batch_done", ref: "BATCH9", customId: `payout-${SHOW}` }));
+    h.clock.t = DEADLINE + 2 * SIX;
+    await h.svc.tick();
+    expect(h.svc.manageView().attention).not.toContain(LINE);
+  });
+});
+
 describe("turn budget", () => {
   it("counts a pace check's model call (budget reservation plus AI call) on the turn's meter", async () => {
     const ai = new FakeAi([json({ text: "You have 1 of 3 fans with 4 days left. Extending 7 days gives fans time.", recommend: "extend" })]);

@@ -18,11 +18,11 @@ import { commit, drain, logStep, queueVoid, requestReconcile, type ExecDeps } fr
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, TURN_CALL_BUDGET } from "./policy";
+import { MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, TURN_CALL_BUDGET } from "./policy";
 import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
 import type { Store } from "./store";
-import { attentionLines, ledgerRows, logRows, manageParties, payoutStateOf, proposalRows, publicShow, reversalLines } from "./views";
+import { attentionLines, ledgerRows, logRows, manageParties, payoutStateOf, proposalRows, publicShow, reversalLines, UNCONFIRMED_PAYOUT_LINE, unconfirmedPayoutLines, unconfirmedPayouts } from "./views";
 import { fanName, holdDescription, sawCounts } from "./words";
 
 export interface ServiceDeps {
@@ -297,7 +297,7 @@ export class CampaignService {
       proposals: proposalRows(p),
       parties: manageParties(p, showId),
       notes: (p.notes ?? []).map((n) => ({ role: n.role, label: n.label, text: n.text, source: n.source })),
-      attention: [...attentionLines(this.deps.store.jobs()), ...reversalLines(this.deps.store.events())],
+      attention: [...attentionLines(this.deps.store.jobs()), ...reversalLines(this.deps.store.events()), ...unconfirmedPayoutLines(p, this.now())],
       collectedNetCents: p.collectedNet,
     };
   }
@@ -336,8 +336,23 @@ export class CampaignService {
     }
     await drain(this.exec(), RUNNERS, MAX_JOBS_PER_TURN, false);
     p = this.applyDeadline();
+    this.flagUnconfirmedPayouts(p);
     if (this.notesDue(p)) await this.writeNotes(p);
     return { expired: false };
+  }
+
+  /** Logs each recovered payout with no batch id after the wait, once (the log itself is the marker). */
+  private flagUnconfirmedPayouts(p: Projection): void {
+    const logged = new Set(this.deps.store.logs().filter((l) => l.did === UNCONFIRMED_PAYOUT_LINE).map((l) => l.resultId));
+    for (const x of unconfirmedPayouts(p, this.now())) {
+      if (logged.has(x.senderBatchId)) continue;
+      this.log({ saw: "PayPal already had this payout, but no batch id has come back.", did: UNCONFIRMED_PAYOUT_LINE, rule: null, resultId: x.senderBatchId });
+    }
+  }
+
+  private unflaggedPayoutWakes(p: Projection): number[] {
+    const logged = new Set(this.deps.store.logs().filter((l) => l.did === UNCONFIRMED_PAYOUT_LINE).map((l) => l.resultId));
+    return p.payouts.filter((x) => x.recovered && x.batchId === null && !logged.has(x.senderBatchId)).map((x) => x.sentAt + RECOVERED_BATCH_ATTENTION_MS + 1);
   }
 
   private async runPaceCheck(check: 1 | 2): Promise<void> {
@@ -368,7 +383,9 @@ export class CampaignService {
       return;
     }
     const again = paceOptions(m, after.campaign, after.approvals, after.collectedNet, paceNumbers(m, after.campaign, this.now()));
-    if (JSON.stringify(again) !== JSON.stringify(options)) return; // things changed while the model wrote: check again next turn
+    // Compare by option id only: a target number (like the lowered threshold) drifts with the clock, and the note matches the options we made.
+    const sig = (os: typeof options) => os.map((o) => o.id).join(",");
+    if (sig(again) !== sig(options)) return; // things changed while the model wrote: check again next turn
     commit(store, this.now(), { type: "proposal_made", proposalId: `pace${check}`, options, explanation: note.value.text, recommend: note.value.recommend, source: note.source });
     commit(store, this.now(), { type: "pace_checked", check });
     const resting = note.source === "resting" ? " The AI is resting until 00:00 UTC, so a plain template wrote this." : "";
@@ -558,6 +575,7 @@ export class CampaignService {
     const job = this.deps.store.nextJobAt();
     if (job !== undefined) times.push(job);
     if (this.notesDue(p)) times.push(now);
+    times.push(...this.unflaggedPayoutWakes(p));
     if (times.length === 0) return null;
     return Math.max(Math.min(...times), now) - this.clockOffset();
   }
