@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthorizeResponse, CreateOrderResponse, CreateShowResponse, ManageView, PublicShow, SignResponse } from "../../src/worker/api-types";
+import { LIMITS, route } from "../../src/worker/router";
 import { workerHarness } from "./harness";
 
 const SENTENCE = "Acoustic set at Lucky's Café, Nov 20, $15 tickets, café wants $100, I need $200";
@@ -156,7 +157,7 @@ describe("PayPal webhooks, edge cases", () => {
         throw new RangeError("PAYPAL_WEBHOOK_ID is not set");
       },
     });
-    const res = await w.call("POST", "/api/webhooks/paypal", { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED" });
+    const res = await w.call("POST", "/api/webhooks/paypal", { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", resource: { custom_id: "sabcdefghjk:p1" } });
     expect(res.status).toBe(403);
     expect(await res.text()).not.toContain("PAYPAL_WEBHOOK_ID");
   });
@@ -168,7 +169,7 @@ describe("PayPal webhooks, edge cases", () => {
         throw new Error("secret-detail-from-paypal");
       },
     });
-    const res = await w.call("POST", "/api/webhooks/paypal", { id: "WH-1" });
+    const res = await w.call("POST", "/api/webhooks/paypal", { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", resource: { custom_id: "sabcdefghjk:p1" } });
     expect(res.status).toBe(502);
     expect(await res.text()).not.toContain("secret-detail");
   });
@@ -200,5 +201,89 @@ describe("PayPal webhooks, edge cases", () => {
     const w = workerHarness({ webhookId: "WH-ID", verify: async () => true });
     const res = await w.call("POST", "/api/webhooks/paypal", JSON.stringify({ pad: "x".repeat(66_000) }));
     expect(res.status).toBe(413);
+  });
+});
+
+describe("PayPal webhooks, verification is pre-filtered and rate limited", () => {
+  const known = { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", create_time: "2026-11-01T00:00:00Z", resource: { id: "C1", custom_id: "sabcdefghjk:p1", amount: { currency_code: "USD", value: "15.00" } } };
+  const counting = () => {
+    const calls = { n: 0 };
+    const w = workerHarness({
+      webhookId: "WH-ID",
+      verify: async () => {
+        calls.n++;
+        return true;
+      },
+    });
+    return { w, calls };
+  };
+
+  it("answer 200 with no PayPal call for junk, unknown types, and events with no valid show id", async () => {
+    const { w, calls } = counting();
+    const junk = ["not json at all", "null", "42", "[]", "{}"];
+    for (const body of junk) expect((await w.call("POST", "/api/webhooks/paypal", body)).status).toBe(200);
+    expect((await w.call("POST", "/api/webhooks/paypal", { ...known, event_type: "CHECKOUT.ORDER.APPROVED" })).status).toBe(200);
+    expect((await w.call("POST", "/api/webhooks/paypal", { ...known, resource: { custom_id: "NOT-A-SHOW:p1" } })).status).toBe(200);
+    expect((await w.call("POST", "/api/webhooks/paypal", { ...known, resource: {} })).status).toBe(200);
+    expect(calls.n).toBe(0);
+  });
+
+  it("verify a valid known event as before", async () => {
+    const { w, calls } = counting();
+    expect((await w.call("POST", "/api/webhooks/paypal", known)).status).toBe(200);
+    expect(calls.n).toBe(1);
+  });
+
+  it("answer 429 with no PayPal call once a visitor passes the verification limit", async () => {
+    const { w, calls } = counting();
+    for (let i = 0; i < LIMITS.webhookVisitor.limit; i++) expect((await w.call("POST", "/api/webhooks/paypal", known)).status).toBe(200);
+    const res = await w.call("POST", "/api/webhooks/paypal", known);
+    expect(res.status).toBe(429);
+    expect(calls.n).toBe(LIMITS.webhookVisitor.limit);
+    // Junk is still cheap to answer and never counts against the limit.
+    expect((await w.call("POST", "/api/webhooks/paypal", "junk")).status).toBe(200);
+    // Another visitor is unaffected.
+    expect((await w.call("POST", "/api/webhooks/paypal", known, { "cf-connecting-ip": "203.0.113.9" })).status).toBe(200);
+  });
+
+  it("answer 429 with no PayPal call once the global verification cap is spent", async () => {
+    const { w, calls } = counting();
+    for (let i = 0; i < LIMITS.webhookGlobal.limit; i++) await w.deps.quota.hit("webhookGlobal:all", LIMITS.webhookGlobal.limit, LIMITS.webhookGlobal.windowMs);
+    const res = await w.call("POST", "/api/webhooks/paypal", known);
+    expect(res.status).toBe(429);
+    expect(calls.n).toBe(0);
+  });
+});
+
+describe("request body cap", () => {
+  const streamed = (chunks: Uint8Array[], pulled?: { n: number }) =>
+    new ReadableStream<Uint8Array>({
+      pull(ctrl) {
+        const next = chunks.shift();
+        if (pulled) pulled.n++;
+        if (next) ctrl.enqueue(next);
+        else ctrl.close();
+      },
+    });
+  const post = (w: ReturnType<typeof workerHarness>, body: BodyInit) =>
+    route(new Request("http://api.test/api/shows", { method: "POST", headers: { "content-type": "application/json" }, body, duplex: "half" } as RequestInit), w.deps);
+
+  it("stops reading a chunked body as soon as it passes the cap", async () => {
+    const w = workerHarness();
+    const pulled = { n: 0 };
+    const chunk = new Uint8Array(4096).fill(120);
+    const res = await post(w, streamed(Array.from({ length: 1000 }, () => chunk), pulled));
+    expect(res.status).toBe(413);
+    expect(pulled.n).toBeLessThan(10);
+  });
+
+  it("counts bytes, not characters", async () => {
+    const w = workerHarness();
+    // 6,000 three-byte characters: 6,000 characters (under the cap) but 18,000 bytes (over 16,384).
+    const body = JSON.stringify({ sentence: "€".repeat(6000) });
+    expect(body.length).toBeLessThan(16_384);
+    expect((await post(w, streamed([new TextEncoder().encode(body)]))).status).toBe(413);
+    const small = JSON.stringify({ sentence: "€".repeat(100) + " is a bit odd but fine" });
+    expect((await post(w, streamed([new TextEncoder().encode(small)]))).status).not.toBe(413);
   });
 });

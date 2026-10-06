@@ -39,6 +39,9 @@ export const LIMITS = {
   demo: { limit: 5, windowMs: HOUR },
   demoFans: { limit: 12, windowMs: HOUR },
   demoGlobal: { limit: 300, windowMs: 24 * HOUR },
+  /** Webhook signature checks cost a PayPal call each, so they are capped per visitor and overall. PayPal retries a 429. */
+  webhookVisitor: { limit: 300, windowMs: HOUR },
+  webhookGlobal: { limit: 2000, windowMs: HOUR },
 } as const;
 type LimitName = keyof typeof LIMITS;
 
@@ -72,11 +75,32 @@ function errorBody(code: ErrorCode, message: string, extra: Partial<ApiError["er
   return { error: { code, message, ...extra } };
 }
 
+const tooLarge = () => new HttpError(413, "too_large", "That request is too large.");
+
+/** Reads the body as a stream and stops as soon as the byte count passes `max` (bytes, not characters). */
 async function readText(req: Request, max: number): Promise<string> {
-  if (Number(req.headers.get("content-length") ?? "0") > max) throw new HttpError(413, "too_large", "That request is too large.");
-  const text = await req.text();
-  if (text.length > max) throw new HttpError(413, "too_large", "That request is too large.");
-  return text;
+  if (Number(req.headers.get("content-length") ?? "0") > max) throw tooLarge();
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    parts.push(value);
+  }
+  const all = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    all.set(p, at);
+    at += p.byteLength;
+  }
+  return new TextDecoder().decode(all);
 }
 
 async function readJson<T>(req: Request): Promise<T> {
@@ -181,6 +205,17 @@ const paypalWebhook: Handler = async (c) => {
   const webhookId = c.deps.config.webhookId;
   if (!webhookId) return json(403, errorBody("forbidden", "Webhooks are not configured."));
   const raw = await readText(c.req, MAX_WEBHOOK_BODY);
+  // Cheap pre-filter: only a known event type that names one of our shows is worth a PayPal call.
+  // Everything else is acknowledged (200) so PayPal doesn't keep retrying it.
+  let parsed: WebhookEvent;
+  try {
+    parsed = JSON.parse(raw) as WebhookEvent;
+  } catch {
+    return json(200, { ignored: true });
+  }
+  if (!parsed || typeof parsed !== "object" || !isKnownEventType(parsed.event_type) || !showIdFromResource(parsed)) return json(200, { ignored: true });
+  await limit(c, "webhookVisitor");
+  await limit(c, "webhookGlobal", "all");
   let genuine: boolean;
   try {
     genuine = await c.deps.verifyWebhook(c.req.headers, raw, webhookId);
@@ -190,13 +225,7 @@ const paypalWebhook: Handler = async (c) => {
     return json(502, errorBody("unavailable", "Couldn't verify the message with PayPal. Please retry."));
   }
   if (!genuine) return json(400, errorBody("bad_request", "The signature check failed."));
-  let event: WebhookEvent;
-  try {
-    event = JSON.parse(raw) as WebhookEvent;
-  } catch {
-    return json(200, { ignored: true });
-  }
-  if (!event || typeof event !== "object") return json(200, { ignored: true });
+  const event = parsed;
   let mapped: PayPalLedgerEvent | null;
   try {
     mapped = mapWebhookEvent(event);
