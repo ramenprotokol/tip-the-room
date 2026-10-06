@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { RULES } from "../../src/core/rules";
 import { dispatch } from "../../src/agent/dispatch";
 import { commit } from "../../src/agent/executor";
 import { sha256Hex } from "../../src/agent/ids";
@@ -228,7 +227,7 @@ describe("manage view", () => {
       ["room@example.com", "planned"],
       ["maya@example.com", "planned"],
     ]);
-    expect(v.log[0].ruleTitle).toBe(RULES["rule-1-hold-only"].title);
+    expect(v.log[0].rule).toBe("rule-1-hold-only");
     expect(v.attention).toEqual([]);
   });
 });

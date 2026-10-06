@@ -10,7 +10,7 @@ import type { AgentLogDto, ManageView, ProposalDto, PublicShow } from "../../wor
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, planSplit, payoutsConfirmed, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
+import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, planSplit, RESTING_LINE, payoutsConfirmed, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
 import { dismiss, forgetKey, isDismissed, recallKey, rememberKey, showIdFromPath, takeKeyFromHash } from "../shared/keys";
 import type { LedgerGrid } from "../shared/ledger";
 const ledgerModule = import("../shared/ledger"); // AG Grid is the biggest chunk: start fetching it now, in parallel with the API
@@ -142,6 +142,21 @@ function renderAttention() {
   for (const l of lines) { const li = document.createElement('li'); li.textContent = l; el.attention.append(li); }
   el.attention.hidden = lines.length === 0;
 }
+function renderNotes(v: ManageView) {
+  const box = $('#notes');
+  box.hidden = PARITY || v.notes.length === 0;
+  if (box.hidden) return;
+  $('[data-net]').textContent = v.collectedNetCents > 0 ? `Collected after PayPal’s fees: ${money2(v.collectedNetCents)}.` : '';
+  const list = $('[data-notes]'); list.textContent = '';
+  for (const n of v.notes) {
+    const li = document.createElement('li');
+    const b = document.createElement('b'); b.textContent = `${n.label}: `;
+    const small = document.createElement('small'); small.textContent = n.source === 'model' ? 'Written by the agent' : 'Standard wording';
+    li.append(b, document.createTextNode(n.text), small);
+    list.append(li);
+  }
+}
+function renderResting(v: ManageView) { const p = $('#resting'); p.hidden = PARITY || !aiResting(v.log); p.textContent = p.hidden ? '' : RESTING_LINE; }
 function renderCallOff() { el.calloff.hidden = mv?.show.state !== 'tipped'; }
 function payNote(a: number[]) { const fixed = fixedParties(); return `One PayPal payout, in money-rule order: ${[...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[a.length - 1])}`].join(', then ')}.`; }
 const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned' } as const;
@@ -230,7 +245,7 @@ function apply(v: ManageView) {
   if (prev && (prev.show.threshold !== v.show.threshold || prev.show.deadline !== v.show.deadline)) { texts(v.show); ph?.setModel({ name: v.show.showName, target: v.show.threshold }); view?.setModel(model()); }
   takeLog(v);
   grid?.setRows(v.ledger);
-  renderAsk(); renderAttention(); renderCallOff();
+  renderAsk(); renderAttention(); renderCallOff(); renderNotes(v); renderResting(v);
   step();
   render();
 }
@@ -316,7 +331,7 @@ async function boot() {
   $('#share-url').textContent = share; drawQR($<HTMLCanvasElement>('#qr'), share, { scale: 4, margin: 3 });
   takeLog(v); flush(null, true);
   jumpTo(s);
-  renderAsk(); renderAttention(); renderCallOff();
+  renderAsk(); renderAttention(); renderCallOff(); renderNotes(v); renderResting(v);
   render(true);
 }
 

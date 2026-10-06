@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ManageView } from "../../src/worker/api-types";
 import { apiError, installFakeApi, type FakeApi } from "./fake-api";
+import { RESTING_LINE } from "../../src/web/shared/format";
 import { MANAGE_FRAMES, MANAGE_SCRIPTS, manageApi, MAYA, MAYA_ID, MAYA_KEY, mayaParties, showOf } from "./fixtures";
 import { APP_BASE } from "./parity";
 
@@ -145,4 +146,26 @@ test("the ledger is the AG Grid with every money move and a CSV button", async (
   await expect(page.locator('#ledger .ag-row[row-index="0"] .ag-cell[col-id="who"]')).toHaveText("Fan 12 · BF");
   await expect(page.locator("#ledger")).toContainText("SAMPLE-AUTH-012");
   await expect(page.locator("#csv")).toBeVisible();
+});
+
+test("settlement notes show who wrote them, and the resting line shows when the AI fell back", async ({ page }) => {
+  const f = MANAGE_FRAMES.paid;
+  const view: ManageView = {
+    ...f,
+    collectedNetCents: 50832,
+    notes: [
+      { role: "room", label: "Lucky’s Café", text: "You were paid $50.00 first.", source: "model" },
+      { role: "artist", label: "Maya", text: "You got the rest.", source: "template" },
+    ],
+    log: [{ ...f.log[0], seq: 98, source: "resting", did: "Proposed: Extend 4 days. Waiting for the artist." }, ...f.log],
+  };
+  await open(page, manageApi([view]));
+  const notes = page.locator("#notes");
+  await expect(notes).toBeVisible();
+  await expect(notes).toContainText("Lucky’s Café:");
+  await expect(notes).toContainText("Maya:");
+  await expect(notes).toContainText("Written by the agent");
+  await expect(notes).toContainText("Standard wording");
+  await expect(notes).toContainText("$508.32");
+  await expect(page.locator("#resting")).toHaveText(RESTING_LINE);
 });

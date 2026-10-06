@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RULES, type RuleId } from "../../src/core/rules";
-import { andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, payoutsConfirmed, payState, planSplit, remainSec, rulesLine, ShowClock, when } from "../../src/web/shared/format";
+import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, payoutsConfirmed, payState, planSplit, remainSec, rulesLine, ShowClock, when } from "../../src/web/shared/format";
 
 const T = (mo: number, d: number, h: number, mi = 0) => Date.UTC(2026, mo - 1, d, h, mi);
 const text = (segs: { text: string; cls: string }[]) => segs.map((s) => (s.cls ? `[${s.cls}:${s.text}]` : s.text)).join("");
@@ -100,5 +100,14 @@ describe("payState", () => {
     expect(payState(ps("planned", "pending"))).toBe("planned");
     expect(payState(ps("paid", "pending"))).toBe("waiting");
     expect(payState([])).toBe("waiting");
+  });
+});
+
+describe("aiResting", () => {
+  it("is true when the newest AI-written log line came from the resting fallback", () => {
+    expect(aiResting([{ seq: 1, source: "model" }, { seq: 3, source: "code" }, { seq: 2, source: "resting" }])).toBe(true);
+    expect(aiResting([{ seq: 1, source: "resting" }, { seq: 2, source: "model" }])).toBe(false);
+    expect(aiResting([{ seq: 1, source: "code" }])).toBe(false);
+    expect(aiResting([])).toBe(false);
   });
 });

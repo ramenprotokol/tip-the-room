@@ -60,6 +60,7 @@ function render(instant = false) {
 function texts(s: PublicShow) {
   const p = dollars(s.ticketPriceCents), t = s.threshold, d = Date.parse(s.deadline), tz = s.timeZone;
   const artist = s.split.find(x => x.role === 'artist')?.label ?? '', opener = s.split.find(x => x.role === 'opener')?.label;
+  const fp = $('#fingerprint'); fp.hidden = PARITY || !s.mandateHash; fp.textContent = s.mandateHash ? `Money rules fingerprint: ${s.mandateHash.slice(0, 16)}… (it changes if anyone edits the signed rules)` : '';
   $('.mode').textContent = s.demo ? 'Fan page · sample show' : 'Fan page';
   $('.row-top .eyebrow').textContent = `${dayLabel(s.showDate)} · ${s.roomName}`;
   $('#show-title').textContent = s.showName;

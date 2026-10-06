@@ -1,6 +1,5 @@
 import { fansCommitted, type CampaignState } from "../core/campaign";
 import type { Mandate } from "../core/mandate";
-import { RULES } from "../core/rules";
 import { payoutItemId } from "../paypal/payouts";
 import type { AgentLogDto, BulbStatus, LedgerRowDto, LedgerStatus, ManageParty, ProposalDto, PublicShow, StatusWords } from "../worker/api-types";
 import type { PayoutItemStatus } from "./events";
@@ -152,12 +151,12 @@ export function ledgerRows(events: StoredEvent[], p: Projection, showId: string)
 }
 
 export function logRows(entries: LoggedEntry[]): AgentLogDto[] {
-  return entries.map((e) => ({ ...e, ruleTitle: e.rule ? RULES[e.rule].title : null })).reverse();
+  return entries.map((e) => ({ ...e })).reverse();
 }
 
 export function proposalRows(p: Projection): ProposalDto[] {
   return [...p.proposals.values()]
-    .map((x) => ({ proposalId: x.proposalId, explanation: x.explanation, recommend: x.recommend, source: x.source, options: x.options.map((o) => ({ id: o.id, label: o.label, newDeadline: o.newDeadline !== undefined ? new Date(o.newDeadline).toISOString() : null, newThreshold: o.newThreshold ?? null })), approved: x.approved?.option ?? null, madeAt: x.madeAt }))
+    .map((x) => ({ proposalId: x.proposalId, explanation: x.explanation, recommend: x.recommend, source: x.source, options: x.options.map((o) => ({ id: o.id, label: o.label, newDeadline: o.newDeadline !== undefined ? new Date(o.newDeadline).toISOString() : null, newThreshold: o.newThreshold ?? null })), approved: x.approved?.option ?? null }))
     .reverse();
 }
 

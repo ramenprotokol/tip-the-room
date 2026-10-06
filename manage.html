@@ -73,6 +73,7 @@
         <div class="actions" id="ask-alt" data-app-only hidden></div><p class="pledge-msg" data-ask-msg data-app-only hidden aria-live="polite"></p>
       </div>
       <ol class="log" id="log" aria-live="polite"></ol>
+      <p class="hint" id="resting" data-app-only hidden></p>
       <div class="calloff" id="calloff" data-app-only hidden>
         <p class="why">Can’t play? Calling the show off gives every fan who was charged their money back.</p>
         <button class="btn btn-hold" type="button" id="calloff-btn" style="min-height:48px;padding:0 18px;font-size:16px"><span class="lbl"><span data-calloff-label>Hold to call the show off</span></span></button>
@@ -100,6 +101,12 @@
     <h2 class="section-title" id="h-ledger">Every money move</h2>
     <div class="ledger-grid" id="ledger"></div>
     <p class="grid-note"><span data-note>Newest first. Sample refs: the live app shows real PayPal sandbox IDs. Sort, filter and export to CSV there.</span> <button class="linkish" type="button" id="csv" data-app-only hidden>Download as CSV</button></p>
+  </section>
+
+  <section class="card notes" id="notes" data-app-only hidden aria-labelledby="h-notes">
+    <h2 class="section-title" id="h-notes">Settlement notes</h2>
+    <p class="hint" data-net></p>
+    <ul class="notes-list" data-notes></ul>
   </section>
 </main>
 <footer class="key" aria-label="What the sign shows">

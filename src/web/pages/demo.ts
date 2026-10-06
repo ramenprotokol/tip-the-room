@@ -8,9 +8,9 @@ import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
-import { API_BASE, HOOKS, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, PARITY, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, rulesLine, ShowClock, when } from "../shared/format";
+import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, RESTING_LINE, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
@@ -38,7 +38,7 @@ class ShowCtl {
   key: Key; look: Look; el: HTMLElement; stage: HTMLElement; tipEl: HTMLElement; status: HTMLElement; clockEl: HTMLElement; fansSub: HTMLElement; of: HTMLElement; moneySub: HTMLElement;
   odoFans: Odo; odoHeld: Odo; odoCharged: Odo; bAdd: HTMLButtonElement; bFF: HTMLButtonElement; bReset: HTMLButtonElement;
   ph: Placeholder | null = null; cues = new Cues(); view: SignView | null = null;
-  show: PublicShow | null = null; parties: ManageParty[] = []; openProposals = 0; clock: ShowClock | null = null; queue: AgentLogDto[] = []; lastSeq = 0; viewVersion: string | null = null; viewP: Promise<void> | null = null;
+  show: PublicShow | null = null; parties: ManageParty[] = []; openProposals = 0; clock: ShowClock | null = null; queue: AgentLogDto[] = []; lastSeq = 0; resting = false; viewVersion: string | null = null; viewP: Promise<void> | null = null;
   phase: CtlPhase = 'open'; tipped = false; fans = 0; remain = 0; busy = false; ffRaf = 0;
   constructor(key: Key) {
     this.key = key; this.look = LOOK[key]; const el = this.el = $('#show-' + key);
@@ -147,6 +147,7 @@ class ShowCtl {
     this.buttons(); this.step();
   }
   takeView(v: ManageView, instant = false) {
+    this.resting = aiResting(v.log); showResting();
     this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length;
     for (const e of [...v.log].reverse()) if (e.seq > this.lastSeq) { this.queue.push(e); this.lastSeq = e.seq; }
     if (this.phase === 'paid') { this.setStatus(this.payKey, true); this.renderFans(); this.moneySub.textContent = this.payMoneySub(); }
@@ -285,6 +286,7 @@ async function solo(fn: () => Promise<void>) {
 }
 function lock() { ctls.forEach(c => c.buttons()); $<HTMLButtonElement>('#pace').disabled = inflight; }
 
+function showResting() { const p = $('#resting'); p.hidden = PARITY || !ctls.some(c => c.resting); p.textContent = p.hidden ? '' : RESTING_LINE; }
 function pullView(c: ShowCtl, instant = false): Promise<void> {
   if (!demo || !c.show) return Promise.resolve();
   if (c.show.version === c.viewVersion) return c.viewP ?? Promise.resolve();

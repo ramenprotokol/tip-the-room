@@ -65,7 +65,7 @@ export function showOf(b: ShowBase, s: ShowState): PublicShow {
   };
 }
 
-const line = (seq: number, at: number, did: string, saw: string, rule: RuleId | null = null): AgentLogDto => ({ seq, at, saw, did, rule, ruleTitle: null, requestId: null, resultId: null, source: "code" });
+const line = (seq: number, at: number, did: string, saw: string, rule: RuleId | null = null): AgentLogDto => ({ seq, at, saw, did, rule, requestId: null, resultId: null, source: "code" });
 
 /* ---------------- Maya's show (pledge, manage, start) ---------------- */
 
@@ -123,7 +123,6 @@ const PACE: ProposalDto = {
   source: "template",
   options: [{ id: "extend", label: "Extend 4 days", newDeadline: iso(NEW_DEADLINE), newThreshold: null }],
   approved: null,
-  madeAt: T(11, 9, 9),
 };
 
 function manageView(show: PublicShow, o: { log: AgentLogDto[]; proposals?: ProposalDto[]; parties?: ManageParty[]; ledger?: LedgerRowDto[]; attention?: string[] }): ManageView {
@@ -336,7 +335,7 @@ export function demoApi(payout: ManageParty["payoutStatus"] = "paid", opts: { ca
     }
     if (b.show.state === "live" && b.proposals.length === 0) {
       set(b, { fans: b.show.fans.committed });
-      b.proposals = [{ proposalId: "pace1", explanation: "Marlow Finch is at 19 of 28 with 2 days left. At this pace it lands near 25.", recommend: "extend", source: "template", options: [{ id: "extend", label: "Extend 7 days", newDeadline: iso(T(11, 27, 18)), newThreshold: null }, { id: "lower", label: "Lower the target to 25", newDeadline: null, newThreshold: 25 }], approved: null, madeAt: stamp() }];
+      b.proposals = [{ proposalId: "pace1", explanation: "Marlow Finch is at 19 of 28 with 2 days left. At this pace it lands near 25.", recommend: "extend", source: "template", options: [{ id: "extend", label: "Extend 7 days", newDeadline: iso(T(11, 27, 18)), newThreshold: null }, { id: "lower", label: "Lower the target to 25", newDeadline: null, newThreshold: 25 }], approved: null }];
       push(b, stamp(), "Proposed: Extend 7 days or Lower the target to 25. Waiting for the artist.", "19 of 28 fans with 2 days left (75% of the way). At this pace, about 25.", "rule-5-ask-first");
     }
   }

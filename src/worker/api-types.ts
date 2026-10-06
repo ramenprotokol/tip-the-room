@@ -104,6 +104,7 @@ export interface PublicShow {
   showId: string;
   demo: boolean;
   state: CampaignState;
+  /** Read by the worker tests and the e2e run; the pages work the status out from state and fans. */
   status: StatusWords;
   showName: string;
   roomName: string;
@@ -114,6 +115,7 @@ export interface PublicShow {
   deadline: string;
   launchedAt: string;
   fans: { committed: number; held: number; charged: number; released: number; refunded: number; failed: number; more: number };
+  /** Read by the worker tests and the e2e run. */
   money: { heldCents: Cents; chargedCents: Cents };
   /** One per pledge, in arrival order (bulb slots). */
   bulbs: { initials: string; status: BulbStatus }[];
@@ -132,6 +134,7 @@ export interface CreateOrderRequest {
   initials: string;
 }
 
+/** Read by scripts/worker-check.ts, the worker tests and the e2e run (the pledge page only needs orderId). */
 export interface CreateOrderResponse {
   orderId: string;
   pledgeId: string;
@@ -165,7 +168,6 @@ export interface AgentLogDto {
   saw: string;
   did: string;
   rule: RuleId | null;
-  ruleTitle: string | null;
   requestId: string | null;
   resultId: string | null;
   source: AiSource | "code";
@@ -178,7 +180,6 @@ export interface ProposalDto {
   source: AiSource;
   options: { id: ProposalOptionId; label: string; newDeadline: string | null; newThreshold: number | null }[];
   approved: ProposalOptionId | null;
-  madeAt: number;
 }
 
 export interface DeclineResponse {

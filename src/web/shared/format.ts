@@ -55,6 +55,15 @@ export function dayLabel(date: string): string {
   return `${x.wd} ${x.mon} ${x.day}`;
 }
 
+export const RESTING_LINE = "The agent’s AI is resting until 00:00 UTC (its free daily limit). It still follows the money rules you signed; its notes use standard wording until then.";
+
+/** Spec 5: true when the newest line the AI should have written fell back to "resting" (the daily budget is spent). */
+export function aiResting(log: Pick<AgentLogDto, "seq" | "source">[]): boolean {
+  let newest: Pick<AgentLogDto, "seq" | "source"> | null = null;
+  for (const l of log) if (l.source !== "code" && (!newest || l.seq > newest.seq)) newest = l;
+  return newest?.source === "resting";
+}
+
 /** Whole dollars, like ui.ts usd(): 31500 → "$315". */
 export const dollars = (cents: number): string => "$" + Math.round(cents / 100).toLocaleString("en-US");
 /** Ledger amounts: 1500 → "$15.00". */

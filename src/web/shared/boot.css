@@ -9,3 +9,7 @@ body:not([data-booted="1"])::before {
 }
 @keyframes ttr-reveal { to { visibility: visible; } }
 @keyframes ttr-hide { to { visibility: hidden; } }
+
+/* Settlement notes (manage page, app-only). */
+.notes-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.notes-list small { display: block; color: var(--ink-3); }
