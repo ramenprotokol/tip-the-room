@@ -71,7 +71,7 @@
 - [ ] **Step 0: Branch and tooling**
 
 ```bash
-git checkout -b plan-3-paypal-sandbox
+git checkout plan-3-paypal-sandbox   # branch already created by the controller
 npm install --save-dev tsx@^4
 ```
 
