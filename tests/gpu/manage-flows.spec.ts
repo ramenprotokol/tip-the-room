@@ -96,8 +96,43 @@ test("attention lines and unconfirmed payouts are said honestly", async ({ page 
   await expect(page.locator("[data-sentence]")).toContainText("PayPal is still confirming them.");
 });
 
+test("a failed payout is named plainly, never called \"still confirming\"", async ({ page }) => {
+  const parties = mayaParties("paid", true).map((p, i) => (i === 1 ? { ...p, payoutStatus: "failed" as const } : p));
+  await open(page, manageApi([{ ...MANAGE_FRAMES.paid, parties, attention: ["Maya’s payout didn’t go through."] }]));
+  await expect(page.locator("[data-word]")).toHaveText("A payout didn’t go through");
+  await expect(page.locator("[data-fans-sub]")).toHaveText("A payout didn’t go through");
+  await expect(page.locator("[data-sentence]")).toHaveText("A payout didn’t go through. Lucky’s Café got $100 and you didn’t get $215.");
+  await expect(page.locator("[data-sentence]")).not.toContainText("confirming");
+});
+
+test("before anything is sent the page says paying, not payouts sent", async ({ page }) => {
+  const planned: ManageView = { ...MANAGE_FRAMES.paid, show: showOf(MAYA, { fans: 21, state: "paying_out", version: 6 }), parties: mayaParties("planned", false) };
+  await open(page, manageApi([planned]));
+  await expect(page.locator("[data-word]")).toHaveText("Paying everyone");
+  await expect(page.locator("[data-fans-sub]")).toHaveText("Paying everyone");
+  await expect(page.locator("[data-sentence]")).toContainText("Paying everyone:");
+  await expect(page.locator("[data-sentence]")).not.toContainText("Payouts sent");
+});
+
+test("a refused Not now keeps the card and says why", async ({ page }) => {
+  const base = manageApi(MANAGE_SCRIPTS.calledOff);
+  const seen = await open(page, (req) => (req.path.endsWith("/decline") ? apiError(500, "internal", "Something went wrong on our side.") : base(req)));
+  await page.click("#decline");
+  await expect(page.locator("[data-ask-msg]")).toHaveText("Something went wrong on our side.");
+  await expect(page.locator("#ask")).toBeVisible();
+  expect(seen.some((r) => r.path.endsWith("/decline"))).toBe(true);
+  await expect(page.locator("#decline")).toBeEnabled();
+});
+
+test("any fragment, even one that isn't a key, is removed from the address bar", async ({ page }) => {
+  await open(page, manageApi(MANAGE_SCRIPTS.tipped), "#oops!");
+  expect(await page.evaluate(() => location.hash)).toBe("");
+  await expect(page.locator("#manage-notice")).toHaveText("This page needs your private link, the one you saved when you signed. Open that link to see your show.");
+});
+
 test("the ledger is the AG Grid with every money move and a CSV button", async ({ page }) => {
   await open(page, manageApi(MANAGE_SCRIPTS.tipped));
+  await expect(page.locator("[data-note]")).toHaveText("Newest first. Sort or filter any column.");
   await expect(page.locator("#ledger .ag-row").first()).toBeVisible();
   await expect(page.locator('#ledger .ag-row[row-index="0"] .ag-cell[col-id="who"]')).toHaveText("Fan 12 · BF");
   await expect(page.locator("#ledger")).toContainText("SAMPLE-AUTH-012");

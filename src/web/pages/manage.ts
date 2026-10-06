@@ -17,7 +17,8 @@ const store = safeStorage();
 const showId = showIdFromPath(location.pathname, location.search);
 const fragKey = takeKeyFromHash(location.hash);
 // The private link carries the key once: keep it in this browser and take it out of the address bar.
-if (showId && fragKey) { rememberKey(store, showId, fragKey); history.replaceState(null, '', location.pathname + location.search); }
+if (showId && fragKey) rememberKey(store, showId, fragKey);
+if (location.hash) history.replaceState(null, '', location.pathname + location.search); // any fragment, valid or not, leaves the address bar
 let key = showId ? (fragKey ?? recallKey(store, showId)) : null;
 const SEED = 31, YAW = .16, DAY = 86_400_000;
 const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6 }, MISS: { release: .12, msg: 2.05, wave: .9 } };
@@ -35,8 +36,8 @@ const odoFans = new Odo($('[data-fans]')), odoHeld = new Odo($('[data-held]')), 
 const log = new AgentLog($('#log')), cues = new Cues();
 Ticker.lamp(el.status);
 
-type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'missing' | 'released' | 'refunding';
-const STATUS: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', ''], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
+type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
+const STATUS: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', ''], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
 const say = (k: StatusKey, instant?: boolean) => setStatus(el.status, ...STATUS[k], instant);
 const show = (): PublicShow => mv!.show;
 const target = () => mv?.show.threshold ?? 1;
@@ -44,6 +45,24 @@ const priceCents = () => mv?.show.ticketPriceCents ?? 0;
 const tz = () => mv?.show.timeZone ?? 'UTC';
 const fixedParties = () => show().split.filter(p => p.role !== 'artist');
 const confirmed = () => payoutsConfirmed(mv?.parties ?? []);
+/** What the money did after the deadline: all paid, a payout failed, still waiting on PayPal (sent), or nothing sent yet (planned). */
+type PayState = 'confirmed' | 'failed' | 'waiting' | 'planned';
+function payState(): PayState {
+  const ps = mv?.parties ?? [];
+  if (ps.some(p => p.payoutStatus === 'failed')) return 'failed';
+  if (confirmed()) return 'confirmed';
+  return ps.some(p => p.payoutStatus === 'planned') ? 'planned' : 'waiting';
+}
+const payKey = (): StatusKey => ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying' } as const)[payState()];
+/** The sentence under the sign once the deadline has passed on a show that was on. */
+function paidSentence(a: number[]): string {
+  const fixed = fixedParties(), last = a.length - 1, ps = mv?.parties ?? [], ps0 = payState();
+  const bit = (i: number, who: string, you: boolean) => { const st = ps[i]?.payoutStatus; return st === 'failed' ? `${who} didn’t get ${usd(a[i])}` : st === 'paid' ? `${who} got ${usd(a[i])}` : `${who} ${you ? 'are' : 'is'} owed ${usd(a[i])}`; };
+  if (ps0 === 'failed') return `A payout didn’t go through. ${andList([...fixed.map((p, i) => bit(i, p.label, false)), bit(last, 'you', true)])}.`;
+  if (ps0 === 'planned') return `Paying everyone: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. Nothing has been sent yet.`;
+  if (ps0 === 'waiting') return `Payouts sent: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. PayPal is still confirming them.`;
+  return `Everyone’s paid. ${andList([...fixed.map((p, i) => `${p.label} got ${usd(a[i])}`), `you got ${usd(a[last])}`])}.`;
+}
 const cancelled = () => mv?.show.state === 'cancelled';
 const visual = (): { phase: Phase; fans: number } => ({ phase: st.phase === 'paying' || st.phase === 'paid' ? 'paid' : st.phase === 'missing' || st.phase === 'released' ? 'released' : st.tipped ? 'tipped' : 'held', fans: st.fans });
 const splitOf = (fans: number) => planSplit(show().split, fans * priceCents()).map(c => c / 100);
@@ -68,9 +87,9 @@ function render(instant = false) {
   const s = show(), { fans } = st, t = s.threshold, total = fans * priceCents() / 100, v = visual().phase, d = Date.parse(s.deadline), dl = when(d, s.timeZone, 'long');
   odoFans.set(fans, instant); odoHeld.set(st.tipped || v === 'released' ? 0 : total, instant); odoCharged.set(st.tipped && !cancelled() ? total : 0, instant);
   el.of.textContent = fans <= t ? `of ${t} fans` : `fans · target was ${t}`;
-  el.sub.textContent = v === 'paid' ? (confirmed() ? 'Everyone’s paid' : 'Payouts sent') : v === 'released' ? (cancelled() ? 'Called off · refunding' : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? `It’s on! · ${fans - t} joined after it tipped` : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
-  const a = v === 'paid' ? paidAmounts() : splitOf(fans), fixed = fixedParties(), last = a.length - 1;
-  el.sentence.textContent = v === 'paid' ? (confirmed() ? `Everyone’s paid. ${andList([...fixed.map((p, i) => `${p.label} got ${usd(a[i])}`), `you got ${usd(a[last])}`])}.` : `Payouts sent: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. PayPal is still confirming them.`)
+  el.sub.textContent = v === 'paid' ? ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', waiting: 'Payouts sent' } as const)[payState()] : v === 'released' ? (cancelled() ? 'Called off · refunding' : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? `It’s on! · ${fans - t} joined after it tipped` : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
+  const a = v === 'paid' ? paidAmounts() : splitOf(fans), fixed = fixedParties();
+  el.sentence.textContent = v === 'paid' ? paidSentence(a)
     : v === 'released' ? (cancelled() ? `Called off. Every fan who was charged is getting ${dollars(priceCents())} back.` : `Called off. Every hold was cancelled, ${usd(total)} went back to ${fans} fans, and nobody paid.`)
     : st.tipped ? `It’s on! ${fans} fans were charged ${usd(total)}. ${andList([...fixed.map(p => p.label), 'you'])} are paid at the deadline, ${dl}.`
     : `${fans} fans are on hold. ${t - fans} more by ${dl} and it’s on. Nobody has been charged.`;
@@ -182,7 +201,7 @@ function payOut() {
   const a = paidAmounts(); st.phase = 'paying'; say('paying'); render(); Snd.drop();
   if (view) { view.setPayouts(payees()); view.play(REDUCED ? 'reduced' : 'payout', REDUCED ? { to: 'paid' } : {}); }
   cues.at(REDUCED ? .3 : T.PAYOUT.paid, () => {
-    Snd.paid(2); st.phase = 'paid'; st.busy = false; say(confirmed() ? 'paid' : 'sent');
+    Snd.paid(2); st.phase = 'paid'; st.busy = false; say(payKey());
     payout?.fill(a, cues, payNote(a), confirmed() ? undefined : payTags());
     flush('rule-4-pay-the-split');
     render(); step();
@@ -204,7 +223,7 @@ function jumpTo(s: PublicShow) {
   const fixed = fixedParties(), artist = s.split.find(p => p.role === 'artist');
   if (st.phase === 'paid') { const a = paidAmounts(); payout?.set(a, confirmed() ? a.map(() => 'Paid') : payTags(), a.map(() => 'paid'), payNote(a)); }
   else { payout?.reset(); if (st.phase !== 'released') payout?.plan(splitOf(Math.max(st.fans, s.threshold)), [...fixed.map(() => 'Planned'), `At least ${dollars(artist?.minimumCents ?? 0)} · planned`]); }
-  say(st.phase === 'open' ? 'held' : st.phase === 'tipped' ? 'tipped' : st.phase === 'paid' ? (s.state === 'paying_out' ? 'paying' : confirmed() ? 'paid' : 'sent') : cancelled() ? 'refunding' : 'released', true);
+  say(st.phase === 'open' ? 'held' : st.phase === 'tipped' ? 'tipped' : st.phase === 'paid' ? (s.state === 'paying_out' ? 'paying' : payKey()) : cancelled() ? 'refunding' : 'released', true);
 }
 
 function apply(v: ManageView) {
@@ -252,8 +271,10 @@ async function declineNow() {
   if (!ask || !showId || !key) return;
   const id = ask.proposalId, sid = showId, k = key;
   await solo(async () => {
+    // The card goes away only once the server has recorded the "not now".
+    try { await api.decline(sid, k, id); }
+    catch (e) { if (e instanceof ApiFailure && e.status === 403) { lostKey(); return; } askSay(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.'); return; }
     el.ask.hidden = true; dismiss(store, sid, id);
-    try { await api.decline(sid, k, id); } catch (e) { if (e instanceof ApiFailure && e.status === 403) { lostKey(); return; } /* the card stays hidden; the log just won't show the "not now" */ }
     try { await refresh(); } catch { /* the next poll catches up */ }
   });
 }
