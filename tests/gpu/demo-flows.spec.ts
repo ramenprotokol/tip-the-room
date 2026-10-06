@@ -50,6 +50,25 @@ test("Skip to the deadline on a show that is short calls it off", async ({ page 
   await expect(page.locator("#log")).toContainText("Marlow Finch ended at 19 of 28. Every hold was cancelled. Nobody paid.");
 });
 
+test("a show called off after it tipped says refunding: no countdown spin, no miss, never \"nobody paid\"", async ({ page }) => {
+  await open(page, demoApi("paid", { callOff: true }));
+  const a = page.locator("#show-a");
+  await a.locator("[data-act=add]").click();
+  await expect(a.locator("[data-word]")).toHaveText("It’s on!", { timeout: 15_000 });
+  await expect(a.locator("[data-act=ff]")).toBeEnabled({ timeout: 15_000 });
+  const words: string[] = [];
+  await page.exposeFunction("__word", (w: string) => words.push(w));
+  await page.evaluate(() => { new MutationObserver(() => (window as unknown as { __word: (w: string) => void }).__word(document.querySelector("#show-a [data-word]")?.textContent ?? "")).observe(document.querySelector("#show-a [data-status]")!, { subtree: true, childList: true, characterData: true }); });
+  await a.locator("[data-act=ff]").click();
+  await expect(a.locator("[data-status]")).toContainText("refunding everyone", { timeout: 10_000 });
+  await expect(a.locator("[data-word]")).toHaveText("Called off");
+  await expect(a.locator("[data-money-sub]")).toHaveText("Called off. Every fan who was charged is getting $15 back.");
+  await expect(a.locator("[data-fans-sub]")).toHaveText("Called off · refunding");
+  await expect(a.locator("[data-clock]")).not.toHaveClass(/zero/);
+  expect(words).not.toContain("Deadline passed");
+  await expect(a).not.toContainText("nobody paid");
+});
+
 test("Start over gets a fresh copy, and a saved copy is reused on reload", async ({ page }) => {
   const seen = await open(page);
   expect(JSON.parse((await page.evaluate(() => localStorage.getItem("ttr:demo"))) ?? "null")).toMatchObject({ demoId: DEMO_ID, demoKey: DEMO_KEY });

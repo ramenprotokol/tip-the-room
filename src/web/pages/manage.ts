@@ -83,7 +83,7 @@ function render(instant = false) {
   el.sub.textContent = v === 'paid' ? ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', waiting: 'Payouts sent' } as const)[payState()] : v === 'released' ? (cancelled() ? 'Called off · refunding' : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? `It’s on! · ${fans - t} joined after it tipped` : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
   const a = v === 'paid' ? paidAmounts() : splitOf(fans), fixed = fixedParties();
   el.sentence.textContent = v === 'paid' ? paidSentence(a)
-    : v === 'released' ? (cancelled() ? `Called off. Every fan who was charged is getting ${dollars(priceCents())} back.` : `Called off. Every hold was cancelled, ${usd(total)} went back to ${fans} fans, and nobody paid.`)
+    : v === 'released' ? (cancelled() ? `Called off. All ${fans} fans who were charged are getting ${dollars(priceCents())} back.` : `Called off. Every hold was cancelled, ${usd(total)} went back to ${fans} fans, and nobody paid.`)
     : st.tipped ? `It’s on! ${fans} fans were charged ${usd(total)}. ${andList([...fixed.map(p => p.label), 'you'])} are paid at the deadline, ${dl}.`
     : `${fans} fans are on hold. ${t - fans} more by ${dl} and it’s on. Nobody has been charged.`;
   if (live()) st.remain = remainSec(s.deadline, clock);
@@ -204,7 +204,7 @@ function miss() {
   st.phase = 'missing'; render();
   if (view) view.play(REDUCED ? 'reduced' : 'miss', REDUCED ? { to: 'released' } : {});
   if (!REDUCED) { Snd.relays(12, T.MISS.wave); Snd.release(st.fans); }
-  cues.at(REDUCED ? .05 : T.MISS.release, () => { say('missing'); flush('rule-3-void-on-miss'); payout?.reset(); render(); });
+  cues.at(REDUCED ? .05 : T.MISS.release, () => { say(cancelled() ? 'refunding' : 'missing'); flush('rule-3-void-on-miss'); payout?.reset(); render(); });
   cues.at(REDUCED ? .8 : T.MISS.msg, () => { Snd.msg(); st.phase = 'released'; st.busy = false; say(cancelled() ? 'refunding' : 'released'); render(); renderCallOff(); step(); });
 }
 

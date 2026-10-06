@@ -125,3 +125,28 @@ test("a second click while the PayPal window is open never starts a second order
   expect(seen.filter((r) => r.path.endsWith("/orders")).length).toBe(1);
   await expect(page.locator("[data-pledge-msg]")).toHaveText("");
 });
+
+test("a show called off after tipping says refunds, never \"nobody paid\", and the charged counter keeps the total", async ({ page }) => {
+  await open(page, pledgeApi({ show: showOf(MAYA, { fans: 21, state: "cancelled", version: 9 }) }), "?e2e=quiet");
+  await expect(page.locator("[data-word]")).toHaveText("Called off");
+  await expect(page.locator("[data-status]")).toContainText("refunding everyone");
+  await expect(page.locator("[data-fans-sub]")).toHaveText("Called off · refunding");
+  await expect(page.locator("[data-money-sub]")).toHaveText("Called off. All 21 fans who were charged are getting $15 back.");
+  await expect(page.locator("[data-charged] .sr")).toHaveText("315");
+  await expect(page.locator("body")).not.toContainText("Nobody paid");
+  await expect(page.locator("#notice")).toBeVisible();
+});
+
+test("a settled show says payouts were sent, not that everyone is paid", async ({ page }) => {
+  await open(page, pledgeApi({ show: showOf(MAYA, { fans: 21, state: "settled", version: 5 }) }), "?e2e=quiet");
+  await expect(page.locator("[data-word]")).toHaveText("Payouts sent");
+  await expect(page.locator("[data-status]")).toContainText("waiting for PayPal to confirm");
+  await expect(page.locator("[data-fans-sub]")).toHaveText("Payouts sent");
+  await expect(page.locator("body")).not.toContainText("Everyone’s paid");
+});
+
+test("without a build-time client id the PayPal button uses the one the API sends", async ({ page }) => {
+  await open(page, pledgeApi({ show: { ...showOf(MAYA, { fans: 12 }), paypalClientId: "api-client" } }), "?e2e=quiet");
+  await expect(page.locator("#pp-slot")).toHaveClass(/is-rendered/);
+  expect(await page.evaluate(() => (window as unknown as { __ppClientId: string }).__ppClientId)).toBe("api-client");
+});

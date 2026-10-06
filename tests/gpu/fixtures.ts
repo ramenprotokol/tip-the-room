@@ -271,7 +271,8 @@ function demoParties(b: ShowBase, fans: number, status: ManageParty["payoutStatu
 
 interface DemoSide { base: ShowBase; show: PublicShow; log: AgentLogDto[]; parties: ManageParty[]; proposals: ProposalDto[]; version: number }
 
-export function demoApi(payout: ManageParty["payoutStatus"] = "paid"): FakeApi {
+/** `callOff`: a skip to the deadline finds the tipped show called off by its artist (state cancelled) instead of paid. */
+export function demoApi(payout: ManageParty["payoutStatus"] = "paid", opts: { callOff?: boolean } = {}): FakeApi {
   let seq = 0;
   let minute = 19;
   let a: DemoSide;
@@ -314,7 +315,10 @@ export function demoApi(payout: ManageParty["payoutStatus"] = "paid"): FakeApi {
   function fastForward(s: DemoSide) {
     const fans = s.show.fans.committed;
     const deadline = Date.parse(s.show.deadline);
-    if (s.show.state === "tipped") {
+    if (s.show.state === "tipped" && opts.callOff) {
+      set(s, { fans, state: "cancelled" });
+      push(s, stamp(), `${s.base.showName} was called off by the artist. Every fan who was charged is getting ${usd(s.base.price / 100)} back.`, `refunding ${fans} captures`, null);
+    } else if (s.show.state === "tipped") {
       set(s, { fans, state: "settled", now: deadline + 1000 });
       s.parties = demoParties(s.base, fans, payout, true);
       const paid = s.parties.map((p) => `${p.label} ${usd((p.payoutCents ?? 0) / 100)}`).join(", then ");

@@ -20,7 +20,7 @@ interface Look { crest: string; yaw: number; seed: number; label: string }
 // aren't in the API; everything else on the page comes from it.
 const LOOK: Record<Key, Look> = { a: { crest: 'SPINDLE RECORDS', yaw: .2, seed: 7, label: 'Show A' }, b: { crest: 'ELM ST HOUSE SHOW', yaw: -.2, seed: 19, label: 'Show B' } };
 type CtlPhase = 'open' | 'tipping' | 'tipped' | 'ff' | 'paying' | 'paid' | 'missing' | 'released';
-type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'failed' | 'missing' | 'released';
+type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
 const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6, done: 2.6 }, MISS: { release: .12, msg: 2.05, done: 3.1, wave: .9 }, R: { tip: .7, payout: .7, miss: 1.3 } };
 const log = new AgentLog($('#log'));
 let payout: PayoutStrip | null = null;
@@ -50,6 +50,9 @@ class ShowCtl {
   get target() { return this.show?.threshold ?? 1; }
   get cents() { return this.show?.ticketPriceCents ?? 0; }
   get confirmed() { return payoutsConfirmed(this.parties); }
+  /** Called off after it tipped: every fan was charged, so the money is coming back (never "nobody paid"). */
+  get refunded(): boolean { return !!this.show && endOf(this.show.state) === 'cancelled'; }
+  refundSub(): string { return `Called off. Every fan who was charged is getting ${dollars(this.cents)} back.`; }
   /** The status line once the deadline has passed on a show that was on: paid, failed, paying (nothing sent yet) or sent (PayPal confirming). */
   get payKey(): StatusKey { return ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying' } as const)[payState(this.parties)]; }
   payMoneySub(): string { const s = payState(this.parties); return s === 'confirmed' ? 'Paid out in one PayPal batch.' : s === 'failed' ? 'Sent in one PayPal batch. One payout didn’t go through.' : s === 'planned' ? 'Paying everyone in one PayPal batch. Nothing has been sent yet.' : 'Sent in one PayPal batch. PayPal is confirming it.'; }
@@ -92,14 +95,14 @@ class ShowCtl {
     this.renderMoney(true); this.odoFans.set(this.fans, true);
     const over = this.phase === 'paid' || this.phase === 'released';
     this.clockEl.classList.toggle('zero', over);
-    this.moneySub.textContent = this.phase === 'paid' ? this.payMoneySub() : this.phase === 'released' ? `${usd(this.fans * this.cents / 100)} released back to ${this.fans} fans · nobody paid` : this.tipped ? `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}` : 'Nobody pays unless it happens.';
-    this.setStatus(this.phase === 'open' ? 'held' : this.phase === 'tipped' ? 'tipped' : this.phase === 'paid' ? this.payKey : 'released', true);
+    this.moneySub.textContent = this.phase === 'paid' ? this.payMoneySub() : this.phase === 'released' ? (this.refunded ? this.refundSub() : `${usd(this.fans * this.cents / 100)} released back to ${this.fans} fans · nobody paid`) : this.tipped ? `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}` : 'Nobody pays unless it happens.';
+    this.setStatus(this.phase === 'open' ? 'held' : this.phase === 'tipped' ? 'tipped' : this.phase === 'paid' ? this.payKey : this.refunded ? 'refunding' : 'released', true);
     this.renderClock(); this.renderFans(); this.buttons(); this.ph?.update(this.visual().phase, this.fans); this.label();
     if (this.key === 'a' && payout) payout.reset();
   }
   setStatus(k: StatusKey, instant?: boolean) {
     const roles = andList((this.show?.split ?? []).map(p => ROLE_WORD[p.role].toLowerCase()));
-    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'] };
+    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
     const [s, w, said] = S[k]; setStatus(this.status, s, w, said, instant);
   }
   renderMoney(instant?: boolean) { const total = this.fans * this.cents / 100; this.odoHeld.set(this.tipped || this.phase === 'released' || this.phase === 'missing' ? 0 : total, instant); this.odoCharged.set(this.tipped ? total : 0, instant); }
@@ -108,7 +111,7 @@ class ShowCtl {
     const { fans, target } = this, p = this.phase;
     this.of.textContent = fans <= target ? `of ${target} fans` : `fans · target was ${target}`;
     this.fansSub.textContent = p === 'paid' || p === 'paying' ? (p === 'paid' ? this.payFansSub() : 'Everyone’s paid')
-      : p === 'released' || p === 'missing' ? `Called off · ${target - fans} short`
+      : p === 'released' || p === 'missing' ? (this.refunded ? 'Called off · refunding' : `Called off · ${target - fans} short`)
       : this.tipped ? (fans > target ? `It’s on! · ${fans - target} joined after it tipped` : 'It’s on! Everyone’s charged')
       : `${target - fans} more to make it happen`;
   }
@@ -122,7 +125,7 @@ class ShowCtl {
     const v = this.visual(), t = this.target;
     const txt = v.phase === 'paid' ? 'fully lit, with payout signs hanging below: everyone has been paid'
       : v.phase === 'tipped' ? `fully lit: the show reached ${t} fans and everyone was charged`
-      : v.phase === 'released' ? 'dark: the show was called off, every hold was cancelled, the board reads CALLED OFF, $0 CHARGED'
+      : v.phase === 'released' ? (this.refunded ? 'dark: the show was called off and every fan who was charged is being refunded' : 'dark: the show was called off, every hold was cancelled, the board reads CALLED OFF, $0 CHARGED')
       : `${this.fans} of ${t} border bulbs screwed in and glowing dimly: fans on hold, nobody charged`;
     this.stage.setAttribute('aria-label', `Marquee sign for ${this.name}, ${txt}.`);
   }
@@ -161,7 +164,8 @@ class ShowCtl {
       if (end === 'missed') return this.fastForward();
     } else if (this.phase === 'tipped') {
       if (want > this.fans) return this.addAfterTip(want - this.fans);
-      if (end === 'paid' || end === 'cancelled') return this.fastForward();
+      if (end === 'cancelled') return this.runCallOff();
+      if (end === 'paid') return this.fastForward();
     }
     this.flush(null);
   }
@@ -231,6 +235,13 @@ class ShowCtl {
       this.flush('rule-4-pay-the-split');
       this.buttons(); this.step();
     });
+  }
+  /** Called off after the tip: no countdown spin and no miss animation, the sign just goes dark and the refund is named. */
+  runCallOff() {
+    this.phase = 'released'; this.setStatus('refunding');
+    this.renderFans(); this.renderMoney(); this.moneySub.textContent = this.refundSub();
+    this.view?.reset(); this.ph?.update('released', this.fans); this.label();
+    this.flush(null); this.buttons();
   }
   runMiss() {
     const C = REDUCED ? { release: .05, msg: .8 } : T.MISS, held = this.fans * this.cents / 100;

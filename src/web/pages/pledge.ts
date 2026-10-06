@@ -29,6 +29,7 @@ Ticker.lamp(el.status);
 const current = (): PublicShow | null => show; // TS can't see assignments made inside functions
 const price = () => show?.ticketPriceCents ?? 0;
 const target = () => show?.threshold ?? 1;
+const refunded = (): boolean => !!show && endOf(show.state) === 'cancelled';
 const closedVisual = (): Phase => { const e = show ? endOf(show.state) : 'live'; return e === 'paid' ? 'paid' : e === 'missed' || e === 'cancelled' ? 'released' : 'tipped'; };
 const visual = (): { phase: Phase; fans: number } => ({ phase: st.phase === 'closed' ? closedVisual() : st.phase === 'tipped' || st.phase === 'tipping' ? 'tipped' : 'held', fans: st.fans });
 const say = (text: string) => { el.msg.textContent = text; el.msg.hidden = !text; };
@@ -42,9 +43,9 @@ function renderClock() {
 function render(instant = false) {
   const p = dollars(price()), t = target(), v = visual().phase, charged = v === 'tipped' || v === 'paid', total = st.fans * price() / 100;
   odoFans.set(st.fans, instant);
-  odoHeld.set(charged || v === 'released' ? 0 : total, instant); odoCharged.set(charged ? total : 0, instant);
-  el.sub.textContent = v === 'paid' ? 'Everyone’s paid' : v === 'released' ? `Called off · ${Math.max(0, t - st.fans)} short` : charged ? 'It’s on! Everyone’s charged' : `${t - st.fans} more to make it happen`;
-  $('[data-money-sub]').textContent = charged ? `Charged the moment it tipped · ${st.fans} × ${p}` : v === 'released' ? 'Every hold was cancelled. Nobody paid.' : 'Nobody pays unless it happens.';
+  odoHeld.set(charged || v === 'released' ? 0 : total, instant); odoCharged.set(charged || refunded() ? total : 0, instant);
+  el.sub.textContent = v === 'paid' ? (show?.state === 'paying_out' ? 'Paying everyone' : 'Payouts sent') : v === 'released' ? (refunded() ? 'Called off · refunding' : `Called off · ${Math.max(0, t - st.fans)} short`) : charged ? 'It’s on! Everyone’s charged' : `${t - st.fans} more to make it happen`;
+  $('[data-money-sub]').textContent = charged ? `Charged the moment it tipped · ${st.fans} × ${p}` : v === 'released' ? (refunded() ? `Called off. All ${st.fans} fans who were charged are getting ${p} back.` : 'Every hold was cancelled. Nobody paid.') : 'Nobody pays unless it happens.';
   renderClock();
   const name = show?.showName ?? '';
   el.stage.setAttribute('aria-label', charged ? `Marquee sign for ${name}, fully lit: ${t} fans joined and the show is on.` : `Marquee sign for ${name}: ${st.fans} of ${t} bulbs glowing dimly, fans on hold.`);
@@ -81,7 +82,7 @@ function notice(text: string) {
 }
 function closedState(s: PublicShow) {
   const e = endOf(s.state);
-  if (e === 'paid') setStatus(el.status, 'paid', s.state === 'settled' ? 'Everyone’s paid' : 'Paying everyone', '', true);
+  if (e === 'paid') setStatus(el.status, 'paid', s.state === 'settled' ? 'Payouts sent' : 'Paying everyone', s.state === 'settled' ? '· waiting for PayPal to confirm' : '', true);
   else setStatus(el.status, 'released', 'Called off', e === 'cancelled' ? '· refunding everyone' : '· nobody paid', true);
   el.card.hidden = true;
   notice('Pledging has closed for this show.');
@@ -125,7 +126,7 @@ const flow = new PledgeFlow({
 
 function mountButton() {
   if (st.phase === 'closed') return;
-  const id = paypalClientId();
+  const id = paypalClientId(show?.paypalClientId ?? "");
   if (!id) { if (!HOOKS) el.slot.textContent = 'Pledging isn’t switched on for this site yet.'; return; }
   mountPayPalButton(el.slot, id, { canStart: () => flow.canStart(), createOrder: () => flow.createOrder(), onApprove: (orderId) => flow.approve(orderId), onCancel: () => flow.cancel(), onError: (err) => flow.error(err) })
     .catch(() => { el.slot.textContent = 'PayPal couldn’t load. Refresh the page to try again.'; });
