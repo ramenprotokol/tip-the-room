@@ -15,6 +15,7 @@
     "test:gpu": "playwright test",
     "spike": "node --env-file=.dev.vars --import tsx scripts/spikes/paypal-sandbox.ts",
     "worker:check": "node --import tsx scripts/worker-check.ts",
+    "e2e:local": "playwright test -c playwright.e2e.config.ts",
     "sandbox:check": "node --env-file=.dev.vars --import tsx scripts/sandbox-check.ts"
   },
   "engines": {
