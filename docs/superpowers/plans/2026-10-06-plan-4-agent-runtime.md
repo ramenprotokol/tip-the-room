@@ -24,6 +24,13 @@
 3. Confirm `node -e "require('node:sqlite')"` prints only an ExperimentalWarning (Node 22.13+; local is 22.22).
 4. `.dev.vars` already holds `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_API_BASE`. Optional lines the owner may add later (never the implementer): `PAYPAL_WEBHOOK_ID=`, `PAYPAL_RECEIVER_ROOM=`, `PAYPAL_RECEIVER_OPENER=`, `PAYPAL_RECEIVER_ARTIST=`.
 
+## Controller amendments (binding, 2026-10-06)
+
+- The spec deviations listed below are **accepted by the controller**: capture without reauthorizing first, payout retry batch `payout-<show>-r1` for failed items only, and the extra call-off endpoint.
+- **Demo fee margin (Task 10 + Task 11):** at the sandbox fee, show A's 34 fans clear the signed amounts by only 8 cents. So `fast-forward` must first top show A up to `threshold + 2` simulated fans when it has fewer. That is 36 fans, net 36 × $14.12 = $508.32 against $480.00 signed. The seeds themselves stay 34 / $15 and 28 / $12, because the reference parity depends on them. Task 10 adds a test for the top-up. Task 11's checks expect `charged === 36` for show A.
+- `DEFAULT_FEE_BUFFER_BPS` stays 500. The start page's parity tests depend on it. A show that is short after fees pauses and asks the artist (spec 8), and that is the intended path.
+- Packages are already installed by the controller: wrangler 4.147.0 and @cloudflare/workers-types 5.20261006.1. Tasks must not run npm install.
+
 ## Deviations from the spec (binding controller decisions)
 
 | Spec says | Plan 4 does | Why |
