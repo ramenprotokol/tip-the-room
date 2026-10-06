@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 import { loadEnv, type Connect, type Plugin } from "vite";
 import { resolve } from "node:path";
-import { headersFile } from "./src/web/build/pages";
+import { assertProductionApiBase, headersFile } from "./src/web/build/pages";
 import { rewritePagePath } from "./src/web/build/routes";
 
 const root = import.meta.dirname;
@@ -34,8 +34,10 @@ function pagesFiles(apiBase: string): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, root, "VITE_");
+  // Hooks builds (VITE_E2E_HOOKS=1, served by the test preview) may use the page's own origin; every other build is a real site.
+  if (command === "build" && env.VITE_E2E_HOOKS !== "1") assertProductionApiBase(env.VITE_API_BASE ?? "");
   return {
   plugins: [pagesRoutes(), pagesFiles((env.VITE_API_BASE ?? "").trim())],
   server: { hmr: false, host: "127.0.0.1" },

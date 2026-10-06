@@ -10,6 +10,21 @@ export function apiOrigin(apiBase: string): string | null {
   }
 }
 
+/** A real site build must name its API: an empty base means "same origin", and on Pages every API call would 404. Local http (127.0.0.1, localhost) is for local test builds. */
+export function assertProductionApiBase(apiBase: string): void {
+  const raw = apiBase.trim();
+  let u: URL | null;
+  try {
+    u = new URL(raw);
+  } catch {
+    u = null;
+  }
+  const local = u !== null && u.protocol === "http:" && (u.hostname === "127.0.0.1" || u.hostname === "localhost");
+  if (!u || !(u.protocol === "https:" || local)) {
+    throw new Error(`A production build needs VITE_API_BASE set to the API's absolute https URL, such as https://api.example.com (got "${raw}"). Set it in the environment or a .env file.`);
+  }
+}
+
 /** PayPal's SDK script and checkout frames, Google Fonts, the API. Inline styles stay allowed (the pages and AG Grid's theme use them). */
 export function contentSecurityPolicy(apiBase: string): string {
   const api = apiOrigin(apiBase);

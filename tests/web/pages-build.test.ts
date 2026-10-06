@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { apiOrigin, contentSecurityPolicy, headersFile } from "../../src/web/build/pages";
+import { apiOrigin, assertProductionApiBase, contentSecurityPolicy, headersFile } from "../../src/web/build/pages";
 
 const directive = (csp: string, name: string) => csp.split("; ").find((d) => d.startsWith(`${name} `)) ?? "";
 
@@ -21,6 +21,10 @@ describe("Pages build files", () => {
     expect(apiOrigin("")).toBeNull();
     expect(directive(contentSecurityPolicy(""), "connect-src")).toBe("connect-src 'self' https://www.paypal.com https://www.sandbox.paypal.com https://api-m.sandbox.paypal.com");
     expect(() => apiOrigin("/api")).toThrow(/absolute URL/);
+  });
+  it("refuses a production build whose API base is empty, relative or not https (local http is fine)", () => {
+    for (const bad of ["", "  ", "/api", "api.example.com", "http://api.example.com", "ftp://x.example.com"]) expect(() => assertProductionApiBase(bad), bad).toThrow(/VITE_API_BASE/);
+    for (const ok of ["https://api.tiptheroom.example", "https://api.tiptheroom.example/", "http://127.0.0.1:8788", "http://localhost:8788"]) expect(() => assertProductionApiBase(ok), ok).not.toThrow();
   });
   it("writes a Pages _headers file for every path", () => {
     const lines = headersFile("").split("\n");
