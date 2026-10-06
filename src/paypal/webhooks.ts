@@ -19,11 +19,18 @@ export type LedgerKind =
   | "payout_batch_done"
   | "payout_batch_failed"
   | "payout_item_paid"
-  | "payout_item_failed";
+  | "payout_item_failed"
+  | "payout_item_pending"
+  | "charge_reversed";
 
 export interface PayPalLedgerEvent {
-  /** PayPal's event id: duplicates are dropped by this key. */
+  /** PayPal's event id: duplicates are dropped by this key. Events without one are not mapped. */
   eventId: string;
+  /**
+   * payout_item_failed is final (FAILED, RETURNED, BLOCKED, DENIED, CANCELED, REFUNDED).
+   * payout_item_pending is not final (HELD, UNCLAIMED): the money may still move or come back.
+   * charge_reversed is a chargeback (PAYMENT.CAPTURE.REVERSED).
+   */
   kind: LedgerKind;
   /** The PayPal id the event is about (authorization, capture, refund, batch or item). */
   ref: string;
@@ -74,24 +81,36 @@ const KINDS: Record<string, LedgerKind> = {
   "PAYMENT.PAYOUTSBATCH.DENIED": "payout_batch_failed",
   "PAYMENT.PAYOUTS-ITEM.SUCCEEDED": "payout_item_paid",
   "PAYMENT.PAYOUTS-ITEM.FAILED": "payout_item_failed",
+  "PAYMENT.PAYOUTS-ITEM.RETURNED": "payout_item_failed",
+  "PAYMENT.PAYOUTS-ITEM.BLOCKED": "payout_item_failed",
+  "PAYMENT.PAYOUTS-ITEM.DENIED": "payout_item_failed",
+  "PAYMENT.PAYOUTS-ITEM.CANCELED": "payout_item_failed",
+  "PAYMENT.PAYOUTS-ITEM.REFUNDED": "payout_item_failed",
+  "PAYMENT.PAYOUTS-ITEM.HELD": "payout_item_pending",
+  "PAYMENT.PAYOUTS-ITEM.UNCLAIMED": "payout_item_pending",
+  "PAYMENT.CAPTURE.REVERSED": "charge_reversed",
 };
 
 type R = Record<string, unknown>;
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 const obj = (v: unknown) => (v && typeof v === "object" ? (v as R) : undefined);
 
-/** Returns the amount value, refusing any currency other than USD. No currency means accept. */
+/** Returns the amount value, refusing any currency other than USD. No currency means accept. No amount object means undefined; an amount object with no value throws. */
 function usdValue(event: WebhookEvent, amount: R | undefined, currencyKey: string): string | undefined {
+  if (amount === undefined) return undefined;
   const currency = str(amount?.[currencyKey]);
   if (currency !== undefined && currency !== "USD") {
     throw new PayPalError(502, "UNEXPECTED_CURRENCY", `${event.event_type} carried ${currency}, expected USD`);
   }
-  return str(amount?.value);
+  const value = str(amount.value);
+  if (value === undefined) throw new PayPalError(502, "BAD_AMOUNT", `${event.event_type} carried an amount with no value`);
+  return value;
 }
 
 export function mapWebhookEvent(event: WebhookEvent): PayPalLedgerEvent | null {
   const kind = KINDS[event.event_type];
   if (!kind) return null;
+  if (!str(event.id)) return null;
   const r = event.resource ?? {};
   let ref: string | undefined;
   let amount: string | undefined;

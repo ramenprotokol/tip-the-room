@@ -62,6 +62,18 @@ describe("verifyWebhook", () => {
     expect(await verifyWebhook(http, h, raw, "WHID")).toBe(false);
     expect(f.apiCalls()).toHaveLength(0);
   });
+  it.each([
+    "https://api.paypal.com.evil.example/c",
+    "https://paypal.com@evil.example/c",
+    "https://evilpaypal.com/c",
+    "http://api.paypal.com/c",
+  ])("rejects look-alike or insecure cert URL %s with no API call", async (url) => {
+    const { f, http } = client([]);
+    const h = sigHeaders();
+    h.set("paypal-cert-url", url);
+    expect(await verifyWebhook(http, h, raw, "WHID")).toBe(false);
+    expect(f.apiCalls()).toHaveLength(0);
+  });
 });
 
 const ev = (event_type: string, resource: Record<string, unknown>): WebhookEvent => ({ id: "WH-9", event_type, create_time: "2026-10-05T12:00:00Z", resource });
@@ -79,6 +91,14 @@ describe("mapWebhookEvent", () => {
     ["PAYMENT.PAYOUTSBATCH.DENIED", { batch_header: { payout_batch_id: "B1" } }, { kind: "payout_batch_failed", ref: "B1" }],
     ["PAYMENT.PAYOUTS-ITEM.SUCCEEDED", { payout_item_id: "I1", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_paid", ref: "I1", amountCents: 10000, customId: "show1-room" }],
     ["PAYMENT.PAYOUTS-ITEM.FAILED", { payout_item_id: "I2", payout_item: { sender_item_id: "show1-room" } }, { kind: "payout_item_failed", ref: "I2", customId: "show1-room" }],
+    ["PAYMENT.CAPTURE.REVERSED", { id: "C1", amount: { value: "15.00" }, custom_id: "show1:p7" }, { kind: "charge_reversed", ref: "C1", amountCents: 1500, customId: "show1:p7" }],
+    ["PAYMENT.PAYOUTS-ITEM.UNCLAIMED", { payout_item_id: "I-UNCLAIMED", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_pending", ref: "I-UNCLAIMED", amountCents: 10000, customId: "show1-room" }],
+    ["PAYMENT.PAYOUTS-ITEM.HELD", { payout_item_id: "I-HELD", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_pending", ref: "I-HELD", amountCents: 10000, customId: "show1-room" }],
+    ["PAYMENT.PAYOUTS-ITEM.RETURNED", { payout_item_id: "I-RETURNED", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_failed", ref: "I-RETURNED", amountCents: 10000, customId: "show1-room" }],
+    ["PAYMENT.PAYOUTS-ITEM.BLOCKED", { payout_item_id: "I-BLOCKED", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_failed", ref: "I-BLOCKED", amountCents: 10000, customId: "show1-room" }],
+    ["PAYMENT.PAYOUTS-ITEM.DENIED", { payout_item_id: "I-DENIED", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_failed", ref: "I-DENIED", amountCents: 10000, customId: "show1-room" }],
+    ["PAYMENT.PAYOUTS-ITEM.CANCELED", { payout_item_id: "I-CANCELED", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_failed", ref: "I-CANCELED", amountCents: 10000, customId: "show1-room" }],
+    ["PAYMENT.PAYOUTS-ITEM.REFUNDED", { payout_item_id: "I-REFUNDED", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_failed", ref: "I-REFUNDED", amountCents: 10000, customId: "show1-room" }],
   ])("%s", (type, resource, expected) => {
     expect(mapWebhookEvent(ev(type, resource))).toEqual({ eventId: "WH-9", at, ...expected });
   });
@@ -100,6 +120,27 @@ describe("mapWebhookEvent", () => {
     expect(mapWebhookEvent(ev("PAYMENT.CAPTURE.COMPLETED", { id: "C1", amount: { value: "15.00", currency_code: "USD" } }))?.amountCents).toBe(1500);
     expect(mapWebhookEvent(ev("PAYMENT.PAYOUTS-ITEM.SUCCEEDED", { payout_item_id: "I1", payout_item: { amount: { value: "1.00", currency: "USD" } } }))?.amountCents).toBe(100);
     expect(mapWebhookEvent(ev("PAYMENT.CAPTURE.COMPLETED", { id: "C1", amount: { value: "15.00" } }))?.amountCents).toBe(1500);
+  });
+  it("returns null when the event id is missing or empty", () => {
+    expect(mapWebhookEvent({ id: "", event_type: "PAYMENT.CAPTURE.COMPLETED", create_time: "2026-10-05T12:00:00Z", resource: { id: "C1" } })).toBeNull();
+    expect(mapWebhookEvent({ event_type: "PAYMENT.CAPTURE.COMPLETED", create_time: "2026-10-05T12:00:00Z", resource: { id: "C1" } } as unknown as WebhookEvent)).toBeNull();
+    expect(mapWebhookEvent({ id: 5, event_type: "PAYMENT.CAPTURE.COMPLETED", create_time: "2026-10-05T12:00:00Z", resource: { id: "C1" } } as unknown as WebhookEvent)).toBeNull();
+  });
+  it.each([
+    ["PAYMENT.CAPTURE.COMPLETED", { id: "C1", amount: { currency_code: "USD" } }],
+    ["PAYMENT.CAPTURE.COMPLETED", { id: "C1", amount: { value: "" } }],
+    ["PAYMENT.PAYOUTS-ITEM.SUCCEEDED", { payout_item_id: "I1", payout_item: { amount: { currency: "USD" } } }],
+    ["PAYMENT.PAYOUTS-ITEM.FAILED", { payout_item_id: "I1", payout_item: { amount: { value: "" } } }],
+  ])("throws BAD_AMOUNT when %s has an amount object with no value", (type, resource) => {
+    try {
+      mapWebhookEvent(ev(type, resource));
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(PayPalError);
+      expect((e as PayPalError).status).toBe(502);
+      expect((e as PayPalError).paypalName).toBe("BAD_AMOUNT");
+      expect((e as PayPalError).message).toContain(type);
+    }
   });
   it("returns null when create_time is missing or unparseable", () => {
     expect(mapWebhookEvent({ id: "W", event_type: "PAYMENT.CAPTURE.COMPLETED", create_time: "garbage", resource: { id: "C1" } })).toBeNull();
