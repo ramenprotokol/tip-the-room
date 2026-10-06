@@ -1,11 +1,12 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
+import "../shared/boot.css";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
-import { API_BASE, HOOKS, QUIET, SANDBOX_BUYER, judgeCode, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
@@ -393,6 +394,7 @@ const hooks: DemoHooks = { page: 'demo', ctls, views: [], host: null, ready: fal
 if (HOOKS) window.__marquee = hooks;
 
 await boot();
+markBooted();
 // 3D layer (optional): one shared WebGL renderer for both signs
 let host: SignHost | null = null;
 if (A.show && B.show) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { /* 3D is optional: host stays null, the flat SVG signs remain */ } }

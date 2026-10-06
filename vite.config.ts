@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 import { loadEnv, type Connect, type Plugin } from "vite";
 import { resolve } from "node:path";
-import { assertProductionApiBase, headersFile } from "./src/web/build/pages";
+import { assertProductionApiBase, headersFile, stripRefOnly } from "./src/web/build/pages";
 import { rewritePagePath } from "./src/web/build/routes";
 
 const root = import.meta.dirname;
@@ -34,12 +34,17 @@ function pagesFiles(apiBase: string): Plugin {
   };
 }
 
+/** Production pages never ship the reference's own controls (the JS removes them too, but only after it loads). */
+function stripReferenceControls(): Plugin {
+  return { name: "strip-ref-only", apply: "build", transformIndexHtml: { order: "pre", handler: (html) => stripRefOnly(html) } };
+}
+
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, root, "VITE_");
   // Hooks builds (VITE_E2E_HOOKS=1, served by the test preview) may use the page's own origin; every other build is a real site.
   if (command === "build" && env.VITE_E2E_HOOKS !== "1") assertProductionApiBase(env.VITE_API_BASE ?? "");
   return {
-  plugins: [pagesRoutes(), pagesFiles((env.VITE_API_BASE ?? "").trim())],
+  plugins: [pagesRoutes(), pagesFiles((env.VITE_API_BASE ?? "").trim()), ...(env.VITE_E2E_HOOKS === "1" ? [] : [stripReferenceControls()])],
   server: { hmr: false, host: "127.0.0.1" },
   optimizeDeps: { entries: ["index.html", "start.html", "pledge.html", "manage.html"] },
   build: {

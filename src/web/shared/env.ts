@@ -28,8 +28,14 @@ export function removeRefOnly(): void {
   if (!HOOKS) document.querySelectorAll("[data-ref-only]").forEach((e) => e.remove());
 }
 
+/** The page has its real data (or has given up and shown a notice): lift the loading veil (boot.css). */
+export function markBooted(): void {
+  document.body.dataset.booted = "1";
+}
+
 /** Tests (and the local e2e run) wait for this instead of window.__marquee, which production builds don't have. */
 export function markReady(): void {
+  markBooted();
   document.body.dataset.ready = "1";
 }
 

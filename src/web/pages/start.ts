@@ -1,16 +1,18 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
+import "../shared/boot.css";
 import { $, Ticker, Snd, soundToggle, Placeholder, HoldButton, drawQR, copyText, enter, usd } from "../shared/ui";
 import type { SignHost, SignView, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { CreateShowResponse, SignResponse } from "../../worker/api-types";
-import { API_BASE, HOOKS, PUBLIC_ORIGIN, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { rememberKey } from "../shared/keys";
 import { when } from "../shared/format";
 import { fromDraft, targetOf, toDraftFields, type Draft, type PayeeRow } from "../shared/start-draft";
 
 removeRefOnly();
+markBooted();
 const api = apiClient(API_BASE);
 const els = { sentence: $<HTMLTextAreaElement>('#sentence'), draft: $('#draft'), live: $('#live'), paylist: $('#paylist'), rules: $('#rules'), sign: $<HTMLButtonElement>('#sign'), target: $('[data-target-sentence]'), split: $('[data-split]'), stage: $('[data-stage]'), msg: $('[data-start-msg]'), problems: $('#problems'), fill: $<HTMLButtonElement>('#fill') };
 const ph = new Placeholder($('[data-ph]'), { name: 'Your show', target: 20 });

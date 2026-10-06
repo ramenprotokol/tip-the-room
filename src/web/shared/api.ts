@@ -16,6 +16,7 @@ export class ApiFailure extends Error {
 }
 
 export const NETWORK_MESSAGE = "We couldn't reach Tip the Room. Check your connection and try again.";
+export const TIMEOUT_MESSAGE = "Tip the Room is taking too long to answer. Please try again in a moment.";
 export const FALLBACK_MESSAGE = "Something went wrong on our side.";
 
 let pending = 0;
@@ -69,15 +70,17 @@ function readError(status: number, data: unknown): ApiFailure {
 }
 
 export function apiClient(base: string, fetchFn: FetchLike = (input, init) => fetch(input, init), opts: ClientOptions = {}): ApiClient {
+  const timeoutMs = opts.timeoutMs ?? 20_000;
   async function call<T>(method: "GET" | "POST", path: string, body?: unknown, key?: string, extra: Record<string, string> = {}): Promise<T> {
     const headers: Record<string, string> = { ...extra };
     if (body !== undefined) headers["content-type"] = "application/json";
     if (key) headers[MANAGE_KEY_HEADER] = key;
     let res: Response;
     try {
-      res = await fetchFn(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store", credentials: "omit" });
-    } catch {
-      throw new ApiFailure(0, "network", NETWORK_MESSAGE);
+      res = await fetchFn(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store", credentials: "omit", signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      const timedOut = e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError");
+      throw new ApiFailure(0, "network", timedOut ? TIMEOUT_MESSAGE : NETWORK_MESSAGE);
     }
     const text = await res.text().catch(() => "");
     let data: unknown;

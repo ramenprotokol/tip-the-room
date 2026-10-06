@@ -1,10 +1,11 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
+import "../shared/boot.css";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, Placeholder, setStatus, countdownHTML, enter, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AuthorizeResponse, PublicShow } from "../../worker/api-types";
-import { API_BASE, HOOKS, PARITY, markReady, paypalClientId, removeRefOnly } from "../shared/env";
+import { API_BASE, HOOKS, PARITY, markBooted, markReady, paypalClientId, removeRefOnly } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { dayLabel, dollars, endOf, planSplit, remainSec, ROLE_WORD, ShowClock, when } from "../shared/format";
 import { showIdFromPath } from "../shared/keys";
@@ -192,6 +193,7 @@ const hooks: PledgeHooks = {
 if (HOOKS) { window.__marquee = hooks; simulateBtn()?.addEventListener('click', () => hooks.approve()); }
 
 await boot();
+markBooted();
 let host: SignHost | null = null;
 const booted = current();
 if (booted) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ } }

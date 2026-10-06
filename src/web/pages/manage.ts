@@ -1,15 +1,17 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
+import "../shared/boot.css";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, HoldButton, setStatus, countdownHTML, drawQR, copyText, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, ManageView, ProposalDto, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
-import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, planSplit, payoutsConfirmed, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
 import { dismiss, forgetKey, isDismissed, recallKey, rememberKey, showIdFromPath, takeKeyFromHash } from "../shared/keys";
-import { LedgerGrid } from "../shared/ledger";
+import type { LedgerGrid } from "../shared/ledger";
+const ledgerModule = import("../shared/ledger"); // AG Grid is the biggest chunk: start fetching it now, in parallel with the API
 
 removeRefOnly();
 const api = apiClient(API_BASE);
@@ -303,7 +305,8 @@ async function boot() {
   payout = new PayoutStrip($('#payout'), s.split.map(p => ({ label: PAYEE[p.role], who: p.role === 'artist' ? `You (${p.label})` : p.label })));
   const fixed = fixedParties();
   payout.idle(fixed.length ? `Paid at the deadline once the show is on: ${fixed.map(p => p.label).join(', then ')} first, then you get the rest.` : 'Paid at the deadline once the show is on: you get everything collected.');
-  grid = new LedgerGrid($('#ledger'), tz); grid.setRows(v.ledger);
+  try { const { LedgerGrid } = await ledgerModule; grid = new LedgerGrid($('#ledger'), tz); grid.setRows(v.ledger); }
+  catch { $('[data-note]').textContent = 'The ledger couldn’t load. Refresh the page to try again.'; }
   // Parity runs keep the reference's exact note text (a fixture-mode text); real pages say what the grid can do.
   if (!PARITY) { $('[data-note]').textContent = 'Newest first. Sort or filter any column.'; $('#csv').hidden = false; }
   const share = `${PUBLIC_ORIGIN}${v.sharePath || `/s/${showId}`}`;
@@ -341,6 +344,7 @@ if (HOOKS) {
 }
 
 await boot();
+markBooted();
 let host: SignHost | null = null;
 if (mv) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ } }
 if (host && mv) {

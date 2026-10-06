@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { act, apiClient, ApiFailure, FALLBACK_MESSAGE, NETWORK_MESSAGE, pendingCount, type FetchLike } from "../../src/web/shared/api";
+import { act, apiClient, ApiFailure, FALLBACK_MESSAGE, NETWORK_MESSAGE, pendingCount, TIMEOUT_MESSAGE, type FetchLike } from "../../src/web/shared/api";
 
 interface Seen { url: string; init: RequestInit }
 function fake(status: number, body: string): { fetch: FetchLike; seen: Seen[] } {
@@ -8,6 +8,12 @@ function fake(status: number, body: string): { fetch: FetchLike; seen: Seen[] } 
 }
 
 describe("api client", () => {
+  it("gives up after timeoutMs with a plain message (status 0, so the pledge flow treats it as a lost answer)", async () => {
+    const hang: FetchLike = (_url, init) => new Promise((_res, rej) => init.signal?.addEventListener("abort", () => rej(init.signal?.reason)));
+    const api = apiClient("https://api.test", hang, { timeoutMs: 20 });
+    await expect(api.getShow("s1")).rejects.toMatchObject({ status: 0, code: "network", message: TIMEOUT_MESSAGE });
+  });
+
   it("calls the right path, sends JSON and the manage key only when given", async () => {
     const f = fake(200, JSON.stringify({ ok: 1 }));
     const api = apiClient("https://api.example", f.fetch);
