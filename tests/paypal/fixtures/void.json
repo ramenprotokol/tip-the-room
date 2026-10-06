@@ -1,0 +1,21 @@
+{
+  "id": "4E2718717G832094A",
+  "status": "VOIDED",
+  "amount": {
+    "currency_code": "USD",
+    "value": "15.00"
+  },
+  "seller_protection": {
+    "status": "NOT_ELIGIBLE"
+  },
+  "expiration_time": "2026-11-03T19:18:02-08:00",
+  "create_time": "2026-10-05T20:18:02-07:00",
+  "update_time": "2026-10-05T20:18:03-07:00",
+  "links": [
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/authorizations/4E2718717G832094A",
+      "rel": "self",
+      "method": "GET"
+    }
+  ]
+}

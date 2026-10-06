@@ -1,0 +1,41 @@
+{
+  "id": "3LU712027L529170H",
+  "amount": {
+    "currency_code": "USD",
+    "value": "15.00"
+  },
+  "seller_payable_breakdown": {
+    "gross_amount": {
+      "currency_code": "USD",
+      "value": "15.00"
+    },
+    "paypal_fee": {
+      "currency_code": "USD",
+      "value": "0.00"
+    },
+    "net_amount": {
+      "currency_code": "USD",
+      "value": "15.00"
+    },
+    "total_refunded_amount": {
+      "currency_code": "USD",
+      "value": "15.00"
+    }
+  },
+  "custom_id": "spike-1791256675621:a",
+  "status": "COMPLETED",
+  "create_time": "2026-10-05T20:18:07-07:00",
+  "update_time": "2026-10-05T20:18:07-07:00",
+  "links": [
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/refunds/3LU712027L529170H",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/captures/9MG27632DY398671M",
+      "rel": "up",
+      "method": "GET"
+    }
+  ]
+}

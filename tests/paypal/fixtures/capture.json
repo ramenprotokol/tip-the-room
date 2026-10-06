@@ -1,0 +1,60 @@
+{
+  "id": "9MG27632DY398671M",
+  "amount": {
+    "currency_code": "USD",
+    "value": "15.00"
+  },
+  "final_capture": true,
+  "seller_protection": {
+    "status": "NOT_ELIGIBLE"
+  },
+  "disbursement_mode": "INSTANT",
+  "seller_receivable_breakdown": {
+    "gross_amount": {
+      "currency_code": "USD",
+      "value": "15.00"
+    },
+    "paypal_fee": {
+      "currency_code": "USD",
+      "value": "0.88"
+    },
+    "net_amount": {
+      "currency_code": "USD",
+      "value": "14.12"
+    }
+  },
+  "custom_id": "spike-1791256675621:a",
+  "status": "COMPLETED",
+  "processor_response": {
+    "avs_code": "",
+    "cvv_code": "M",
+    "response_code": "0000"
+  },
+  "payee": {
+    "email_address": "REDACTED",
+    "merchant_id": "REDACTED"
+  },
+  "create_time": "2026-10-06T03:17:59Z",
+  "update_time": "2026-10-06T03:17:59Z",
+  "links": [
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/captures/9MG27632DY398671M",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/captures/9MG27632DY398671M/refund",
+      "rel": "refund",
+      "method": "POST"
+    },
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/authorizations/4SA6877655874993N",
+      "rel": "up",
+      "method": "GET"
+    }
+  ],
+  "network_transaction_reference": {
+    "id": "795360114828991",
+    "network": "VISA"
+  }
+}

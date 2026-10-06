@@ -1,0 +1,88 @@
+{
+  "id": "1203078948491674A",
+  "intent": "AUTHORIZE",
+  "status": "COMPLETED",
+  "payment_source": {
+    "card": {
+      "name": "Simulated Fan",
+      "last_digits": "1111",
+      "expiry": "2030-12",
+      "brand": "VISA",
+      "type": "UNKNOWN",
+      "bin_details": {}
+    }
+  },
+  "purchase_units": [
+    {
+      "reference_id": "pledge",
+      "amount": {
+        "currency_code": "USD",
+        "value": "15.00"
+      },
+      "payee": {
+        "email_address": "REDACTED",
+        "merchant_id": "REDACTED"
+      },
+      "custom_id": "spike-1791256675621:a",
+      "soft_descriptor": "TEST STORE",
+      "payments": {
+        "authorizations": [
+          {
+            "status": "CREATED",
+            "id": "4SA6877655874993N",
+            "amount": {
+              "currency_code": "USD",
+              "value": "15.00"
+            },
+            "custom_id": "spike-1791256675621:a",
+            "seller_protection": {
+              "status": "NOT_ELIGIBLE"
+            },
+            "processor_response": {
+              "cvv_code": "M",
+              "response_code": "0000"
+            },
+            "expiration_time": "2026-11-04T03:17:57Z",
+            "links": [
+              {
+                "href": "https://api.sandbox.paypal.com/v2/payments/authorizations/4SA6877655874993N",
+                "rel": "self",
+                "method": "GET"
+              },
+              {
+                "href": "https://api.sandbox.paypal.com/v2/payments/authorizations/4SA6877655874993N/capture",
+                "rel": "capture",
+                "method": "POST"
+              },
+              {
+                "href": "https://api.sandbox.paypal.com/v2/payments/authorizations/4SA6877655874993N/void",
+                "rel": "void",
+                "method": "POST"
+              },
+              {
+                "href": "https://api.sandbox.paypal.com/v2/checkout/orders/1203078948491674A",
+                "rel": "up",
+                "method": "GET"
+              }
+            ],
+            "create_time": "2026-10-06T03:17:57Z",
+            "update_time": "2026-10-06T03:17:57Z",
+            "network_transaction_reference": {
+              "id": "795360114828991",
+              "network": "VISA"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "create_time": "2026-10-06T03:17:57Z",
+  "update_time": "2026-10-06T03:17:57Z",
+  "links": [
+    {
+      "href": "https://api.sandbox.paypal.com/v2/checkout/orders/1203078948491674A",
+      "rel": "self",
+      "method": "GET"
+    }
+  ]
+}
