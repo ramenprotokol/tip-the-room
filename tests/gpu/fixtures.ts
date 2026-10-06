@@ -95,8 +95,11 @@ export function mayaParties(status: ManageParty["payoutStatus"], paid = false): 
   ];
 }
 
-function holdRows(fans: number, status: LedgerStatus): LedgerRowDto[] {
-  return Array.from({ length: fans }, (_, i) => ({ seq: i + 1, at: T(11, 3, 19, 12) + i * 3_600_000, what: "Fan held a spot", who: `Fan ${String(i + 1).padStart(2, "0")} · ${INITIALS[i]}`, amountCents: 1500, ref: `SAMPLE-AUTH-${String(i + 1).padStart(3, "0")}`, status })).reverse();
+// The reference's twelve "Fan held a spot" stamps (reference/v2/manage.html STAMPS: month 11, day, hour, minute); later fans use its "Nov 9 · 9:{10+i}am".
+const STAMPS: [number, number, number][] = [[3, 19, 12], [3, 21, 40], [4, 8, 5], [4, 18, 31], [5, 12, 17], [5, 22, 2], [6, 19, 48], [7, 11, 26], [7, 16, 53], [8, 14, 15], [8, 21, 37], [9, 8, 41]];
+const stampOf = (i: number): number => (STAMPS[i] ? T(11, STAMPS[i][0], STAMPS[i][1], STAMPS[i][2]) : T(11, 9, 9, 10 + i));
+export function holdRows(fans: number, status: LedgerStatus): LedgerRowDto[] {
+  return Array.from({ length: fans }, (_, i) => ({ seq: i + 1, at: stampOf(i), what: "Fan held a spot", who: `Fan ${String(i + 1).padStart(2, "0")} · ${INITIALS[i]}`, amountCents: 1500, ref: `SAMPLE-AUTH-${String(i + 1).padStart(3, "0")}`, status })).reverse();
 }
 
 const ML = {

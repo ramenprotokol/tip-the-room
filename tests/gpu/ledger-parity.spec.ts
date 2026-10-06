@@ -5,15 +5,12 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { PNG } from "pngjs";
 import type { LedgerRowDto } from "../../src/worker/api-types";
+import { installFakeApi } from "./fake-api";
+import { MANAGE_FRAMES, MANAGE_SCRIPTS, manageApi, MAYA_ID, MAYA_KEY } from "./fixtures";
 import { APP_BASE, DESKTOP, MAX_DIFF_RATIO, PHONE, diffRatio, openFrozen } from "./parity";
 
-// The reference's twelve "Fan held a spot" rows (reference/v2/manage.html: STAMPS, INITIALS, SAMPLE-AUTH-nnn, $15, On hold).
-const INITIALS = ["JR", "AK", "LM", "TD", "SO", "PB", "NV", "CH", "EW", "RG", "MI", "BF"];
-const STAMPS: [number, number, number][] = [[3, 19, 12], [3, 21, 40], [4, 8, 5], [4, 18, 31], [5, 12, 17], [5, 22, 2], [6, 19, 48], [7, 11, 26], [7, 16, 53], [8, 14, 15], [8, 21, 37], [9, 8, 41]];
-const ROWS: LedgerRowDto[] = STAMPS.map(([d, h, m], i) => ({
-  seq: i + 1, at: Date.UTC(2026, 10, d, h, m), what: "Fan held a spot", who: `Fan ${String(i + 1).padStart(2, "0")} · ${INITIALS[i]}`,
-  amountCents: 1500, ref: `SAMPLE-AUTH-${String(i + 1).padStart(3, "0")}`, status: "On hold" as const,
-})).reverse();
+// The rows are the manage fixtures' first frame: the reference's twelve "Fan held a spot" rows (STAMPS, INITIALS, SAMPLE-AUTH-nnn, $15, On hold).
+const ROWS: LedgerRowDto[] = MANAGE_FRAMES.initial.ledger;
 
 const settleFonts = async (page: Page) => { await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400); };
 
@@ -26,7 +23,7 @@ async function region(page: Page, selector: string) {
   return { png: await el.screenshot(), box, text };
 }
 
-async function compare(browser: Browser, viewport: { width: number; height: number }, slug: string) {
+async function compare(browser: Browser, viewport: { width: number; height: number }, slug: string, target: "harness" | "manage") {
   const ref = await openFrozen(browser, "http://127.0.0.1:5198/v2/manage.html", viewport);
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1.5 });
   const page = await ctx.newPage();
@@ -34,8 +31,15 @@ async function compare(browser: Browser, viewport: { width: number; height: numb
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   try {
-    await page.goto(`${APP_BASE}tests/gpu/ledger/harness.html`, { waitUntil: "networkidle" });
-    await page.evaluate((rows) => window.__ledger.rows(rows), ROWS);
+    if (target === "harness") {
+      await page.goto(`${APP_BASE}tests/gpu/ledger/harness.html`, { waitUntil: "networkidle" });
+      await page.evaluate((rows) => window.__ledger.rows(rows), ROWS);
+    } else {
+      // The real manage page, answered by the fake API, in parity mode (the grid is the one the artist sees).
+      await installFakeApi(page, manageApi(MANAGE_SCRIPTS.tipped));
+      await page.goto(`${APP_BASE}s/${MAYA_ID}/manage?e2e=parity#${MAYA_KEY}`, { waitUntil: "networkidle" });
+      await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    }
     await expect(page.locator("#ledger .ag-row").first()).toBeVisible();
     const a = await region(ref.page, 'section[aria-labelledby="h-ledger"] .ag-root-wrapper');
     // Sub-pixel alignment: the reference ledger sits at a fractional y on its page; give the harness the same fraction
@@ -72,5 +76,7 @@ async function compare(browser: Browser, viewport: { width: number; height: numb
   }
 }
 
-test("ledger parity: desktop", async ({ browser }) => { await compare(browser, DESKTOP, "ledger-desktop"); });
-test("ledger parity: phone", async ({ browser }) => { await compare(browser, PHONE, "ledger-phone"); });
+test("ledger parity: desktop", async ({ browser }) => { await compare(browser, DESKTOP, "ledger-desktop", "harness"); });
+test("ledger parity: phone", async ({ browser }) => { await compare(browser, PHONE, "ledger-phone", "harness"); });
+test("ledger parity on the real manage page: desktop", async ({ browser }) => { await compare(browser, DESKTOP, "ledger-manage-desktop", "manage"); });
+test("ledger parity on the real manage page: phone", async ({ browser }) => { await compare(browser, PHONE, "ledger-manage-phone", "manage"); });

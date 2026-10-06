@@ -65,3 +65,16 @@ test("sort, filter and CSV export work, and the CSV can't run spreadsheet formul
   expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"")"`);
   expect(csv).toContain('"Nov 12 · 6:00pm","Paid Lucky’s Café","Lucky’s Café","$100.00","7X4QKXC6L5BNA","Pending"');
 });
+
+test("sort and filter icons show whenever a column differs from the default, and stay hidden at rest", async ({ page }) => {
+  await open(page);
+  const opacity = (col: string, sel: string) => page.locator(`#ledger .ag-header-cell[col-id="${col}"] ${sel}`).first().evaluate((e) => getComputedStyle(e).opacity);
+  await page.mouse.move(5, 5);
+  expect(await opacity("when", ".ag-sort-indicator-container")).toBe("0");
+  await page.locator('#ledger .ag-header-cell[col-id="who"]').click();
+  await page.mouse.move(5, 5);
+  expect(await opacity("who", ".ag-sort-indicator-container")).toBe("1");
+  await page.evaluate(() => window.__ledger.grid.api.setFilterModel({ what: { filterType: "text", type: "contains", filter: "Fan" } }));
+  await page.mouse.move(5, 5);
+  expect(await opacity("what", ".ag-header-icon")).toBe("1");
+});

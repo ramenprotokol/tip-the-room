@@ -346,6 +346,12 @@ main{padding:0 var(--gutter) 28px}
 .ledger-grid .ag-cell-first-right-pinned{background:#F7F3EB}
 .ledger-grid .ag-header-cell-first-right-pinned{border-left:1.5px solid #4A423B}
 .ledger-grid .ag-header-icon,.ledger-grid .ag-sort-indicator-container{opacity:0}
+/* Icons stay visible whenever a column's state differs from the default (newest first = descending by When stays hidden, so parity at rest is unaffected) */
+.ledger-grid .ag-header-cell-filtered .ag-header-icon,.ledger-grid .ag-header-cell:not([col-id="when"]) .ag-header-cell-sorted-asc .ag-sort-indicator-container,.ledger-grid .ag-header-cell:not([col-id="when"]) .ag-header-cell-sorted-desc .ag-sort-indicator-container,.ledger-grid .ag-header-cell[col-id="when"] .ag-header-cell-sorted-asc .ag-sort-indicator-container{opacity:1}
 .ledger-grid .ag-header-cell:hover .ag-header-icon,.ledger-grid .ag-header-cell:hover .ag-sort-indicator-container,.ledger-grid .ag-header-cell:focus-within .ag-header-icon,.ledger-grid .ag-header-cell:focus-within .ag-sort-indicator-container{opacity:1}
 
-.ledger-grid .ag-header-cell{-webkit-font-smoothing:antialiased}.ledger-grid .pill{position:relative;top:-0.3px}
+.ledger-grid .ag-header-cell{-webkit-font-smoothing:antialiased}/* -0.3px: the reference pill sits in a table cell, the grid pill in a flex cell centred on a 1.2 line box; this lifts it by the sub-pixel difference (measured against the reference at 0.5%) */
+.ledger-grid .pill{position:relative;top:-0.3px}
+.attention{margin:0;padding:12px 16px 12px 34px;border:2px solid #C8221B;border-radius:14px;background:#FBE9E6;font:500 17px/1.4 var(--f-ui)}
+.calloff{display:grid;gap:10px;padding-top:6px;border-top:1px solid var(--rule)}
+.calloff .why{margin:0;font:400 16px/1.45 var(--f-ui);color:var(--ink-2)}

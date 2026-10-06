@@ -54,6 +54,7 @@ export class LedgerGrid {
       suppressColumnVirtualisation: true,
       suppressRowTransform: true,
       animateRows: false,
+      // Never put data in this template: AG Grid writes it as HTML.
       overlayNoRowsTemplate: "<span>No money has moved yet.</span>",
     });
   }
