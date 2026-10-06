@@ -739,6 +739,17 @@ git commit -m "spike(paypal): day-1 sandbox spike with redacted fixtures and fin
 
 If Task 2's findings changed a response shape, **the fixture wins**: parse what PayPal actually returned, and say so in your report.
 
+**Controller amendments after the spike.** These are binding, and override the code below where they differ:
+- **Currency check.** The sandbox account is now a US account: gross, fee and net all come back in USD, and `net == gross − fee`. `captureHold` must still check currencies, because a CAD account once returned net in CAD.
+  - If `gross_amount`, `paypal_fee` or `net_amount` has a `currency_code` other than `"USD"`, throw `PayPalError(502, "UNEXPECTED_CURRENCY", ...)`, naming the field and the code.
+  - Add a test that feeds a capture with `net_amount.currency_code: "CAD"` and expects that error.
+  - Likewise, `toHold` rejects an authorization amount whose currency is not USD.
+- **Fee.** `feeCents` comes from `paypal_fee` when present, otherwise `gross − net` (both USD after the check above).
+- **Card orders** come back `COMPLETED` with `purchase_units[0].payments.authorizations[0]` inline, so `authorize-order.json` was never produced and no `/authorize` fixture exists. Keep the fallback path, and test it with the `order-card-authorize.json` body as the second response, as the plan already does.
+- **Extra fields.** Response bodies carry fields the code doesn't use (`disbursement_mode`, `processor_response`, `payee`, `links`, `network_transaction_reference`). Parsers must ignore unknown fields.
+- **Reauthorize** may be unavailable for card holds on this account: there is no `rel: "reauthorize"` link. Keep `reauthorizeHold` as specified; Plan 4 owns the fallback.
+- **Refunds.** Refund bodies use `seller_payable_breakdown`, because PayPal keeps its fee on a refund. `Refund` stays `{ refundId, captureId, status }`; do not parse a breakdown.
+
 - [ ] **Step 1: Write the failing tests**
 
 `tests/paypal/amount.test.ts`:
