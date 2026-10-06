@@ -18,13 +18,17 @@ new_sqlite_classes = ["CampaignAgent", "QuotaAgent"]
 [ai]
 binding = "AI"
 
+# Production. Non-secret values only: every key and id (PayPal, RATE_SALT, JUDGE_CODE, webhook id) is a Worker secret.
+# The Pages site (production origin). Local runs use [env.check] below.
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = "https://tip-the-room.pages.dev"
+PAYPAL_API_BASE = "https://api-m.sandbox.paypal.com"
 
 # Local end-to-end check (npm run worker:dev / worker:check): same Durable Objects, no AI binding,
 # so it needs no Cloudflare login and the agent uses its templates.
 [env.check.vars]
 ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+PAYPAL_API_BASE = "https://api-m.sandbox.paypal.com"
 
 [[env.check.durable_objects.bindings]]
 name = "CAMPAIGN"
