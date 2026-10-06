@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
+    "worker:dev": "wrangler dev --local --env check --port 8788",
     "lint": "eslint .",
     "test": "vitest run",
     "test:gpu": "playwright test",

@@ -1,0 +1,39 @@
+name = "tip-the-room-api"
+main = "src/worker/index.ts"
+compatibility_date = "2026-10-01"
+
+# One Durable Object per campaign, plus one singleton for the AI budget and rate limits. SQLite storage (free plan).
+[[durable_objects.bindings]]
+name = "CAMPAIGN"
+class_name = "CampaignAgent"
+
+[[durable_objects.bindings]]
+name = "QUOTA"
+class_name = "QuotaAgent"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CampaignAgent", "QuotaAgent"]
+
+[ai]
+binding = "AI"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+
+# Local end-to-end check (npm run worker:dev / worker:check): same Durable Objects, no AI binding,
+# so it needs no Cloudflare login and the agent uses its templates.
+[env.check.vars]
+ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+
+[[env.check.durable_objects.bindings]]
+name = "CAMPAIGN"
+class_name = "CampaignAgent"
+
+[[env.check.durable_objects.bindings]]
+name = "QUOTA"
+class_name = "QuotaAgent"
+
+[[env.check.migrations]]
+tag = "v1"
+new_sqlite_classes = ["CampaignAgent", "QuotaAgent"]
