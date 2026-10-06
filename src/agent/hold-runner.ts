@@ -135,11 +135,18 @@ const runVoid: Runner = async (d, job, attempt) => {
   let rule: RuleId = "rule-1-hold-only";
   let who: string;
   if (pledge) {
-    if (pledge.status !== "held") return done(d, job, "Already settled.");
+    const over = p.campaign.state === "missed" || p.campaign.state === "cancelled" || p.campaign.state === "settled";
+    if (pledge.status === "capture_failed" && over && !pledge.holdClosed) {
+      // The charge failed but the hold may still be open at PayPal. Once the show is over nothing can use it: release it.
+      who = `${fanName(pledge)}'s leftover hold`;
+    } else if (pledge.status !== "held") {
+      return done(d, job, "Already settled.");
+    } else {
     const decision = decide(p, { kind: "void_all_held" });
     if (!decision.allowed) return skip(d, job, p, decision, `Did not cancel ${fanName(pledge)}'s hold.`);
     rule = decision.rule;
     who = `${fanName(pledge)}'s hold`;
+    }
   } else if (retired) {
     if (retired.voided) return done(d, job, "Already cancelled.");
     // A hold that was never counted (or no longer is) is only ever released: rule 1, nobody is charged.

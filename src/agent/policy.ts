@@ -80,6 +80,10 @@ export const DEMO_GRACE_MAX_MS = 24 * HOUR_MS;
 export function demoGraceMs(graces: number): number {
   return Math.min(DEMO_GRACE_MS * 2 ** Math.min(Math.max(graces, 0), 10), DEMO_GRACE_MAX_MS);
 }
+/** After this long past its first expiry a demo copy is deleted whatever is left (sandbox holds lapse on their own). */
+export const DEMO_GRACE_TOTAL_MAX_MS = 30 * DAY_MS;
+/** A sandbox card hold lasts this long; used when a retired hold's own expiry isn't on record. */
+export const SANDBOX_HOLD_LIFETIME_MS = 29 * DAY_MS;
 /** New demo copies allowed per day across all visitors. Each copy seats about 48 real sandbox holds. */
 export const DEMO_COPIES_PER_DAY = 50;
 export const SIM_CAP_PER_SHOW = 60;

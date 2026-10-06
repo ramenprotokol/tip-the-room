@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DAY_MS } from "../../src/core/holds";
 import { splitPayout } from "../../src/core/split";
 import { demoSeeds, receiversFrom } from "../../src/agent/demo";
+import { DEMO_GRACE_TOTAL_MAX_MS } from "../../src/agent/policy";
 import { commit } from "../../src/agent/executor";
 import { sha256Hex } from "../../src/agent/ids";
 import { SIM_CARD } from "../../src/agent/paypal-port";
@@ -266,6 +267,83 @@ describe("expiry", () => {
     failVoids(h);
     expect((await h.svc.tick()).expired).toBe(false);
     expect(h.svc.project().retired.get(x.authorizationId)?.voided).toBe(false);
+  });
+
+  /** A copy past its expiry with every hold closed, so only the pending-job rule can keep it. */
+  async function closedCopy() {
+    const h = await demoShow("b");
+    await run(h);
+    h.clock.t = LAUNCH + DAY_MS;
+    await h.svc.tick();
+    await run(h);
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
+    return h;
+  }
+
+  it("keeps a copy past expiry while a refund is still pending, then deletes it once done", async () => {
+    const h = await closedCopy();
+    h.store.putJob({ key: "refund:C-x", kind: "refund", target: "C-x", nextAt: h.clock.t + 100 * DAY_MS }, h.clock.t);
+    h.clock.t = Number(h.store.getMeta("expires_at"));
+    expect((await h.svc.tick()).expired).toBe(false);
+    expect(Number(h.store.getMeta("expires_at"))).toBeGreaterThan(h.clock.t);
+    h.store.updateJob("refund:C-x", { status: "done" });
+    h.clock.t = Number(h.store.getMeta("expires_at"));
+    expect((await h.svc.tick()).expired).toBe(true);
+  });
+
+  it("keeps a copy past expiry while a payout is still pending", async () => {
+    const h = await closedCopy();
+    h.store.putJob({ key: "payout:x", kind: "payout", target: "x", nextAt: h.clock.t + 100 * DAY_MS }, h.clock.t);
+    h.clock.t = Number(h.store.getMeta("expires_at"));
+    expect((await h.svc.tick()).expired).toBe(false);
+  });
+
+  it("stops waiting after the total grace cap, with a final log line", async () => {
+    const h = await closedCopy();
+    h.store.putJob({ key: "refund:C-x", kind: "refund", target: "C-x", nextAt: h.clock.t + 100 * DAY_MS }, h.clock.t);
+    const start = h.clock.t;
+    let expired = false;
+    let ticks = 0;
+    while (!expired && ticks < 100) {
+      h.clock.t = Number(h.store.getMeta("expires_at"));
+      expired = (await h.svc.tick()).expired;
+      ticks += 1;
+    }
+    expect(expired).toBe(true);
+    expect(h.clock.t - start).toBeGreaterThanOrEqual(DEMO_GRACE_TOTAL_MAX_MS);
+    expect(h.clock.t - start).toBeLessThanOrEqual(DEMO_GRACE_TOTAL_MAX_MS + 24 * HOUR + HOUR);
+    expect(h.store.logs().some((l) => l.did.startsWith("This demo copy is being removed"))).toBe(true);
+  });
+
+  it("a replaced hold counts only until its own expiry", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    const x = [...h.svc.project().pledges.values()][0];
+    commit(h.store, h.clock.now(), { type: "hold_replaced", pledgeId: x.pledgeId, newPaypalPledgeId: `${x.pledgeId}-h1`, orderId: "O-new", authorizationId: "A-new", oldOrderId: x.orderId, oldAuthorizationId: x.authorizationId, authorizedAt: LAUNCH, expiresAt: LAUNCH + 60 * DAY_MS });
+    expect(h.svc.project().retired.get(x.authorizationId)?.expiresAt).toBe(x.expiresAt);
+  });
+
+  it("releases a failed charge's leftover hold once the show is over, instead of waiting for it to lapse", async () => {
+    const h = await demoShow("a");
+    h.paypal.script("captureHold", (auth: string) => ({ captureId: `C-${auth}`, authorizationId: auth, status: "DECLINED" }));
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: orderId.replace("O-", "A-"), status: "CREATED" }], captures: [] }));
+    h.svc.fastForward(true);
+    for (let i = 0; i < 40; i++) {
+      await h.svc.tick();
+      h.clock.t += 120_000;
+    }
+    const failed = [...h.svc.project().pledges.values()].filter((x) => x.status === "capture_failed");
+    expect(failed.length).toBeGreaterThan(0);
+    const auth = failed[0].authorizationId;
+    expect(h.svc.project().campaign.state).toBe("settled");
+    h.clock.t = Number(h.store.getMeta("expires_at"));
+    expect((await h.svc.tick()).expired).toBe(false);
+    expect(h.store.job(`void:${auth}`)).toBeDefined();
+    await h.svc.tick();
+    expect(h.paypal.calls.filter((c) => c.op === "voidHold").map((c) => c.args[0])).toContain(auth);
+    expect(h.svc.project().pledges.get(failed[0].pledgeId)?.holdClosed).toBe(true);
+    h.clock.t = Number(h.store.getMeta("expires_at"));
+    expect((await h.svc.tick()).expired).toBe(true);
   });
 
   it("refuses demo controls on a real show", async () => {

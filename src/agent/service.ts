@@ -19,7 +19,7 @@ import { commit, drain, logStep, queueVoid, requestReconcile, type ExecDeps } fr
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { DEMO_GRACE_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
+import { DEMO_GRACE_MS, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
 import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
 import { SIM_INITIALS } from "./sim-runner";
@@ -700,18 +700,27 @@ export class CampaignService {
   }
 
   /**
-   * True when a demo copy is past its expiry AND no live sandbox hold is left (the adapter then deletes the storage).
-   * A hold counts as live while it is still held (or its charge failed) and not past its own expiresAt, or while a retired
-   * or replaced hold has no confirmed void. Until then the alarm is re-armed with a doubling wait (1 h up to 24 h) and the
-   * void jobs are re-opened every time, so a failed void is never forgotten.
+   * True when a demo copy is past its expiry, has no money step pending, and no live sandbox hold is left (the adapter then
+   * deletes the storage). A hold is live while it is held (or its charge failed) and not past its own expiry, or while a
+   * retired or replaced hold has no confirmed void and has not lapsed. Until then the alarm is re-armed with a doubling wait
+   * (1 h up to 24 h) and void jobs are re-opened each time. The waiting is bounded: DEMO_GRACE_TOTAL_MAX_MS after the first
+   * expiry the copy is deleted anyway, with a final log line (sandbox holds lapse by themselves).
    */
   private checkExpiry(): boolean {
     const store = this.deps.store;
     if (!this.pastExpiry()) return false;
     this.jumpToDeadline();
-    const live = this.liveHolds(this.project());
-    if (live.length === 0) return true;
+    const p = this.project();
+    const live = this.liveHolds(p);
+    const busy = store.hasPending(MONEY_JOBS);
+    if (live.length === 0 && !busy) return true;
     const now = this.deps.clock.now();
+    const firstAt = Number(store.getMeta("expiry_first_at") ?? String(now));
+    if (now - firstAt >= DEMO_GRACE_TOTAL_MAX_MS) {
+      this.log({ saw: sawCounts(p), did: "This demo copy is being removed. Any hold still open at PayPal lapses on its own; nobody is charged.", rule: null });
+      return true;
+    }
+    store.setMeta("expiry_first_at", String(firstAt));
     for (const { auth, voidable } of live) {
       if (!voidable) continue;
       const key = `void:${auth}`;
@@ -728,13 +737,17 @@ export class CampaignService {
   /** Holds that may still be open at PayPal and that nothing has closed yet. `voidable` holds are safe to release now. */
   private liveHolds(p: Projection): { auth: string; voidable: boolean }[] {
     const now = this.deps.clock.now();
+    const s = p.campaign.state;
     // Only a show that is ending may release a held pledge; a charge still in progress is left to its own jobs.
-    const ending = p.campaign.state === "missed" || p.campaign.state === "cancelled";
+    const ending = s === "missed" || s === "cancelled";
+    const over = ending || s === "settled";
     const out: { auth: string; voidable: boolean }[] = [];
     for (const x of p.pledges.values()) {
-      if ((x.status === "held" || x.status === "capture_failed") && x.expiresAt > now) out.push({ auth: x.authorizationId, voidable: ending && x.status === "held" });
+      if (x.expiresAt <= now) continue;
+      if (x.status === "held") out.push({ auth: x.authorizationId, voidable: ending });
+      else if (x.status === "capture_failed" && !x.holdClosed) out.push({ auth: x.authorizationId, voidable: over });
     }
-    for (const r of p.retired.values()) if (!r.voided) out.push({ auth: r.authorizationId, voidable: true });
+    for (const r of p.retired.values()) if (!r.voided && r.expiresAt > now) out.push({ auth: r.authorizationId, voidable: true });
     return out;
   }
 

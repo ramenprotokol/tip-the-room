@@ -3,6 +3,7 @@ import { mandateSignedEvent, type Mandate } from "../core/mandate";
 import type { Cents } from "../core/money";
 import type { PayoutLine } from "../core/split";
 import type { AiSource, LedgerEvent, PayoutItemStatus, ProposalOption, ProposalOptionId, SettlementNote } from "./events";
+import { SANDBOX_HOLD_LIFETIME_MS } from "./policy";
 import type { StoredEvent } from "./store";
 
 export type PledgeStatus = "held" | "charged" | "capture_failed" | "released" | "refunded";
@@ -22,6 +23,8 @@ export interface PledgeView {
   expiresAt: number;
   heldAt: number;
   status: PledgeStatus;
+  /** True once the leftover hold of a failed charge has been cancelled. */
+  holdClosed?: boolean;
   captureId?: string;
   grossCents?: Cents;
   feeCents?: Cents;
@@ -46,6 +49,8 @@ export interface RetiredHold {
   pledgeId: string;
   why: "late" | "rejected" | "replaced";
   voided: boolean;
+  /** When PayPal drops this hold by itself (the replaced hold's own expiry, or event time + the sandbox hold lifetime). */
+  expiresAt: number;
 }
 
 export interface PayoutView {
@@ -203,19 +208,19 @@ export function applyEvent(p: Projection, s: StoredEvent): void {
       p.rejected += 1;
       const order = e.orderId ? p.orders.get(e.orderId) : undefined;
       if (order) order.resolved = true;
-      if (e.authorizationId) p.retired.set(e.authorizationId, { authorizationId: e.authorizationId, orderId: e.orderId, pledgeId: e.pledgeId, why: "rejected", voided: false });
+      if (e.authorizationId) p.retired.set(e.authorizationId, { authorizationId: e.authorizationId, orderId: e.orderId, pledgeId: e.pledgeId, why: "rejected", voided: false, expiresAt: s.at + SANDBOX_HOLD_LIFETIME_MS });
       break;
     }
     case "late_hold": {
       const order = p.orders.get(e.orderId);
       if (order) order.resolved = true;
-      p.retired.set(e.authorizationId, { authorizationId: e.authorizationId, orderId: e.orderId, pledgeId: e.pledgeId, why: "late", voided: false });
+      p.retired.set(e.authorizationId, { authorizationId: e.authorizationId, orderId: e.orderId, pledgeId: e.pledgeId, why: "late", voided: false, expiresAt: s.at + SANDBOX_HOLD_LIFETIME_MS });
       break;
     }
     case "hold_replaced": {
       const pledge = p.pledges.get(e.pledgeId);
       if (!pledge) break;
-      p.retired.set(e.oldAuthorizationId, { authorizationId: e.oldAuthorizationId, orderId: e.oldOrderId, pledgeId: e.pledgeId, why: "replaced", voided: false });
+      p.retired.set(e.oldAuthorizationId, { authorizationId: e.oldAuthorizationId, orderId: e.oldOrderId, pledgeId: e.pledgeId, why: "replaced", voided: false, expiresAt: pledge.expiresAt });
       p.pledgeByAuth.delete(e.oldAuthorizationId);
       pledge.authorizationId = e.authorizationId;
       pledge.orderId = e.orderId;
@@ -246,6 +251,7 @@ export function applyEvent(p: Projection, s: StoredEvent): void {
     case "void_ok": {
       const pledge = pledgeOf(p, e.authorizationId);
       if (pledge && pledge.status === "held") pledge.status = "released";
+      else if (pledge && pledge.status === "capture_failed") pledge.holdClosed = true;
       const retired = p.retired.get(e.authorizationId);
       if (retired) retired.voided = true;
       break;
