@@ -81,6 +81,21 @@ describe("router", () => {
       expect(fc.puts).toHaveLength(1);
     });
 
+    it("a corrupt cache entry falls through to the show, and the fresh answer is stored with waitUntil", async () => {
+      const fc = fakeCache();
+      const w = workerHarness({ cache: fc.cache });
+      const { c } = await createAndSign(w);
+      const later: Promise<unknown>[] = [];
+      w.deps.waitUntil = (p) => { later.push(p); };
+      fc.store.set(`https://cache.tip-the-room.invalid/public-show/${c.showId}`, new Response("<<not json"));
+      const res = await w.call("GET", `/api/shows/${c.showId}`);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { showId: string }).showId).toBe(c.showId);
+      await Promise.all(later);
+      expect(later).toHaveLength(1);
+      expect(fc.puts).toHaveLength(1);
+    });
+
     it("a cache that throws never fails the read", async () => {
       const broken: EdgeCache = { match: async () => Promise.reject(new Error("x")), put: async () => Promise.reject(new Error("x")) };
       const w = workerHarness({ cache: broken });

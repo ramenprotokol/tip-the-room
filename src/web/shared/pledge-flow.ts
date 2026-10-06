@@ -83,7 +83,7 @@ export interface PledgeFlowOptions {
 
 export const CANCELLED = "No hold was placed. You can try again whenever you like.";
 export const STALLED = "PayPal didn't open or didn't answer. Nothing was charged. Please try again, and allow pop-ups for this site.";
-export const UNCONFIRMED = "We didn't hear back. Your pledge may have gone through. Checking again…";
+export const UNCONFIRMED = "We didn't hear back. Your pledge may have gone through. Press Check again.";
 export const REFUSED_RESUME = "Your last try didn't go through. Nothing was charged.";
 const PAYPAL_TROUBLE = "PayPal didn't answer as expected. Nothing was charged. Please try again.";
 const UNKNOWN = "PayPal couldn't finish. Nothing was charged. Please try again.";

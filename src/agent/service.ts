@@ -26,7 +26,7 @@ import { RUNNERS } from "./runners";
 import { SIM_INITIALS } from "./sim-runner";
 import type { Store } from "./store";
 import { attentionLines, ledgerRows, logRows, manageParties, payoutStateOf, proposalRows, publicShow, reversalLines, UNCONFIRMED_PAYOUT_LINE, unconfirmedPayoutLines, unconfirmedPayouts } from "./views";
-import { fanName, holdDescription, sawCounts } from "./words";
+import { fanName, holdDescription, sawCounts, showTime } from "./words";
 
 export interface ServiceDeps {
   store: Store;
@@ -164,7 +164,7 @@ export class CampaignService {
       store.deleteMeta("expires_at");
       return commit(store, now, { type: "mandate_signed", mandate: signed.mandate, hash: signed.hash, signedAt: signed.signedAt });
     });
-    this.log({ saw: "The artist read the money rules and held to sign.", did: `Opened pledging: ${mandate.threshold} fans by ${new Date(Date.parse(mandate.deadline)).toUTCString()}.`, rule: null, resultId: signed.hash.slice(0, 12) });
+    this.log({ saw: "The artist read the money rules and held to sign.", did: `Opened pledging: ${mandate.threshold} fans by ${showTime(Date.parse(mandate.deadline), mandate.timeZone ?? "UTC")}.`, rule: null, resultId: signed.hash.slice(0, 12) });
     return { showId, manageKey, mandateHash: signed.hash, threshold: mandate.threshold, deadline: mandate.deadline, sharePath: `/s/${showId}`, managePath: `/s/${showId}/manage`, show: this.publicView(projection) };
   }
 
@@ -553,6 +553,10 @@ export class CampaignService {
     const proposal = typeof proposalId === "string" ? p.proposals.get(proposalId) : undefined;
     if (!proposal) throw new ServiceError(404, "not_found", "There's no such proposal.");
     if (proposal.approved) throw new ServiceError(409, "conflict", "That proposal was already approved.");
+    if (p.campaign.state !== "live") throw new ServiceError(409, "conflict", "This show is past the point where that choice matters.");
+    const mark = `declined:${proposalId}`;
+    if (this.deps.store.getMeta(mark) !== undefined) return { proposalId, show: this.publicView(p) };
+    this.deps.store.setMeta(mark, "1");
     this.log({ saw: sawCounts(p), did: `You said not now to ${proposal.options.map((o) => `"${o.label}"`).join(" or ")}. Nothing changes.`, rule: null });
     return { proposalId, show: this.publicView(p) };
   }
@@ -778,7 +782,7 @@ export class CampaignService {
   async checkPaceNow(): Promise<PublicShow> {
     this.requireDemo();
     const store = this.deps.store;
-    this.deps.paypal.meter.reset();
+    // Each invocation has its own PayPal port and meter (CampaignAgent.invocation), so there is nothing to reset here.
     const p = this.applyDeadline();
     const m = this.requireMandate(p);
     const c = p.campaign;

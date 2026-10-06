@@ -211,6 +211,13 @@ describe("pledge flow", () => {
   });
 });
 
+describe("the unconfirmed wording matches what the page does", () => {
+  it("says to press Check again (nothing rechecks by itself) and uses straight apostrophes", () => {
+    expect(UNCONFIRMED).toBe("We didn't hear back. Your pledge may have gone through. Press Check again.");
+    expect(STALLED).not.toContain("’");
+  });
+});
+
 describe("an unconfirmed order keeps the page locked", () => {
   it("even when browser storage is switched off", async () => {
     vi.stubGlobal("window", { get sessionStorage(): Storage { throw new Error("blocked"); } });

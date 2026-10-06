@@ -61,7 +61,7 @@ test("a 502 on authorize is uncertain: the SAME order is asked again, never a ne
 test("while an order is unconfirmed no new order starts; Check again asks about the same order until the server answers", async ({ page }) => {
   const seen = await open(page, pledgeApi({ authorize: (n) => (n <= 4 ? apiError(502, "paypal_error", "PayPal is having trouble.") : undefined) }));
   await page.locator("paypal-button").click();
-  await expect(page.locator("[data-pledge-msg]")).toHaveText("We didn't hear back. Your pledge may have gone through. Checking again…", { timeout: 15_000 });
+  await expect(page.locator("[data-pledge-msg]")).toHaveText("We didn't hear back. Your pledge may have gone through. Press Check again.", { timeout: 15_000 });
   await expect(page.locator("#check-again")).toBeVisible();
   await page.locator("paypal-button").click();
   await page.waitForTimeout(300);

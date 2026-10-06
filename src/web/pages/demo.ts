@@ -319,7 +319,7 @@ function start(r: DemoResponse) {
   log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links();
 }
 /** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
-async function begin(r: DemoResponse) { start(r); await Promise.all([pullView(A, true), pullView(B, true)]); }
+async function begin(r: DemoResponse) { start(r); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
 async function freshCopy(msg: string) { await begin(await api.createDemo()); judgeMsg(msg); }
 async function resetDemo() {
   const d = demo; if (!d) return;
@@ -330,6 +330,7 @@ async function resetDemo() {
 }
 async function checkPace() {
   const d = demo; if (!d) return;
+  if (![A, B].some(c => c.show?.state === 'live')) { judgeMsg('Neither show is still waiting for fans, so there’s no pace to check. Press Start over for a fresh pair.'); return; }
   await solo(async () => {
     const r = await api.demoPace(d.demoId, d.demoKey);
     await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]);

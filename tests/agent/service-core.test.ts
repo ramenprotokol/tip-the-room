@@ -218,6 +218,13 @@ describe("manage view", () => {
     await expect(h.svc.checkKey(h.manageKey)).resolves.toBeUndefined();
   });
 
+  it("the opening log line names the deadline in the show's time zone, not GMT", async () => {
+    const h = await signedService();
+    const line = h.store.logs().find((l) => l.did.startsWith("Opened pledging"));
+    expect(line?.did).not.toMatch(/GMT/);
+    expect(line?.did).toMatch(/\d{1,2}:\d{2}\s?[AP]M/);
+  });
+
   it("shows ledger rows newest first, the agent log with rule titles, and the parties with emails", async () => {
     const h = await signedService();
     await pledge(h.svc);

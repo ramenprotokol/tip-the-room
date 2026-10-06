@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DraftFields } from "../../src/worker/api-types";
-import { fromDraft, parseDay, parseDeadline, targetOf, toDraftFields } from "../../src/web/shared/start-draft";
+import { dollarsOf, fromDraft, SAFE_PATH, parseDay, parseDeadline, targetOf, toDraftFields } from "../../src/web/shared/start-draft";
 
 const DRAFT: DraftFields = {
   showName: "Acoustic Set", roomName: "Lucky’s Café", showDate: "2026-11-20", ticketPriceCents: 1500, feeBufferBps: 500, deadline: "2026-11-12T18:00:00.000Z", timeZone: "UTC",
@@ -55,5 +55,22 @@ describe("start draft", () => {
     const { fields, problems } = toDraftFields(d);
     expect(fields).toBeNull();
     expect(problems).toEqual(["Write the show date like Fri Nov 20.", "Add the price of a spot.", "Add a PayPal email for Lucky’s Café.", "Add a PayPal email for you."]);
+  });
+});
+
+describe("typed dollars and server paths", () => {
+  it("rounds typed dollars to the cent, half up, the way a person reads them", () => {
+    expect(dollarsOf("100.005")).toBe(100.01);
+    expect(dollarsOf("$1,200.5")).toBe(1200.5);
+    expect(dollarsOf("")).toBe(0);
+    expect(dollarsOf("1.2.3")).toBe(0);
+    expect(dollarsOf("15")).toBe(15);
+  });
+  it("only lets plain show paths into links", () => {
+    expect(SAFE_PATH.test("/s/abc123")).toBe(true);
+    expect(SAFE_PATH.test("/s/abc123/manage")).toBe(true);
+    expect(SAFE_PATH.test("javascript:alert(1)")).toBe(false);
+    expect(SAFE_PATH.test("//evil.example/s/abc")).toBe(false);
+    expect(SAFE_PATH.test("/s/ABC")).toBe(false);
   });
 });

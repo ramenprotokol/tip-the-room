@@ -28,7 +28,7 @@ function edgeCache(): EdgeCache | undefined {
   return { match: async (key) => store.match(key), put: (key, res) => store.put(key, res) };
 }
 
-function routerDeps(env: Env): RouterDeps {
+function routerDeps(env: Env, ctx?: { waitUntil(p: Promise<unknown>): void }): RouterDeps {
   const binding = env.AI;
   return {
     campaigns: campaigns(env),
@@ -52,10 +52,11 @@ function routerDeps(env: Env): RouterDeps {
       },
     },
     cache: edgeCache(),
+    waitUntil: ctx ? (p) => ctx.waitUntil(p) : undefined,
     verifyWebhook: (headers, rawBody, webhookId) => verifyWebhook(new PayPalHttp(loadConfig(env)), headers, rawBody, webhookId),
   };
 }
 
 export default {
-  fetch: (request: Request, env: Env) => route(request, routerDeps(env)),
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => route(request, routerDeps(env, ctx)),
 } satisfies ExportedHandler<Env>;

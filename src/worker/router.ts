@@ -37,6 +37,8 @@ export interface RouterDeps {
   verifyWebhook(headers: Headers, rawBody: string, webhookId: string): Promise<boolean>;
   /** Edge cache for the public show reply (the Workers Cache API in production). Absent: no caching. */
   cache?: EdgeCache;
+  /** The Worker's ctx.waitUntil, so a cache write finishes after the reply is sent. Absent: the write is awaited. */
+  waitUntil?: (p: Promise<unknown>) => void;
 }
 
 /** The two Cache API calls we use. Keys are absolute URLs. */
@@ -233,12 +235,16 @@ const getShow: Handler = async (c) => {
   const key = `https://cache.tip-the-room.invalid/public-show/${id}`;
   if (cache) {
     const hit = await cache.match(key).catch(() => undefined);
-    if (hit) return json(200, await hit.json());
+    // A damaged cache entry is the same as no entry: ask the show.
+    const cached = hit ? await hit.json().catch(() => undefined) : undefined;
+    if (cached !== undefined) return json(200, cached);
   }
   const res = fromReply(await c.deps.campaigns.call(id, { op: "public" }));
   if (cache && res.status === 200) {
     const stored = new Response(res.clone().body, { status: 200, headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${PUBLIC_SHOW_CACHE_SECONDS}` } });
-    await cache.put(key, stored).catch(() => undefined);
+    const write = cache.put(key, stored).catch(() => undefined);
+    if (c.deps.waitUntil) c.deps.waitUntil(write);
+    else await write;
   }
   return res;
 };
