@@ -213,4 +213,76 @@ describe("PayPalHttp", () => {
     expect(err.status).toBe(502);
     expect(err.paypalName).toBe("BAD_RESPONSE_BODY");
   });
+
+  describe("token network failures", () => {
+    /** Token fetch rejects `rejectTokens` times, then answers; API calls come from `api`. */
+    const flaky = (rejectTokens: number, api: Response[]) => {
+      let tokenCalls = 0;
+      const apiHeaders: Record<string, string>[] = [];
+      const fetch = async (url: string, init: RequestInit) => {
+        if (url.endsWith("/v1/oauth2/token")) {
+          tokenCalls += 1;
+          if (tokenCalls <= rejectTokens) throw new TypeError("fetch failed");
+          return new Response(JSON.stringify({ access_token: "t", expires_in: 3600 }), { status: 200 });
+        }
+        apiHeaders.push(Object.fromEntries(new Headers(init.headers).entries()));
+        return api.shift()!;
+      };
+      return { fetch, tokenCalls: () => tokenCalls, apiHeaders };
+    };
+
+    it("retries a token fetch that rejects once, with the same request id", async () => {
+      const f = flaky(1, [new Response("{}", { status: 201 })]);
+      const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep });
+      await http.request({ method: "POST", path: "/p", body: {}, requestId: "r-1" });
+      expect(f.tokenCalls()).toBe(2);
+      expect(f.apiHeaders.map((h) => h["paypal-request-id"])).toEqual(["r-1"]);
+    });
+
+    it("throws PayPalError status 0 after maxAttempts when the token fetch always rejects", async () => {
+      const f = flaky(99, []);
+      const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep, maxAttempts: 3 });
+      const err = (await http.request({ method: "GET", path: "/x" }).catch((e) => e)) as PayPalError;
+      expect(err).toBeInstanceOf(PayPalError);
+      expect(err.status).toBe(0);
+      expect(err.paypalName).toBe("NETWORK_ERROR");
+      expect(f.tokenCalls()).toBe(3);
+      expect(f.apiHeaders).toHaveLength(0);
+    });
+
+    it("does not retry a POST without a request id", async () => {
+      const f = flaky(1, [new Response("{}", { status: 201 })]);
+      const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep });
+      const err = (await http.request({ method: "POST", path: "/p", body: {} }).catch((e) => e)) as PayPalError;
+      expect(err).toBeInstanceOf(PayPalError);
+      expect(err.status).toBe(0);
+      expect(f.tokenCalls()).toBe(1);
+    });
+
+    it("retries when the 401 token refresh hits a network error", async () => {
+      let tokenCalls = 0;
+      let apiCalls = 0;
+      const fetch = async (url: string) => {
+        if (url.endsWith("/v1/oauth2/token")) {
+          tokenCalls += 1;
+          if (tokenCalls === 2) throw new TypeError("fetch failed");
+          return new Response(JSON.stringify({ access_token: `t${tokenCalls}`, expires_in: 3600 }), { status: 200 });
+        }
+        apiCalls += 1;
+        return apiCalls === 1 ? new Response("{}", { status: 401 }) : new Response('{"ok":1}', { status: 200 });
+      };
+      const http = new PayPalHttp(config, { fetch, sleep: noSleep });
+      expect(await http.request({ method: "GET", path: "/x" })).toEqual({ ok: 1 });
+    });
+
+    it("lets local errors (a circular body) propagate unchanged", async () => {
+      const f = flaky(0, []);
+      const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep });
+      const body: Record<string, unknown> = {};
+      body.self = body;
+      const err = await http.request({ method: "POST", path: "/p", body, requestId: "r" }).catch((e) => e);
+      expect(err).toBeInstanceOf(TypeError);
+      expect(err).not.toBeInstanceOf(PayPalError);
+    });
+  });
 });

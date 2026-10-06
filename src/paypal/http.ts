@@ -42,14 +42,19 @@ export class PayPalHttp {
 
   async token(force = false): Promise<string> {
     if (!force && this.cached && this.now() < this.cached.expiresAt - TOKEN_MARGIN_MS) return this.cached.token;
-    const res = await this.fetchFn(`${this.config.baseUrl}/v1/oauth2/token`, {
-      method: "POST",
-      headers: {
-        authorization: `Basic ${btoa(`${this.config.clientId}:${this.config.clientSecret}`)}`,
-        "content-type": "application/x-www-form-urlencoded",
-      },
-      body: "grant_type=client_credentials",
-    });
+    let res: Response;
+    try {
+      res = await this.fetchFn(`${this.config.baseUrl}/v1/oauth2/token`, {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${btoa(`${this.config.clientId}:${this.config.clientSecret}`)}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+    } catch (e) {
+      throw new PayPalError(0, "NETWORK_ERROR", e instanceof Error ? e.message : "network failure");
+    }
     if (!res.ok) throw await errorFromResponse(res);
     const body = (await res.json().catch(() => undefined)) as { access_token?: unknown; expires_in?: unknown } | undefined;
     const token = body?.access_token;
@@ -72,8 +77,17 @@ export class PayPalHttp {
     let refreshed = false;
     let last: PayPalError | undefined;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
-      // Token fetch and body serialisation happen outside the try: only a rejected fetch is a NETWORK_ERROR.
-      const init = await this.init(o);
+      // Building the request fetches the token. No money request has been sent yet, so a retryable token failure is safe to retry.
+      // Local errors (e.g. a circular body) and non-retryable token refusals propagate unchanged.
+      let init: RequestInit;
+      try {
+        init = await this.init(o);
+      } catch (e) {
+        if (!(e instanceof PayPalError) || !e.retryable || !canRetry) throw e;
+        last = e;
+        await this.sleep(250 * 2 ** (attempt - 1));
+        continue;
+      }
       let res: Response;
       try {
         res = await this.fetchFn(`${this.config.baseUrl}${o.path}`, init);
@@ -85,7 +99,15 @@ export class PayPalHttp {
       }
       if (res.status === 401 && !refreshed) {
         refreshed = true;
-        await this.token(true);
+        try {
+          await this.token(true);
+        } catch (e) {
+          if (!(e instanceof PayPalError) || !e.retryable || !canRetry) throw e;
+          last = e;
+          this.cached = undefined; // the old token is dead: the next attempt must fetch a fresh one
+          await this.sleep(250 * 2 ** (attempt - 1));
+          continue;
+        }
         attempt -= 1; // a token refresh is not a retry
         continue;
       }
