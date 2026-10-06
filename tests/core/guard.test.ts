@@ -27,7 +27,14 @@ const ctx = (campaign: Campaign, extra: Partial<GuardContext> = {}): GuardContex
 
 describe("RULES", () => {
   it("has five plain-English rules", () => {
-    expect(Object.values(RULES).map((r) => r.number)).toEqual([1, 2, 3, 4, 5]);
+    // Numbers follow the pages: 1 hold, 2 charge at tip, 3 pay, 4 cancel on a miss, 5 ask.
+    expect(Object.entries(RULES).map(([id, r]) => [id, r.number])).toEqual([
+      ["rule-1-hold-only", 1],
+      ["rule-2-capture-at-tip", 2],
+      ["rule-3-void-on-miss", 4],
+      ["rule-4-pay-the-split", 3],
+      ["rule-5-ask-first", 5],
+    ]);
     expect(RULES["rule-2-capture-at-tip"].title).toBe("When the target is reached, charge every hold.");
   });
 });

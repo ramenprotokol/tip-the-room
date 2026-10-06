@@ -16,11 +16,13 @@ export type CampaignOp =
   | { op: "manage"; manageKey: string | null }
   | { op: "approve"; manageKey: string | null; proposalId: string; body: ApproveRequest }
   | { op: "call_off"; manageKey: string | null }
+  | { op: "decline"; manageKey: string | null; proposalId: string }
   | { op: "webhook"; event: PayPalLedgerEvent }
   | { op: "webhook_unreadable"; eventType: string }
   | { op: "demo_init"; showId: string; seed: DemoSeed; demoKeyHash: string }
   | { op: "demo_fans"; manageKey: string | null; count: number }
   | { op: "demo_ff"; manageKey: string | null; topUp: boolean }
+  | { op: "demo_pace"; manageKey: string | null }
   | { op: "demo_retire"; manageKey: string | null };
 
 export type CampaignReply = { ok: true; data: unknown } | { ok: false; status: number; error: ApiError["error"] };
@@ -61,6 +63,12 @@ async function run(service: CampaignService, op: CampaignOp): Promise<unknown> {
     case "call_off":
       await service.checkKey(op.manageKey);
       return service.callOff();
+    case "decline":
+      await service.checkKey(op.manageKey);
+      return service.declineProposal(op.proposalId);
+    case "demo_pace":
+      await service.checkKey(op.manageKey);
+      return service.checkPaceNow();
     case "webhook":
       return service.ingestWebhook(op.event);
     case "webhook_unreadable":

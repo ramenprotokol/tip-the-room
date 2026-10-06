@@ -67,6 +67,9 @@ export const PAYOUT_POLL_MAX = 8;
 export const REHOLD_MARGIN_MS = 2 * DAY_MS;
 /** The second pace check runs this long before the deadline (spec 3.4). */
 export const PACE_LATE_MS = 72 * HOUR_MS;
+/** "Check pace now" (demo only) moves a demo show's clock to this share of its window: show B is behind pace there. */
+export const DEMO_PACE_POINT = 0.75;
+
 export const DEMO_TTL_MS = 24 * HOUR_MS;
 /** A show nobody signed is deleted this long after it was created. */
 export const UNSIGNED_TTL_MS = 24 * HOUR_MS;

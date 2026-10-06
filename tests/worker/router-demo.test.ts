@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DemoFansResponse, DemoResponse } from "../../src/worker/api-types";
+import type { DemoFansResponse, DemoPaceResponse, DemoResponse, ManageView } from "../../src/worker/api-types";
 import { workerHarness } from "./harness";
 
 const HOUR = 60 * 60 * 1000;
@@ -140,5 +140,28 @@ describe("demo routes", () => {
       if (i < 50) expect(status).toBe(201);
     }
     expect(status).toBe(429);
+  });
+
+  it("check pace now needs the demo key, answers with both shows and makes no PayPal call", async () => {
+    const w = workerHarness();
+    const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+    expect((await w.call("POST", `/api/demo/${d.demoId}/pace`)).status).toBe(403);
+    const res = await w.call("POST", `/api/demo/${d.demoId}/pace`, undefined, { "x-manage-key": d.demoKey });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as DemoPaceResponse;
+    expect(body.shows.map((s) => s.showId)).toEqual([`${d.demoId}a`, `${d.demoId}b`]);
+    expect(w.paypal.calls).toHaveLength(0);
+  });
+
+  it("decline needs the key and a real proposal", async () => {
+    const w = workerHarness();
+    const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+    const key = { "x-manage-key": d.demoKey };
+    await w.call("POST", `/api/demo/${d.demoId}/pace`, undefined, key);
+    const view = (await (await w.call("GET", `/api/shows/${d.demoId}b/manage`, undefined, key)).json()) as ManageView;
+    const id = view.proposals[0].proposalId;
+    expect((await w.call("POST", `/api/shows/${d.demoId}b/proposals/${id}/decline`)).status).toBe(403);
+    expect((await w.call("POST", `/api/shows/${d.demoId}b/proposals/${id}/decline`, undefined, key)).status).toBe(200);
+    expect((await w.call("POST", `/api/shows/${d.demoId}b/proposals/zzz/decline`, undefined, key)).status).toBe(404);
   });
 });

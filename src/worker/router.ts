@@ -8,7 +8,7 @@ import { demoShowIds, isDemoId, isShowId, newId, newSecret, sha256Hex, showIdFro
 import { DEMO_COPIES_PER_DAY, DEMO_TTL_MS } from "../agent/policy";
 import type { QuotaPort } from "../agent/quota";
 import { isKnownEventType, mapWebhookEvent, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
-import { MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoResponse, type ErrorCode, type PublicShow } from "./api-types";
+import { MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoPaceResponse, type DemoResponse, type ErrorCode, type PublicShow } from "./api-types";
 
 export interface CampaignsPort {
   call(showId: string, op: CampaignOp): Promise<CampaignReply>;
@@ -43,6 +43,7 @@ export const LIMITS = {
   demo: { limit: 5, windowMs: HOUR },
   demoFans: { limit: 12, windowMs: HOUR },
   demoFastForward: { limit: 30, windowMs: HOUR },
+  demoPace: { limit: 30, windowMs: HOUR },
   demoGlobal: { limit: DEMO_COPIES_PER_DAY, windowMs: 24 * HOUR },
   /** Webhook signature checks cost a PayPal call each, so they are capped per visitor and overall. PayPal retries a 429. */
   webhookVisitor: { limit: 300, windowMs: HOUR },
@@ -194,6 +195,12 @@ const callOff: Handler = async (c) => {
   return fromReply(await c.deps.campaigns.call(showParam(c), { op: "call_off", manageKey: manageKey(c) }));
 };
 
+const decline: Handler = async (c) => {
+  await limit(c, "manage");
+  const id = showParam(c);
+  return fromReply(await c.deps.campaigns.call(id, { op: "decline", manageKey: manageKey(c), proposalId: c.params[1] }));
+};
+
 /** Our show id from whichever reference a PayPal resource carries (custom_id, sender_item_id, sender_batch_id). */
 function showIdFromResource(event: WebhookEvent): string | null {
   const o = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === "object" ? (v as Record<string, unknown>) : undefined);
@@ -310,6 +317,17 @@ const demoFastForward: Handler = async (c) => {
   return json(200, res);
 };
 
+const demoPace: Handler = async (c) => {
+  await limit(c, "demoPace");
+  const [a, b] = demoShowIds(demoParam(c));
+  const ra = await c.deps.campaigns.call(a, { op: "demo_pace", manageKey: manageKey(c) });
+  if (!ra.ok) return fromReply(ra);
+  const rb = await c.deps.campaigns.call(b, { op: "demo_pace", manageKey: manageKey(c) });
+  if (!rb.ok) return fromReply(rb);
+  const res: DemoPaceResponse = { shows: [ra.data as PublicShow, rb.data as PublicShow] };
+  return json(200, res);
+};
+
 /** Both limits are checked BEFORE the old copy is retired, so a refused reset never leaves the visitor with no demo. */
 const demoReset: Handler = async (c) => {
   await limit(c, "demo");
@@ -331,11 +349,13 @@ const ROUTES: { method: string; pattern: RegExp; handler: Handler }[] = [
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/orders\/([A-Za-z0-9-]+)\/authorize$/, handler: authorize },
   { method: "GET", pattern: /^\/api\/shows\/([a-z0-9]+)\/manage$/, handler: manage },
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/proposals\/([a-z0-9]+)\/approve$/, handler: approve },
+  { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/proposals\/([a-z0-9]+)\/decline$/, handler: decline },
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/call-off$/, handler: callOff },
   { method: "POST", pattern: /^\/api\/webhooks\/paypal$/, handler: paypalWebhook },
   { method: "POST", pattern: /^\/api\/demo$/, handler: createDemo },
   { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/fans$/, handler: demoFans },
   { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/fast-forward$/, handler: demoFastForward },
+  { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/pace$/, handler: demoPace },
   { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/reset$/, handler: demoReset },
 ];
 

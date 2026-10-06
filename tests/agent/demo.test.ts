@@ -355,3 +355,75 @@ describe("expiry", () => {
     expect(() => h.svc.retire()).toThrow(/only in the demo/);
   });
 });
+
+describe("check pace now (demo)", () => {
+  it("moves show B to three quarters of its window and proposes a fix for being behind", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    const before = h.svc.clockOffset();
+    const show = await h.svc.checkPaceNow();
+    expect(show.state).toBe("live");
+    expect(h.svc.clockOffset()).toBeGreaterThan(before);
+    const p = h.svc.project();
+    const launched = Date.parse(p.mandate!.launchedAt);
+    expect(h.svc.now()).toBe(launched + Math.floor((p.campaign.deadline - launched) * 0.75));
+    const proposals = h.svc.manageView().proposals;
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0].options.map((o) => o.id)).toEqual(["extend", "lower"]);
+    expect(proposals[0].options[0].label).toBe("Extend 7 days");
+    expect(proposals[0].options[0].newDeadline).toMatch(/Z$/);
+    expect(proposals[0].options[0].newThreshold).toBeNull();
+    expect(proposals[0].options[1]).toMatchObject({ label: "Lower the target to 25", newThreshold: 25, newDeadline: null });
+    expect(h.store.logs().some((l) => l.did.startsWith("Proposed:"))).toBe(true);
+    expect(h.store.logs().some((l) => l.did.startsWith("Demo: skipped ahead"))).toBe(true);
+  });
+
+  it("finds show A on pace and changes nothing", async () => {
+    const h = await demoShow("a");
+    await run(h);
+    await h.svc.checkPaceNow();
+    expect(h.svc.manageView().proposals).toHaveLength(0);
+    expect(h.store.logs().some((l) => l.did === "On pace. Nothing to change.")).toBe(true);
+  });
+
+  it("does not propose twice", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    await h.svc.checkPaceNow();
+    await h.svc.checkPaceNow();
+    expect(h.svc.manageView().proposals).toHaveLength(1);
+    expect(h.store.logs().at(-1)?.did).toBe("The pace was already checked. Nothing new to propose.");
+  });
+
+  it("leaves a show that is over alone", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    h.svc.fastForward(false);
+    const show = await h.svc.checkPaceNow();
+    expect(show.state).toBe("missed");
+    expect(h.svc.manageView().proposals).toHaveLength(0);
+  });
+
+  it("is refused on a real show", async () => {
+    const h = makeService();
+    h.svc.ensureSchema();
+    h.svc.init({ showId: SHOW, signTokenHash: "x" });
+    await expect(h.svc.checkPaceNow()).rejects.toThrow(/only in the demo/);
+  });
+});
+
+describe("decline a proposal", () => {
+  it("logs 'not now', changes nothing, and refuses unknown or approved proposals", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    await h.svc.checkPaceNow();
+    const id = h.svc.manageView().proposals[0].proposalId;
+    const res = h.svc.declineProposal(id);
+    expect(res.proposalId).toBe(id);
+    expect(res.show.threshold).toBe(28);
+    expect(h.store.logs().at(-1)?.did).toBe('You said not now to "Extend 7 days" or "Lower the target to 25". Nothing changes.');
+    expect(() => h.svc.declineProposal("nope")).toThrow(/no such proposal/);
+    await h.svc.approve(id, { option: "lower" });
+    expect(() => h.svc.declineProposal(id)).toThrow(/already approved/);
+  });
+});

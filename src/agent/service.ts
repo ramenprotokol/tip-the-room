@@ -8,7 +8,7 @@ import { assertPayPalId } from "../paypal/amount";
 import { PayPalError } from "../paypal/errors";
 import { requestIds, type Hold, type TestCard } from "../paypal/payments";
 import { isKnownEventType, type PayPalLedgerEvent } from "../paypal/webhooks";
-import type { ApproveRequest, ApproveResponse, AuthorizeResponse, CallOffResponse, CreateOrderRequest, CreateOrderResponse, DemoFansResponse, ManageView, PublicShow, SignRequest, SignResponse } from "../worker/api-types";
+import type { ApproveRequest, ApproveResponse, AuthorizeResponse, CallOffResponse, CreateOrderRequest, CreateOrderResponse, DeclineResponse, DemoFansResponse, ManageView, PublicShow, SignRequest, SignResponse } from "../worker/api-types";
 import type { AiDeps } from "./ai";
 import { paceNote, settlementNote, type PaceFacts } from "./ai-jobs";
 import type { DemoSeed } from "./demo";
@@ -20,7 +20,7 @@ import { sweepStuckHolds, sweepWakes } from "./hold-runner";
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { DEMO_GRACE_MS, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
+import { DEMO_GRACE_MS, DEMO_PACE_POINT, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
 import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
 import { SIM_INITIALS } from "./sim-runner";
@@ -475,6 +475,17 @@ export class CampaignService {
     return { proposalId, option: option.id, rule: decision.rule, show: this.publicView(after) };
   }
 
+  /** The artist says "not now". Nothing changes; the agent log records it (the page also hides the card). */
+  declineProposal(proposalId: string): DeclineResponse {
+    const p = this.applyDeadline();
+    this.requireMandate(p);
+    const proposal = typeof proposalId === "string" ? p.proposals.get(proposalId) : undefined;
+    if (!proposal) throw new ServiceError(404, "not_found", "There's no such proposal.");
+    if (proposal.approved) throw new ServiceError(409, "conflict", "That proposal was already approved.");
+    this.log({ saw: sawCounts(p), did: `You said not now to ${proposal.options.map((o) => `"${o.label}"`).join(" or ")}. Nothing changes.`, rule: null });
+    return { proposalId, show: this.publicView(p) };
+  }
+
   /** Spec 3.7: only a tipped show can be called off. Open holds are voided, every charge refunded. */
   async callOff(): Promise<CallOffResponse> {
     const p = this.applyDeadline();
@@ -690,6 +701,29 @@ export class CampaignService {
     }
     this.jumpToDeadline();
     return this.publicView();
+  }
+
+  /** Demo only ("Check pace now"): move the demo clock to DEMO_PACE_POINT of the window, then run the pace check that is due. */
+  async checkPaceNow(): Promise<PublicShow> {
+    this.requireDemo();
+    const store = this.deps.store;
+    this.deps.paypal.meter.reset();
+    const p = this.applyDeadline();
+    const m = this.requireMandate(p);
+    const c = p.campaign;
+    if (c.state !== "live") return this.publicView(p);
+    const launched = Date.parse(m.launchedAt);
+    const at = launched + Math.floor((c.deadline - launched) * DEMO_PACE_POINT);
+    const offset = at - this.deps.clock.now();
+    if (offset > this.clockOffset()) {
+      store.setMeta("clock_offset", String(offset));
+      this.log({ saw: sawCounts(p), did: "Demo: skipped ahead to three quarters of the way to the deadline for a pace check.", rule: null });
+    }
+    const due = duePaceCheck(m, c, p.paceChecks, this.now());
+    for (const n of due.mark) commit(store, this.now(), { type: "pace_checked", check: n });
+    if (due.run !== null) await this.runPaceCheck(due.run);
+    else this.log({ saw: sawCounts(this.project()), did: "The pace was already checked. Nothing new to propose.", rule: null });
+    return this.publicView(this.applyDeadline());
   }
 
   /** Reset: jump the old copy to its deadline (open holds are voided) and let it delete itself within an hour. */

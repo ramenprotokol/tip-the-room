@@ -160,9 +160,18 @@ export interface ProposalDto {
   explanation: string;
   recommend: ProposalOptionId | "wait";
   source: AiSource;
-  options: { id: ProposalOptionId; label: string }[];
+  options: { id: ProposalOptionId; label: string; newDeadline: string | null; newThreshold: number | null }[];
   approved: ProposalOptionId | null;
   madeAt: number;
+}
+
+export interface DeclineResponse {
+  proposalId: string;
+  show: PublicShow;
+}
+
+export interface DemoPaceResponse {
+  shows: [PublicShow, PublicShow];
 }
 
 export interface ManageParty extends PublicParty {
