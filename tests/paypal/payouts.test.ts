@@ -93,6 +93,19 @@ describe("getPayoutBatch", () => {
     expect(batch.status).toBe(body.batch_header.batch_status);
     expect(batch.items).toEqual([{ senderItemId: "spike-1791256675621-room", status: "PENDING", transactionId: undefined, amountCents: 100 }]);
   });
+  it("throws BAD_RESPONSE_BODY when payout_batch_id is missing or a different batch", async () => {
+    const body = fixture("payout-get");
+    body.batch_header.payout_batch_id = "OTHERBATCH";
+    await expect(getPayoutBatch(client([{ status: 200, body }]).http, "V8PDK75HD9EW4")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+    const body2 = fixture("payout-get");
+    delete body2.batch_header.payout_batch_id;
+    await expect(getPayoutBatch(client([{ status: 200, body: body2 }]).http, "V8PDK75HD9EW4")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+  });
+  it("throws BAD_RESPONSE_BODY when sender_batch_id is missing", async () => {
+    const body = fixture("payout-get");
+    delete body.batch_header.sender_batch_header.sender_batch_id;
+    await expect(getPayoutBatch(client([{ status: 200, body }]).http, "V8PDK75HD9EW4")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+  });
   it("refuses an item that isn't in USD", async () => {
     const body = fixture("payout-get");
     body.items[0].payout_item.amount.currency = "CAD";

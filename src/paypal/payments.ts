@@ -90,6 +90,7 @@ interface CaptureBody {
   id: string;
   status: string;
   seller_receivable_breakdown?: { gross_amount: Money; paypal_fee?: Money; net_amount: Money };
+  links?: { href?: string; rel?: string }[];
 }
 
 function purchaseUnit(p: PledgeRef) {
@@ -139,9 +140,9 @@ export async function createPledgeOrder(http: PayPalHttp, p: PledgeRef): Promise
 
 export async function authorizeOrder(http: PayPalHttp, orderId: string): Promise<Hold> {
   assertPayPalId(orderId, "order id");
-  const o = await http.request<OrderBody>({ method: "POST", path: `/v2/checkout/orders/${orderId}/authorize`, requestId: requestIds.authorize(orderId), prefer: "return=representation", body: {} });
+  const o = requireBody(await http.request<OrderBody>({ method: "POST", path: `/v2/checkout/orders/${orderId}/authorize`, requestId: requestIds.authorize(orderId), prefer: "return=representation", body: {} }), "order");
   const a = firstAuth(o);
-  if (!a) throw new Error(`order ${orderId} (${o?.status}) was not authorized`);
+  if (!a) throw new PayPalError(502, "BAD_RESPONSE_BODY", `order ${orderId} (${o.status}) came back without an authorization`);
   return toHold(orderId, a, undefined, firstUnit(o)?.custom_id);
 }
 
@@ -173,6 +174,9 @@ export async function getCapture(http: PayPalHttp, captureId: string, authorizat
   assertPayPalId(captureId, "capture id");
   assertPayPalId(authorizationId, "authorization id");
   const c = requireBody(await http.request<CaptureBody>({ method: "GET", path: `/v2/payments/captures/${captureId}` }), "capture");
+  const up = c.links?.find((l) => l.rel === "up")?.href;
+  const upId = up?.match(/\/authorizations\/([A-Za-z0-9_-]+)\/?$/)?.[1];
+  if (upId !== undefined && upId !== authorizationId) throw new PayPalError(502, "BAD_RESPONSE_BODY", `capture ${captureId} belongs to authorization ${upId}, not ${authorizationId}`);
   return toCharge(c, authorizationId);
 }
 
@@ -180,6 +184,7 @@ export async function getCapture(http: PayPalHttp, captureId: string, authorizat
 export async function getOrderPayments(http: PayPalHttp, orderId: string): Promise<OrderPayments> {
   assertPayPalId(orderId, "order id");
   const o = requireBody(await http.request<OrderBody>({ method: "GET", path: `/v2/checkout/orders/${orderId}` }), "order");
+  if (o.id !== orderId) throw new PayPalError(502, "BAD_RESPONSE_BODY", `asked for order ${orderId} but PayPal answered with ${o.id === undefined ? "no id" : `order ${o.id}`}`);
   const unit = firstUnit(o);
   const out: OrderPayments = {
     orderId: o.id,

@@ -100,9 +100,13 @@ function usdCents(a: { value: string; currency: string } | undefined, field: str
 export async function getPayoutBatch(http: PayPalHttp, batchId: string): Promise<PayoutBatch> {
   assertPayPalId(batchId, "batch id");
   const b = requireBody(await http.request<BatchBody>({ method: "GET", path: `/v1/payments/payouts/${batchId}` }), "payout batch");
+  const gotId = b.batch_header?.payout_batch_id;
+  if (gotId !== batchId) throw new PayPalError(502, "BAD_RESPONSE_BODY", `asked for payout batch ${batchId} but PayPal answered with ${gotId === undefined ? "no batch id" : `batch ${gotId}`}`);
+  const senderBatchId = b.batch_header.sender_batch_header?.sender_batch_id;
+  if (!senderBatchId) throw new PayPalError(502, "BAD_RESPONSE_BODY", `payout batch ${batchId} came back without its sender_batch_id`);
   return {
-    batchId: b.batch_header.payout_batch_id,
-    senderBatchId: b.batch_header.sender_batch_header?.sender_batch_id ?? "",
+    batchId: gotId,
+    senderBatchId,
     status: b.batch_header.batch_status,
     items: (b.items ?? []).map((i) => {
       const senderItemId = i.payout_item?.sender_item_id;

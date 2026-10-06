@@ -81,6 +81,20 @@ describe("authorizeOrder", () => {
     expect(hold.orderId).toBe(body.id);
     expect(f.apiCalls()[0].headers["paypal-request-id"]).toBe(`authorize:${body.id}`);
   });
+  it("an empty 2xx throws the non-retryable EMPTY_RESPONSE_BODY", async () => {
+    const { http } = client([{ status: 201 }]);
+    const err = (await authorizeOrder(http, "O9").catch((e) => e)) as PayPalError;
+    expect(err.paypalName).toBe("EMPTY_RESPONSE_BODY");
+    expect(err.retryable).toBe(false);
+  });
+  it("a body without authorizations throws BAD_RESPONSE_BODY 502 naming the order", async () => {
+    const { http } = client([{ status: 201, body: { id: "O9", status: "PAYER_ACTION_REQUIRED" } }]);
+    const err = (await authorizeOrder(http, "O9").catch((e) => e)) as PayPalError;
+    expect(err).toBeInstanceOf(PayPalError);
+    expect(err).toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+    expect(err.message).toContain("O9");
+    expect(err.message).toContain("PAYER_ACTION_REQUIRED");
+  });
 });
 
 describe("captureHold", () => {
@@ -229,6 +243,12 @@ describe("getOrderPayments", () => {
     const { http } = client([{ status: 200, body: { id: "O2", status: "CREATED" } }]);
     expect(await getOrderPayments(http, "O2")).toEqual({ orderId: "O2", status: "CREATED", authorizations: [], captures: [] });
   });
+  it("throws BAD_RESPONSE_BODY when the id is missing or is a different order", async () => {
+    const a = client([{ status: 200, body: { id: "OTHER", status: "CREATED" } }]);
+    await expect(getOrderPayments(a.http, "O1")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+    const b = client([{ status: 200, body: { status: "CREATED" } }]);
+    await expect(getOrderPayments(b.http, "O1")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
+  });
   it("refuses an unsafe id before any call", async () => {
     const { f, http } = client([]);
     await expect(getOrderPayments(http, "../x")).rejects.toBeInstanceOf(RangeError);
@@ -240,8 +260,13 @@ describe("getCapture", () => {
   it("parses gross, fee and net like captureHold", async () => {
     const body = fixture("capture");
     const { f, http } = client([{ status: 200, body }]);
-    const c = await getCapture(http, body.id, "A11");
-    expect(c).toEqual({ captureId: body.id, authorizationId: "A11", status: "COMPLETED", grossCents: 1500, feeCents: 88, netCents: 1412 });
+    const c = await getCapture(http, body.id, "4SA6877655874993N");
+    expect(c).toEqual({ captureId: body.id, authorizationId: "4SA6877655874993N", status: "COMPLETED", grossCents: 1500, feeCents: 88, netCents: 1412 });
     expect(f.apiCalls()[0]).toMatchObject({ method: "GET", url: `${SANDBOX_BASE}/v2/payments/captures/${body.id}` });
+  });
+  it("throws BAD_RESPONSE_BODY when the capture belongs to a different authorization", async () => {
+    const body = fixture("capture");
+    const { http } = client([{ status: 200, body }]);
+    await expect(getCapture(http, body.id, "A11")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY", status: 502 });
   });
 });
