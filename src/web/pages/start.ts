@@ -141,6 +141,8 @@ const hooks: StartHooks = {
   holdTo(p) { holdBtn.set(p); },
   sign: () => { holdBtn.done = true; els.sign.classList.add('is-done'); $('[data-sign-label]').textContent = 'Signed'; void doSign(); },
 };
+// A real start page is not a sample (the parity run masks this word as a data field).
+$('.mode').textContent = 'Start a show';
 if (HOOKS) window.__marquee = hooks;
 let host: SignHost | null;
 try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ }

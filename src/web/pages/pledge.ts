@@ -127,7 +127,7 @@ function mountButton() {
   if (st.phase === 'closed') return;
   const id = paypalClientId();
   if (!id) { if (!HOOKS) el.slot.textContent = 'Pledging isn’t switched on for this site yet.'; return; }
-  mountPayPalButton(el.slot, id, { createOrder: () => flow.createOrder(), onApprove: (orderId) => flow.approve(orderId), onCancel: () => flow.cancel(), onError: (err) => flow.error(err) })
+  mountPayPalButton(el.slot, id, { canStart: () => flow.canStart(), createOrder: () => flow.createOrder(), onApprove: (orderId) => flow.approve(orderId), onCancel: () => flow.cancel(), onError: (err) => flow.error(err) })
     .catch(() => { el.slot.textContent = 'PayPal couldn’t load. Refresh the page to try again.'; });
 }
 

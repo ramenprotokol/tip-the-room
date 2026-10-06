@@ -92,6 +92,20 @@ describe("pledge flow", () => {
     expect(t.events.map((e) => e.kind)).toEqual(["busy"]);
   });
 
+  it("canStart is false while an order is in flight, and the SDK's echo of a failed order adds no second message", async () => {
+    let fail: (e: Error) => void = () => {};
+    const gate = new Promise<never>((_, rej) => { fail = rej; });
+    const t = setup(async () => held, () => gate);
+    expect(t.flow.canStart()).toBe(true);
+    const first = t.flow.createOrder();
+    expect(t.flow.canStart()).toBe(false);
+    fail(new Error("boom"));
+    await expect(first).rejects.toThrow();
+    expect(t.flow.canStart()).toBe(true);
+    t.flow.error(new Error("boom"));
+    expect(t.events.map((e) => e.kind)).toEqual(["busy", "failed"]);
+  });
+
   it("confirms with the initials that were sent, even if the box changes during the popup", async () => {
     let box = "MR";
     const events: PledgeEvent[] = [];

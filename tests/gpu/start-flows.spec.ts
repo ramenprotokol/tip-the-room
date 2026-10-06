@@ -71,3 +71,8 @@ test("a refused sentence is explained in plain words", async ({ page }) => {
   await expect(page.locator("[data-start-msg]")).toHaveText("Describe the show in one sentence (5 to 500 characters).");
   await expect(page.locator("#draft")).toBeHidden();
 });
+
+test("the real start page doesn't call itself a sample", async ({ page }) => {
+  await open(page, startApi());
+  await expect(page.locator(".mode")).toHaveText("Start a show");
+});

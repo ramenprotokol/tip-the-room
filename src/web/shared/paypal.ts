@@ -45,6 +45,8 @@ export function loadSdk(timeoutMs = 15_000): Promise<PayPalV6> {
 }
 
 export interface ButtonHandlers {
+  /** False while an order is in flight (or the fan is already on hold): a click then does nothing. */
+  canStart(): boolean;
   /** Our API creates the order; returns its id. Called for every click. */
   createOrder(): Promise<string>;
   onApprove(orderId: string): Promise<void>;
@@ -65,6 +67,7 @@ export async function mountPayPalButton(slot: HTMLElement, clientId: string, h: 
   slot.classList.add("is-rendered");
   slot.append(button);
   button.addEventListener("click", () => {
+    if (!h.canStart()) return;
     session.start({ presentationMode: "auto" }, h.createOrder().then((orderId) => ({ orderId }))).catch((e: unknown) => h.onError(e));
   });
 }

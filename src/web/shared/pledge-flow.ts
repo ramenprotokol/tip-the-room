@@ -35,6 +35,11 @@ export class PledgeFlow {
     private readonly initials: () => string,
   ) {}
 
+  /** The button checks this before opening PayPal: false while an order is in flight or after the fan is on hold. */
+  canStart(): boolean {
+    return !this.busy && !this.done;
+  }
+
   /** The PayPal button calls this for every attempt, so a failed or cancelled order is never reused. */
   async createOrder(): Promise<string> {
     if (this.done) throw new Error("This fan is already on hold.");
@@ -68,8 +73,9 @@ export class PledgeFlow {
     this.emit({ kind: "cancelled", message: CANCELLED });
   }
 
+  /** The SDK's error callback. Ignored when no order of ours is in flight (createOrder already reported its own failure). */
   error(e: unknown): void {
-    if (this.done) return;
+    if (this.done || !this.busy) return;
     this.fail(e);
   }
 

@@ -11,8 +11,9 @@ customElements.define("paypal-button", class extends HTMLElement { connectedCall
 window.paypal = { createInstance: async (o) => { window.__ppClientId = o.clientId; return {
   findEligibleMethods: async () => ({ isEligible: (m) => m === "paypal" }),
   createPayPalOneTimePaymentSession: (cb) => ({ start: async (opts, order) => {
-    let orderId; try { ({ orderId } = await order); } catch (e) { return; }
+    let orderId; try { ({ orderId } = await order); } catch (e) { cb.onError(e); return; }
     const mode = window.__ppMode || "approve";
+    if (mode === "open") return new Promise(() => {});
     if (mode === "approve") await cb.onApprove({ orderId });
     else if (mode === "cancel") cb.onCancel({ orderId });
     else cb.onError(new Error("closed"));
@@ -110,4 +111,17 @@ test("a second click while an order is being made does not start a second order"
   });
   await expect(page.locator("#confirm")).toBeVisible();
   expect(seen.filter((r) => r.path.endsWith("/orders")).length).toBe(1);
+});
+
+test("a second click while the PayPal window is open never starts a second order, and shows no false error", async ({ page }) => {
+  const seen = await open(page, pledgeApi());
+  await page.evaluate(() => { (window as unknown as { __ppMode: string }).__ppMode = "open"; });
+  const button = page.locator("paypal-button");
+  await button.click();
+  await expect.poll(() => seen.filter((r) => r.path.endsWith("/orders")).length).toBe(1);
+  await button.click();
+  await button.click();
+  await page.waitForTimeout(300);
+  expect(seen.filter((r) => r.path.endsWith("/orders")).length).toBe(1);
+  await expect(page.locator("[data-pledge-msg]")).toHaveText("");
 });
