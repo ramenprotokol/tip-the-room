@@ -55,6 +55,39 @@ export function dayLabel(date: string): string {
   return `${x.wd} ${x.mon} ${x.day}`;
 }
 
+const RESTING_TAIL = " It still follows the money rules you signed; its notes use standard wording until then.";
+/** Fallback when the show's time zone is unknown: no clock time, and never UTC/GMT on screen (spec 2c). */
+export const RESTING_LINE = `The agent’s AI is resting until its free daily limit resets (within 24 hours).${RESTING_TAIL}`;
+
+/** The next 00:00 UTC after `now`, in ms (when the free daily AI limit resets). */
+export function nextUtcMidnight(now: number): number {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+}
+
+/** "5:00 PM PDT" in the show's own zone, or null if the zone is unknown or only has a UTC/GMT name. */
+function zoneClock(ms: number, tz: string): string | null {
+  try {
+    const out = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" }).format(new Date(ms)).replace(/\u202f/g, " ");
+    return /UTC|GMT/.test(out) ? null : out;
+  } catch {
+    return null;
+  }
+}
+
+/** The resting notice, with the reset time in the show's time zone (never UTC/GMT on screen). */
+export function restingLine(now: number, tz?: string | null): string {
+  const at = tz ? zoneClock(nextUtcMidnight(now), tz) : null;
+  return at ? `The agent’s AI is resting until ${at} (its free daily limit).${RESTING_TAIL}` : RESTING_LINE;
+}
+
+/** Spec 5: true when the newest line the AI should have written fell back to "resting" (the daily budget is spent). */
+export function aiResting(log: Pick<AgentLogDto, "seq" | "source">[]): boolean {
+  let newest: Pick<AgentLogDto, "seq" | "source"> | null = null;
+  for (const l of log) if (l.source !== "code" && (!newest || l.seq > newest.seq)) newest = l;
+  return newest?.source === "resting";
+}
+
 /** Whole dollars, like ui.ts usd(): 31500 → "$315". */
 export const dollars = (cents: number): string => "$" + Math.round(cents / 100).toLocaleString("en-US");
 /** Ledger amounts: 1500 → "$15.00". */
@@ -157,9 +190,10 @@ export function payoutsConfirmed(parties: { payoutStatus: string }[]): boolean {
   return parties.length > 0 && parties.every((p) => p.payoutStatus === "paid" || p.payoutStatus === "none");
 }
 
-/** What the money did after the deadline: all paid, a payout failed, nothing sent yet (planned), or still waiting on PayPal. */
-export type PayState = "confirmed" | "failed" | "waiting" | "planned";
+/** What the money did after the deadline: all paid, a payout failed, nothing sent yet (planned), PayPal has no funds to pay yet (funds), or still waiting on PayPal. */
+export type PayState = "confirmed" | "failed" | "waiting" | "planned" | "funds";
 export function payState(parties: { payoutStatus: string }[]): PayState {
+  if (parties.some((p) => p.payoutStatus === "funds")) return "funds";
   if (parties.some((p) => p.payoutStatus === "failed")) return "failed";
   if (payoutsConfirmed(parties)) return "confirmed";
   return parties.some((p) => p.payoutStatus === "planned") ? "planned" : "waiting";

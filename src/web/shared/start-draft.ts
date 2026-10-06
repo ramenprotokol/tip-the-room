@@ -136,3 +136,12 @@ export function toDraftFields(d: Draft): { fields: DraftFields | null; problems:
   if (problems.length || !showDate || !deadline) return { fields: null, problems };
   return { fields: { showName: d.name.trim(), roomName: d.room.trim(), showDate, ticketPriceCents: dollarsToCents(d.price), feeBufferBps: d.feeBufferBps, deadline, timeZone: d.timeZone, parties }, problems: [] };
 }
+
+/** Typed dollars to a whole number of cents' worth of dollars, rounding half up in decimal ("100.005" is 100.01, not 100). */
+export function dollarsOf(text: string): number {
+  const n = Number(`${text.replace(/[^0-9.]/g, "")}e2`);
+  return Number.isFinite(n) ? Number(`${Math.round(n)}e-2`) : 0;
+}
+
+/** Only the show paths our own server hands out are ever put in a link. */
+export const SAFE_PATH = /^\/s\/[a-z0-9]{1,64}(\/manage)?$/;

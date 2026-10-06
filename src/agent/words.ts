@@ -3,6 +3,15 @@ import type { Mandate } from "../core/mandate";
 import { PayPalError } from "../paypal/errors";
 import type { PledgeView, Projection } from "./project";
 
+/** A time in the show's own time zone, e.g. "Thu, Nov 5, 6:00 PM PST" (spec 2c: never GMT on screen). */
+export function showTime(ms: number, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(ms);
+  } catch {
+    return new Date(ms).toUTCString();
+  }
+}
+
 export const STATE_WORDS: Record<CampaignState, string> = {
   draft: "a draft",
   live: "waiting for fans",

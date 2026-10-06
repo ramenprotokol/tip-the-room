@@ -6,7 +6,7 @@ import { PayPalHttp } from "../paypal/http";
 import { verifyWebhook } from "../paypal/webhooks";
 import type { Env } from "./env";
 import { budgetPort, quotaPort } from "./quota-client";
-import { route, type CampaignsPort, type RouterDeps } from "./router";
+import { route, type CampaignsPort, type EdgeCache, type RouterDeps } from "./router";
 
 export { CampaignAgent } from "./do/campaign-agent";
 export { QuotaAgent } from "./do/quota-agent";
@@ -21,7 +21,14 @@ function campaigns(env: Env): CampaignsPort {
   };
 }
 
-function routerDeps(env: Env): RouterDeps {
+/** The Workers Cache API, or null where it doesn't exist. Cache trouble never fails a request (the router swallows it). */
+function edgeCache(): EdgeCache | undefined {
+  const store = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  if (!store) return undefined;
+  return { match: async (key) => store.match(key), put: (key, res) => store.put(key, res) };
+}
+
+function routerDeps(env: Env, ctx?: { waitUntil(p: Promise<unknown>): void }): RouterDeps {
   const binding = env.AI;
   return {
     campaigns: campaigns(env),
@@ -37,11 +44,19 @@ function routerDeps(env: Env): RouterDeps {
       webhookId: env.PAYPAL_WEBHOOK_ID?.trim() || null,
       rateSalt: env.RATE_SALT ?? "tip-the-room",
       receivers: receiversFrom(env),
+      judgeCode: env.JUDGE_CODE?.trim() || null,
+      setup: {
+        rateSalt: Boolean(env.RATE_SALT?.trim()),
+        receivers: Boolean(env.PAYPAL_RECEIVER_ROOM?.trim() && env.PAYPAL_RECEIVER_OPENER?.trim() && env.PAYPAL_RECEIVER_ARTIST?.trim()),
+        paypalClientId: env.PAYPAL_CLIENT_ID?.trim() || null,
+      },
     },
+    cache: edgeCache(),
+    waitUntil: ctx ? (p) => ctx.waitUntil(p) : undefined,
     verifyWebhook: (headers, rawBody, webhookId) => verifyWebhook(new PayPalHttp(loadConfig(env)), headers, rawBody, webhookId),
   };
 }
 
 export default {
-  fetch: (request: Request, env: Env) => route(request, routerDeps(env)),
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => route(request, routerDeps(env, ctx)),
 } satisfies ExportedHandler<Env>;

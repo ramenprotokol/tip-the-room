@@ -1,17 +1,21 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
+import "../shared/boot.css";
+import { watchIdle } from "../shared/idle";
+import { compareVersion } from "../shared/version";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, Placeholder, setStatus, countdownHTML, enter, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AuthorizeResponse, PublicShow } from "../../worker/api-types";
-import { API_BASE, HOOKS, PARITY, markReady, paypalClientId, removeRefOnly } from "../shared/env";
+import { API_BASE, HOOKS, PARITY, markBooted, markReady, paypalClientId, removeRefOnly } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { dayLabel, dollars, endOf, planSplit, remainSec, ROLE_WORD, ShowClock, when } from "../shared/format";
 import { showIdFromPath } from "../shared/keys";
-import { cleanInitials, PledgeFlow, type PledgeEvent } from "../shared/pledge-flow";
+import { cleanInitials, noMemory, PledgeFlow, sessionMemory, type PledgeEvent } from "../shared/pledge-flow";
 import { mountPayPalButton } from "../shared/paypal";
 
 removeRefOnly();
+const idle = watchIdle();
 const api = apiClient(API_BASE);
 const showId = showIdFromPath(location.pathname, location.search);
 const SEED = 31, YAW = .16; // the reference's single-sign look (pledge, manage and start share it)
@@ -56,6 +60,7 @@ function render(instant = false) {
 function texts(s: PublicShow) {
   const p = dollars(s.ticketPriceCents), t = s.threshold, d = Date.parse(s.deadline), tz = s.timeZone;
   const artist = s.split.find(x => x.role === 'artist')?.label ?? '', opener = s.split.find(x => x.role === 'opener')?.label;
+  const fp = $('#fingerprint'); fp.hidden = PARITY || !s.mandateHash; fp.textContent = s.mandateHash ? `Money rules fingerprint: ${s.mandateHash.slice(0, 16)}… (it changes if anyone edits the signed rules)` : '';
   $('.mode').textContent = s.demo ? 'Fan page · sample show' : 'Fan page';
   $('.row-top .eyebrow').textContent = `${dayLabel(s.showDate)} · ${s.roomName}`;
   $('#show-title').textContent = s.showName;
@@ -113,16 +118,34 @@ function onHeld(res: AuthorizeResponse, ini: string) {
   });
 }
 
+/** A hold confirmed after a reload: the fan is already counted in the show we loaded, so no bulb animation. */
+function onResumed(res: AuthorizeResponse, ini: string) {
+  st.busy = false;
+  show = res.show; st.fans = res.show.fans.committed; st.mine = Math.max(0, st.fans - 1);
+  if (res.tipped) { st.phase = 'tipped'; setStatus(el.status, 'tipped', 'It’s on!', '· everyone’s charged', true); texts(res.show); }
+  render(true); view?.reset();
+  el.card.hidden = true; el.confirm.hidden = false;
+  if (res.tipped) {
+    $('[data-confirm-title]').textContent = 'You’re in';
+    $('[data-confirm-text]').textContent = `The show is on, so PayPal charged your ${dollars(price())}.`;
+  }
+  $('[data-confirm-bulb]').textContent = `Your bulb is the one marked ${ini}.`;
+}
+
 function onFlow(e: PledgeEvent) {
   const sim = simulateBtn();
+  checkAgain.hidden = e.kind !== 'unconfirmed';
   if (e.kind === 'busy') { say(''); st.busy = true; if (sim) sim.disabled = true; return; }
-  if (e.kind === 'held') { onHeld(e.res, e.initials); return; }
+  if (e.kind === 'held') { if (e.resumed) onResumed(e.res, e.initials); else onHeld(e.res, e.initials); return; }
   st.busy = false; if (sim) sim.disabled = false; say(e.message);
 }
+const checkAgain = $<HTMLButtonElement>('#check-again');
 const flow = new PledgeFlow({
   createOrder: (initials) => act(() => api.createOrder(showId ?? '', { initials })),
   authorize: (orderId) => act(() => api.authorize(showId ?? '', orderId)),
-}, onFlow, () => cleanInitials(el.initials.value));
+}, onFlow, () => cleanInitials(el.initials.value), { memory: showId && !PARITY ? sessionMemory(showId) : noMemory });
+
+checkAgain.addEventListener('click', () => { void act(() => flow.resume()); });
 
 function mountButton() {
   if (st.phase === 'closed') return;
@@ -146,14 +169,15 @@ async function boot(): Promise<void> {
   if (st.phase === 'closed') closedState(s);
   render(true);
   mountButton();
+  if (st.phase !== 'closed') void act(() => flow.resume());
 }
 
 /** Other fans' pledges and the tip, seen by polling (never in parity runs). */
 async function poll() {
-  if (!show || !showId || st.busy || st.phase === 'closed' || document.hidden) return;
+  if (!show || !showId || st.busy || st.phase === 'closed' || document.hidden || idle.idle()) return;
   let s: PublicShow;
   try { s = await api.getShow(showId); } catch { return; }
-  if (s.version === show.version || st.busy) return;
+  if (compareVersion(s.version, show.version) <= 0 || st.busy) return;
   const wasLive = st.phase === 'held';
   const termsChanged = s.threshold !== show.threshold || s.deadline !== show.deadline;
   show = s; clock?.sync(s.now);
@@ -183,7 +207,7 @@ const hooks: PledgeHooks = {
 };
 if (HOOKS) { window.__marquee = hooks; simulateBtn()?.addEventListener('click', () => hooks.approve()); }
 
-await boot();
+try { await boot(); } finally { markBooted(); }
 let host: SignHost | null = null;
 const booted = current();
 if (booted) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ } }

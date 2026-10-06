@@ -1,20 +1,24 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
+import "../shared/boot.css";
 import { $, Ticker, Snd, soundToggle, Placeholder, HoldButton, drawQR, copyText, enter, usd } from "../shared/ui";
 import type { SignHost, SignView, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { CreateShowResponse, SignResponse } from "../../worker/api-types";
-import { API_BASE, HOOKS, PUBLIC_ORIGIN, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { rememberKey } from "../shared/keys";
 import { when } from "../shared/format";
-import { fromDraft, targetOf, toDraftFields, type Draft, type PayeeRow } from "../shared/start-draft";
+import { dollarsOf, fromDraft, SAFE_PATH, targetOf, toDraftFields, type Draft, type PayeeRow } from "../shared/start-draft";
 
 removeRefOnly();
+markBooted();
 const api = apiClient(API_BASE);
 const els = { sentence: $<HTMLTextAreaElement>('#sentence'), draft: $('#draft'), live: $('#live'), paylist: $('#paylist'), rules: $('#rules'), sign: $<HTMLButtonElement>('#sign'), target: $('[data-target-sentence]'), split: $('[data-split]'), stage: $('[data-stage]'), msg: $('[data-start-msg]'), problems: $('#problems'), fill: $<HTMLButtonElement>('#fill') };
 const ph = new Placeholder($('[data-ph]'), { name: 'Your show', target: 20 });
 let D: Draft | null = null, created: CreateShowResponse | null = null, view: SignView | null = null, signing = false;
+/** True once the person has typed into the filled-in draft; the next "Fill it in again" then asks before replacing it. */
+let edited = false, armed = 0;
 
 /** Builds an element: attributes via setAttribute, children as nodes or plain text. Never parses HTML. */
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...kids: (Node | string)[]): HTMLElementTagNameMap[K] {
@@ -41,12 +45,14 @@ function payRow(p: PayeeRow, i: number) {
   const amt = h('input', { id: `amt-${i}`, class: 'input mono', 'data-k': 'amount', inputmode: 'numeric', placeholder: '0', autocomplete: 'off' }); amt.value = p.amount ? String(p.amount) : '';
   const mail = h('input', { id: `mail-${i}`, class: 'input mono', 'data-k': 'email', type: 'email', placeholder: 'name@example.com', autocomplete: 'off' }); mail.value = p.email;
   li.append(role, who, h('div', { class: 'field' }, h('label', { for: `amt-${i}` }, p.me ? 'At least ($)' : 'Gets ($)'), amt), h('div', { class: 'field email' }, h('label', { for: `mail-${i}` }, 'PayPal email'), mail));
-  li.addEventListener('input', e => { const el = e.target as HTMLInputElement, k = el.dataset.k as 'who' | 'amount' | 'email' | undefined; if (!k) return; if (k === 'amount') p.amount = +el.value.replace(/[^0-9.]/g, '') || 0; else p[k] = el.value; li.classList.toggle('is-empty', !!p.optional && !p.amount && !p.who); update(); });
+  li.addEventListener('input', e => { const el = e.target as HTMLInputElement, k = el.dataset.k as 'who' | 'amount' | 'email' | undefined; if (!k) return; edited = true; if (k === 'amount') p.amount = dollarsOf(el.value); else p[k] = el.value; li.classList.toggle('is-empty', !!p.optional && !p.amount && !p.who); update(); });
   return li;
 }
 
 async function fill() {
   if (signing || els.fill.disabled) return;
+  if (D && edited && Date.now() > armed) { armed = Date.now() + 6000; els.fill.textContent = 'Replace your edits? Click again'; return; }
+  armed = 0; edited = false;
   els.fill.disabled = true; say('');
   await act(async () => {
     try {
@@ -68,7 +74,8 @@ async function fill() {
 }
 for (const [id, k] of [['f-name', 'name'], ['f-room', 'room'], ['f-date', 'date'], ['f-price', 'price'], ['f-deadline', 'deadline']] as const) $('#' + id).addEventListener('input', e => {
   if (!D) return; const v = (e.target as HTMLInputElement).value;
-  if (k === 'price') D.price = +v.replace(/[^0-9.]/g, '') || 0; else D[k] = v;
+  edited = true;
+  if (k === 'price') D.price = dollarsOf(v); else D[k] = v;
   if (k === 'room') { D.payees[0].who = D[k]; const w = document.querySelector<HTMLInputElement>('#who-0'); if (w) w.value = D[k]; }
   update();
 });
@@ -113,14 +120,16 @@ async function doSign() {
 }
 function goLive(res: SignResponse) {
   Snd.sign();
-  const tz = res.show.timeZone, share = `${PUBLIC_ORIGIN}${res.sharePath}`, manage = `${PUBLIC_ORIGIN}${res.managePath}#${res.manageKey}`;
+  const tz = res.show.timeZone, sharePath = SAFE_PATH.test(res.sharePath) ? res.sharePath : `/s/${res.showId}`, managePath = SAFE_PATH.test(res.managePath) ? res.managePath : `/s/${res.showId}/manage`;
+  const share = `${PUBLIC_ORIGIN}${sharePath}`, manage = `${PUBLIC_ORIGIN}${managePath}#${res.manageKey}`;
   rememberKey(safeStorage(), res.showId, res.manageKey);
   $('#share-url').textContent = share; $('#manage-url').textContent = manage;
   drawQR($<HTMLCanvasElement>('#qr'), share, { scale: 4, margin: 3 });
   $('.live .eyebrow').textContent = `Signed ${when(Date.parse(res.show.launchedAt), tz, 'long')}`;
   $('[data-live-lede]').textContent = `Share your link. Fans hold a spot with PayPal, and nobody is charged unless ${res.threshold} of them join by ${when(Date.parse(res.deadline), tz, 'long')}.`;
-  $<HTMLAnchorElement>('#open-manage').href = `${res.managePath}#${res.manageKey}`;
-  $<HTMLAnchorElement>('#open-share').href = res.sharePath;
+  $<HTMLAnchorElement>('#open-manage').href = `${managePath}#${res.manageKey}`;
+  $<HTMLAnchorElement>('#open-share').href = sharePath;
+  if (D && res.threshold !== targetOf(D)) $('[data-live-lede]').append(` The final target is ${res.threshold} fans, rounded up so everyone is fully paid.`);
   els.draft.hidden = true; els.live.hidden = false; enter(els.live, 12, 500);
   $('.intro').hidden = true;
   if (view) view.play('lap');

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { RULES } from "../../src/core/rules";
 import { dispatch } from "../../src/agent/dispatch";
 import { commit } from "../../src/agent/executor";
 import { sha256Hex } from "../../src/agent/ids";
 import { PayPalError } from "../../src/paypal/errors";
+import { MAX_ORDERS_PER_SHOW, ORDER_OPEN_MS } from "../../src/agent/policy";
 import { DRAFT, makeService, pledge, SIGN_TOKEN, signedService } from "./harness";
 import { DEADLINE, SHOW } from "./fixtures";
 
@@ -159,6 +159,55 @@ describe("orders and authorize", () => {
     expect(h.paypal.count("captureHold")).toBe(0);
     expect(h.store.logs().some((l) => l.rule === "rule-2-capture-at-tip")).toBe(true);
   });
+
+  it("an order nobody authorized within ORDER_OPEN_MS can't be authorized later, and nothing is asked of PayPal's authorize", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.clock.t += ORDER_OPEN_MS;
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.paypal.count("authorizeOrder")).toBe(0);
+    expect(h.paypal.count("getOrderPayments")).toBe(1);
+    expect(h.svc.project().orders.get(o.orderId)?.resolved).toBe(true);
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
+  });
+
+  it("an abandoned order that PayPal did hold is refused and its hold queued to be cancelled", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.clock.t += ORDER_OPEN_MS + 1;
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-stray", status: "CREATED" }], captures: [] }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.store.job("void:A-stray")?.status).toBe("pending");
+  });
+
+  it("when PayPal can't say what an abandoned order holds, the order stays open for a later look", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.clock.t += ORDER_OPEN_MS;
+    h.paypal.script("getOrderPayments", () => {
+      throw new PayPalError(503, "SERVICE_UNAVAILABLE", "busy");
+    });
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.svc.project().orders.get(o.orderId)?.resolved).toBe(false);
+  });
+
+  it("abandoned orders stop counting toward the per-show order cap", async () => {
+    const h = await signedService();
+    for (let i = 0; i < MAX_ORDERS_PER_SHOW; i += 1) await h.svc.createOrder({ initials: "AB" });
+    await expect(h.svc.createOrder({ initials: "AB" })).rejects.toMatchObject({ status: 409 });
+    h.clock.t += ORDER_OPEN_MS;
+    await expect(h.svc.createOrder({ initials: "AB" })).resolves.toHaveProperty("orderId");
+  });
+
+  it("an order authorized in time still counts after ORDER_OPEN_MS", async () => {
+    const h = await signedService();
+    for (let i = 0; i < MAX_ORDERS_PER_SHOW - 1; i += 1) await h.svc.createOrder({ initials: "AB" });
+    await pledge(h.svc);
+    h.clock.t += ORDER_OPEN_MS;
+    // 499 abandoned orders no longer count; the held one does.
+    for (let i = 0; i < MAX_ORDERS_PER_SHOW - 1; i += 1) await h.svc.createOrder({ initials: "AB" });
+    await expect(h.svc.createOrder({ initials: "AB" })).rejects.toMatchObject({ status: 409 });
+  });
 });
 
 describe("manage view", () => {
@@ -167,6 +216,13 @@ describe("manage view", () => {
     await expect(h.svc.checkKey(null)).rejects.toMatchObject({ status: 403 });
     await expect(h.svc.checkKey("a-wrong-key-that-is-long-enough")).rejects.toMatchObject({ status: 403 });
     await expect(h.svc.checkKey(h.manageKey)).resolves.toBeUndefined();
+  });
+
+  it("the opening log line names the deadline in the show's time zone, not GMT", async () => {
+    const h = await signedService();
+    const line = h.store.logs().find((l) => l.did.startsWith("Opened pledging"));
+    expect(line?.did).not.toMatch(/GMT/);
+    expect(line?.did).toMatch(/\d{1,2}:\d{2}\s?[AP]M/);
   });
 
   it("shows ledger rows newest first, the agent log with rule titles, and the parties with emails", async () => {
@@ -178,7 +234,7 @@ describe("manage view", () => {
       ["room@example.com", "planned"],
       ["maya@example.com", "planned"],
     ]);
-    expect(v.log[0].ruleTitle).toBe(RULES["rule-1-hold-only"].title);
+    expect(v.log[0].rule).toBe("rule-1-hold-only");
     expect(v.attention).toEqual([]);
   });
 });
@@ -253,9 +309,12 @@ describe("hardening", () => {
     expect(h.svc.project().campaign.pledges.held).toBe(0);
   });
 
-  it("when PayPal's answer was unreadable, looks the order up and queues any hold it finds to be cancelled", async () => {
+  it("when PayPal's answer was unreadable and the hold can't be read in full, queues it to be cancelled", async () => {
     const h = await signedService();
     const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("getAuthorization", () => {
+      throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "no body");
+    });
     h.paypal.script("authorizeOrder", () => {
       throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "PayPal returned no order");
     });
@@ -264,6 +323,112 @@ describe("hardening", () => {
     expect(h.svc.project().campaign.pledges.held).toBe(0);
     expect(h.store.job("void:A-ghost")?.status).toBe("pending");
     expect(h.svc.project().orders.get(o.orderId)?.resolved).toBe(true);
+  });
+
+  it("an unreadable authorize answer whose hold is the right one counts as the fan's pledge (no second hold needed)", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "PayPal returned no order");
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-found", status: "CREATED" }], captures: [] }));
+    const r = await h.svc.authorize(o.orderId);
+    expect(r.status).toBe("held");
+    expect(h.svc.project().campaign.pledges.held).toBe(1);
+    expect(h.store.job("void:A-found")).toBeUndefined();
+    // A retry of the same order now answers from our records.
+    expect((await h.svc.authorize(o.orderId)).pledgeId).toBe(r.pledgeId);
+    expect(h.paypal.count("authorizeOrder")).toBe(1);
+  });
+
+  it("ORDER_ALREADY_AUTHORIZED (our earlier answer was lost) records the existing hold instead of refusing", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(422, "UNPROCESSABLE_ENTITY", "already", undefined, [{ issue: "ORDER_ALREADY_AUTHORIZED" }]);
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-prior", status: "CREATED" }], captures: [] }));
+    expect((await h.svc.authorize(o.orderId)).status).toBe("held");
+    expect(h.svc.project().pledgeByAuth.get("A-prior")).toBe(o.pledgeId);
+  });
+
+  it("a concurrent call that recorded the hold while this one waited on PayPal wins: success, not a rejection", async () => {
+    const already = () => new PayPalError(422, "UNPROCESSABLE_ENTITY", "already", undefined, [{ issue: "ORDER_ALREADY_AUTHORIZED" }]);
+    const record = (h: Awaited<ReturnType<typeof signedService>>, o: { orderId: string; pledgeId: string }) =>
+      commit(h.store, h.clock.now(), { type: "pledge_held", pledgeId: o.pledgeId, orderId: o.orderId, authorizationId: "A-race", amountCents: 1500, authorizedAt: 0, expiresAt: 1, initials: "AB", simulated: false });
+    // Recorded while authorizeOrder was in flight.
+    const a = await signedService();
+    const oa = await a.svc.createOrder({ initials: "AB" });
+    a.paypal.script("authorizeOrder", () => {
+      record(a, oa);
+      throw already();
+    });
+    expect((await a.svc.authorize(oa.orderId)).status).toBe("held");
+    expect(a.paypal.count("getOrderPayments")).toBe(0);
+    // Recorded while getOrderPayments was in flight, which shows no live hold.
+    const b = await signedService();
+    const ob = await b.svc.createOrder({ initials: "AB" });
+    b.paypal.script("authorizeOrder", () => {
+      throw already();
+    });
+    b.paypal.script("getOrderPayments", (orderId: string) => {
+      record(b, ob);
+      return { orderId, status: "COMPLETED", authorizations: [], captures: [] };
+    });
+    expect((await b.svc.authorize(ob.orderId)).status).toBe("held");
+    expect(b.svc.project().campaign.pledges.held).toBe(1);
+    // Recorded while getAuthorization was in flight.
+    const c = await signedService();
+    const oc = await c.svc.createOrder({ initials: "AB" });
+    c.paypal.script("authorizeOrder", () => {
+      throw already();
+    });
+    c.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-race", status: "CREATED" }], captures: [] }));
+    c.paypal.script("getAuthorization", () => {
+      record(c, oc);
+      throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "no body");
+    });
+    expect((await c.svc.authorize(oc.orderId)).status).toBe("held");
+    expect(c.store.job("void:A-race")).toBeUndefined();
+    expect(c.svc.project().campaign.pledges.held).toBe(1);
+  });
+
+  it("a recovered hold for the wrong amount is refused and cancelled", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(502, "BAD_RESPONSE_BODY", "odd");
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-odd", status: "CREATED" }], captures: [] }));
+    h.paypal.script("getAuthorization", (authorizationId: string, orderId: string) => ({ authorizationId, orderId, amountCents: 100, status: "CREATED", createdAt: 0, expiresAt: 1, customId: `${SHOW}:${o.pledgeId}` }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 422, message: expect.stringContaining("didn't match this show") });
+    expect(h.store.job("void:A-odd")?.status).toBe("pending");
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
+  });
+
+  it("a recovered hold whose order custom_id is another pledge is refused and cancelled", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(422, "UNPROCESSABLE_ENTITY", "already", undefined, [{ issue: "ORDER_ALREADY_AUTHORIZED" }]);
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", customId: `${SHOW}:pother`, authorizations: [{ id: "A-other", status: "CREATED" }], captures: [] }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 422 });
+    expect(h.store.job("void:A-other")?.status).toBe("pending");
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
+  });
+
+  it("ORDER_ALREADY_AUTHORIZED with no live hold (voided or expired) ends the order with a final 409", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(422, "UNPROCESSABLE_ENTITY", "already", undefined, [{ issue: "ORDER_ALREADY_AUTHORIZED" }]);
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-gone", status: "VOIDED" }], captures: [] }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.svc.project().orders.get(o.orderId)?.resolved).toBe(true);
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.paypal.count("authorizeOrder")).toBe(1);
   });
 
   it("leaves the order open when PayPal can't be reached, so the fan can try again", async () => {

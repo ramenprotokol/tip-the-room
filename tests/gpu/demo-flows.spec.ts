@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { apiError, installFakeApi, type FakeApi } from "./fake-api";
 import { DEMO_ID, DEMO_KEY, demoApi } from "./fixtures";
 import { APP_BASE } from "./parity";
+import type { PublicShow } from "../../src/worker/api-types";
 
 async function open(page: Page, api: FakeApi = demoApi()) {
   const seen = await installFakeApi(page, api);
@@ -134,4 +135,43 @@ test("a payout that failed is named plainly on the demo", async ({ page }) => {
   await expect(page.locator("#show-a [data-fans-sub]")).toHaveText("A payout didn’t go through");
   await expect(page.locator("#show-a [data-money-sub]")).toHaveText("Sent in one PayPal batch. One payout didn’t go through.");
   await expect(page.locator("#show-a [data-word]")).not.toHaveText("Payouts sent");
+});
+
+test("polling: a lost demo copy gets a fresh pair, and a refusal is not hammered", async ({ page }) => {
+  const base = demoApi();
+  let gone = false, refuse = false;
+  const api: FakeApi = (req) => {
+    if (gone && req.method === "GET" && req.path === `/api/shows/${DEMO_ID}a`) return apiError(404, "not_found", "There's nothing here.");
+    if (refuse && req.method === "POST" && req.path === "/api/demo") return apiError(429, "rate_limited", "Too many tries. Please wait a moment and try again.", { retryAfterSec: 30 });
+    return base(req);
+  };
+  const seen = await installFakeApi(page, api);
+  await page.goto(`${APP_BASE}?e2e`);
+  await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+  const demoPosts = () => seen.filter((r) => r.method === "POST" && r.path === "/api/demo").length;
+  expect(demoPosts()).toBe(1);
+  gone = true;
+  await expect.poll(demoPosts, { timeout: 10_000 }).toBe(2);
+  await expect(page.locator("[data-judge-msg]")).toHaveText("That demo copy has ended, so here is a fresh pair of sample shows.");
+  refuse = true;
+  await expect.poll(demoPosts, { timeout: 10_000 }).toBe(3);
+  await expect(page.locator("[data-judge-msg]")).toHaveText("Too many tries. Please wait a moment and try again.");
+  await page.waitForTimeout(12_000);
+  expect(demoPosts()).toBe(3);
+});
+
+test("polling: an older or equal answer does not move a demo show; a newer one applies", async ({ page }) => {
+  const base = demoApi();
+  const first = base({ method: "GET", path: `/api/shows/${DEMO_ID}a`, body: null, key: null })!.body as PublicShow;
+  let polled: PublicShow | null = null;
+  const api: FakeApi = (req) => (polled && req.method === "GET" && req.path === `/api/shows/${DEMO_ID}a` ? { body: polled } : base(req));
+  await installFakeApi(page, api);
+  await page.goto(`${APP_BASE}?e2e`);
+  await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+  await expect(fans(page, "a")).toHaveText("29");
+  polled = { ...first, fans: { ...first.fans, committed: 5 }, version: "e0.l0" };
+  await page.waitForTimeout(9_000);
+  await expect(fans(page, "a")).toHaveText("29");
+  polled = { ...first, fans: { ...first.fans, committed: 31 }, version: "e90.l90" };
+  await expect(fans(page, "a")).toHaveText("31", { timeout: 15_000 });
 });

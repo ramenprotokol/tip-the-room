@@ -1,0 +1,15 @@
+/* Until a page has its real data (body[data-booted="1"]), hide the reference's sample content and say it's loading.
+   After 12 s the page shows anyway, so a script failure can never leave it blank. Not used by the 404 page. */
+body:not([data-booted="1"]) main { visibility: hidden; animation: ttr-reveal 0s linear 12s forwards; }
+body:not([data-booted="1"])::before {
+  content: "Loading…";
+  position: fixed; inset: 40% 0 auto; text-align: center;
+  font: 600 18px/1.4 "IBM Plex Sans", system-ui, sans-serif; color: #5b5048;
+  animation: ttr-hide 0s linear 12s forwards;
+}
+@keyframes ttr-reveal { to { visibility: visible; } }
+@keyframes ttr-hide { to { visibility: hidden; } }
+
+/* Settlement notes (manage page, app-only). */
+.notes-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.notes-list small { display: block; color: var(--ink-3); }

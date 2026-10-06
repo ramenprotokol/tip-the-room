@@ -13,6 +13,9 @@ for (const p of Object.values(PAGES)) {
     await page.goto(NOHOOKS + p.prodPath.replace("e2e=parity", "e2e"));
     await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
     expect(await page.evaluate(() => typeof (window as unknown as { __marquee?: unknown }).__marquee)).toBe("undefined");
+    const raw = await (await page.request.get(NOHOOKS + p.prodPath.replace("e2e=parity", "e2e"))).text();
+    expect(raw).not.toContain("data-ref-only");
+    expect(raw).not.toContain("Simulate PayPal approval");
     expect(await page.locator("[data-ref-only]").count()).toBe(0);
     expect(await page.locator("#simulate").count()).toBe(0);
     // The reference test keys (t/p/m/r) are dev-only: on the real site they do nothing.

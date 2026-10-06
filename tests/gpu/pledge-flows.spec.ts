@@ -50,14 +50,61 @@ test("a cancelled popup places no hold and says so", async ({ page }) => {
   expect(authorizePaths(seen)).toEqual([]);
 });
 
-test("after a 502 the fan sees plain words, and the next try creates a NEW order", async ({ page }) => {
+test("a 502 on authorize is uncertain: the SAME order is asked again, never a new one", async ({ page }) => {
   const seen = await open(page, pledgeApi({ authorize: (n) => (n === 1 ? apiError(502, "paypal_error", "PayPal didn't answer as expected. Nothing was charged.") : undefined) }));
   await page.locator("paypal-button").click();
-  await expect(page.locator("[data-pledge-msg]")).toHaveText("PayPal didn't answer as expected. Nothing was charged. Please try again.");
+  await expect(page.locator("#confirm")).toBeVisible({ timeout: 15_000 });
+  expect(authorizePaths(seen)).toEqual([`/api/shows/${MAYA_ID}/orders/${PLEDGE_ORDER}/authorize`, `/api/shows/${MAYA_ID}/orders/${PLEDGE_ORDER}/authorize`]);
+  expect(seen.filter((r) => r.path.endsWith("/orders")).length).toBe(1);
+});
+
+test("while an order is unconfirmed no new order starts; Check again asks about the same order until the server answers", async ({ page }) => {
+  const seen = await open(page, pledgeApi({ authorize: (n) => (n <= 4 ? apiError(502, "paypal_error", "PayPal is having trouble.") : undefined) }));
+  await page.locator("paypal-button").click();
+  await expect(page.locator("[data-pledge-msg]")).toHaveText("We didn't hear back. Your pledge may have gone through. Press Check again.", { timeout: 15_000 });
+  await expect(page.locator("#check-again")).toBeVisible();
+  await page.locator("paypal-button").click();
+  await page.waitForTimeout(300);
+  expect(seen.filter((r) => r.path.endsWith("/orders")).length).toBe(1);
+  await page.locator("#check-again").click();
+  await expect(page.locator("#check-again")).toBeVisible();
+  await expect(page.locator("[data-pledge-msg]")).toContainText("We didn't hear back");
+  await page.locator("#check-again").click();
+  await expect(page.locator("#confirm")).toBeVisible();
+  await expect(page.locator("#check-again")).toBeHidden();
+  const ids = new Set(authorizePaths(seen));
+  expect([...ids]).toEqual([`/api/shows/${MAYA_ID}/orders/${PLEDGE_ORDER}/authorize`]);
+  expect(seen.filter((r) => r.path.endsWith("/orders")).length).toBe(1);
+});
+
+test("a reload with a remembered order that the server refuses (4xx) forgets it and says nothing was charged", async ({ page }) => {
+  await page.addInitScript((id) => { sessionStorage.setItem(`ttr:approved:${id}`, JSON.stringify({ orderId: "OLDORDER1", initials: "MR" })); }, MAYA_ID);
+  const seen = await open(page, pledgeApi({ authorize: (n) => (n === 1 ? apiError(409, "conflict", "That order was already used.") : undefined) }));
+  await expect(page.locator("[data-pledge-msg]")).toHaveText("Your last try didn't go through. Nothing was charged.");
+  expect(authorizePaths(seen)).toEqual([`/api/shows/${MAYA_ID}/orders/OLDORDER1/authorize`]);
+  expect(await page.evaluate((id) => sessionStorage.getItem(`ttr:approved:${id}`), MAYA_ID)).toBeNull();
   await page.locator("paypal-button").click();
   await expect(page.locator("#confirm")).toBeVisible();
-  expect(authorizePaths(seen)).toEqual([`/api/shows/${MAYA_ID}/orders/${PLEDGE_ORDER}/authorize`, `/api/shows/${MAYA_ID}/orders/${PLEDGE_ORDER}2/authorize`]);
 });
+
+test("an older cached poll after a pledge does not move the page backwards; a newer one applies", async ({ page }) => {
+  const inner = pledgeApi();
+  let polled: ReturnType<typeof showOf> = showOf(MAYA, { fans: 12, version: 1 });
+  const api: FakeApi = (req) => (req.method === "GET" && req.path === `/api/shows/${MAYA_ID}` ? { body: polled } : inner(req));
+  await open(page, api);
+  await page.locator("paypal-button").click();
+  await expect(page.locator("#confirm")).toBeVisible();
+  const state = () => page.evaluate(() => (window as unknown as { __marquee: { state: { fans: number; busy: boolean } } }).__marquee.state);
+  await expect.poll(async () => (await state()).busy).toBe(false);
+  expect((await state()).fans).toBe(13);
+  const poll = async () => { await page.evaluate(() => (window as unknown as { __marquee: { poll(): void } }).__marquee.poll()); await expect.poll(() => page.evaluate(() => (window as unknown as { __marquee: { pending: number } }).__marquee.pending)).toBe(0); };
+  await poll();
+  expect((await state()).fans).toBe(13);
+  polled = showOf(MAYA, { fans: 14, version: 3 });
+  await poll();
+  await expect.poll(async () => (await state()).fans).toBe(14);
+});
+
 
 test("show data is shown as text, never as markup", async ({ page }) => {
   await open(page, pledgeApi({ show: { ...showOf(MAYA, { fans: 12 }), showName: XSS, roomName: XSS } }));

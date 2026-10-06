@@ -7,6 +7,7 @@ import { RUNNERS } from "../../src/agent/runners";
 import { Store } from "../../src/agent/store";
 import { PayPalError } from "../../src/paypal/errors";
 import { payoutBatchId, payoutItemId } from "../../src/paypal/payouts";
+import { FUNDS_RETRY_FIRST_MS, FUNDS_RETRY_MAX_MS, FUNDS_RETRY_TOTAL_MS } from "../../src/agent/policy";
 import { FakePayPal } from "./fake-paypal";
 import { DEADLINE, held, LAUNCH, signedEvent, SHOW, TestClock, testMandate } from "./fixtures";
 import { memoryDb } from "./sqlite";
@@ -39,6 +40,80 @@ async function settle(h: Awaited<ReturnType<typeof readyToPay>>) {
     h.clock.t = Math.max(h.clock.t, next);
   }
 }
+
+const noFunds = () => new PayPalError(422, "INSUFFICIENT_FUNDS", "Sender does not have sufficient funds", "dbg");
+const WAIT_LINE = "PayPal says the account doesn't have enough funds to pay everyone yet. The agent will try again.";
+
+describe("payout refused for low funds", () => {
+  it("waits 15 min, logs one plain line, and never marks the job failed", async () => {
+    const h = await readyToPay((paypal) => paypal.script("sendPayouts", () => { throw noFunds(); }));
+    await drain(h.d, RUNNERS);
+    const job = h.store.job(`payout:${SHOW}`);
+    expect(job).toMatchObject({ status: "pending", nextAt: DEADLINE + FUNDS_RETRY_FIRST_MS });
+    expect(h.store.logs().filter((l) => l.did === `Needs attention: ${WAIT_LINE}`)).toHaveLength(1);
+    expect(h.store.logs().some((l) => /INSUFFICIENT|422|sufficient/i.test(l.did + l.saw))).toBe(false);
+    expect(h.store.projection().payouts).toHaveLength(0);
+  });
+
+  it("doubles the wait up to 6 h, logs once, reuses the batch id and pays when funds arrive", async () => {
+    let refusals = 0;
+    const refuse = () => { refusals += 1; throw noFunds(); };
+    const h = await readyToPay((paypal) => paypal.script("sendPayouts", ...Array.from({ length: 9 }, () => refuse)));
+    const waits: number[] = [];
+    for (let i = 0; i < 9; i++) {
+      await drain(h.d, RUNNERS);
+      const j = h.store.job(`payout:${SHOW}`)!;
+      expect(j.status).toBe("pending");
+      waits.push(j.nextAt - h.clock.t);
+      h.clock.t = j.nextAt;
+    }
+    const m = 60_000;
+    expect(waits).toEqual([15 * m, 30 * m, 60 * m, 120 * m, 240 * m, FUNDS_RETRY_MAX_MS, FUNDS_RETRY_MAX_MS, FUNDS_RETRY_MAX_MS, FUNDS_RETRY_MAX_MS]);
+    expect(FUNDS_RETRY_MAX_MS).toBe(6 * 60 * m);
+    expect(refusals).toBe(9);
+    expect(h.store.logs().filter((l) => l.did.includes("doesn't have enough funds"))).toHaveLength(1);
+    expect(new Set(h.paypal.calls.filter((c) => c.op === "sendPayouts").map((c) => JSON.stringify(c.args))).size).toBe(1);
+    // Funds arrive: the next try succeeds with the same signed split and settles.
+    await settle(h);
+    expect(h.store.projection().payouts[0]).toMatchObject({ senderBatchId: payoutBatchId(SHOW), retry: false });
+    expect(h.store.job(`payout:${SHOW}`)?.status).toBe("done");
+  });
+
+  it("treats a duplicate answer on a later try as already sent", async () => {
+    const h = await readyToPay((paypal) => paypal.script("sendPayouts", () => { throw noFunds(); }, () => { throw duplicate(); }));
+    await drain(h.d, RUNNERS);
+    h.clock.t += FUNDS_RETRY_FIRST_MS;
+    await drain(h.d, RUNNERS);
+    expect(h.store.projection().payouts[0]).toMatchObject({ status: "ALREADY_SENT", recovered: true });
+    expect(h.store.job(`payout:${SHOW}`)?.status).toBe("done");
+  });
+
+  it("gives up through the failed path after 7 days", async () => {
+    const h = await readyToPay((paypal) => paypal.script("sendPayouts", () => { throw noFunds(); }, () => { throw noFunds(); }));
+    await drain(h.d, RUNNERS);
+    h.clock.t = DEADLINE + FUNDS_RETRY_TOTAL_MS + 1;
+    await drain(h.d, RUNNERS);
+    expect(h.store.job(`payout:${SHOW}`)?.status).toBe("failed");
+    expect(h.store.logs().some((l) => l.did.startsWith("Needs attention: this step couldn't finish"))).toBe(true);
+  });
+
+  it("waits the same way when the second-try batch is refused", async () => {
+    const roomFailed = (b: string) => ({ batchId: b, senderBatchId: "", status: "SUCCESS", items: [
+      { senderItemId: payoutItemId(SHOW, "room"), status: "FAILED", amountCents: 2000 },
+      { senderItemId: payoutItemId(SHOW, "artist"), status: "SUCCESS", amountCents: 2236 },
+    ] });
+    const h = await readyToPay((paypal) => paypal.script("getPayoutBatch", roomFailed).script("sendPayouts", undefined as never, () => { throw noFunds(); }));
+    for (let i = 0; i < 6; i++) {
+      await drain(h.d, RUNNERS);
+      const next = h.store.nextJobAt();
+      if (next !== undefined && next > h.clock.t) h.clock.t = next;
+    }
+    const retry = h.store.job(`payout_retry:${SHOW}`);
+    expect(retry?.status).toBe("done");
+    expect(h.paypal.calls.filter((c) => c.op === "sendPayouts").map((c) => c.args[2])).toEqual([false, true, true]);
+    expect(h.store.logs().filter((l) => l.did.includes("doesn't have enough funds"))).toHaveLength(1);
+  });
+});
 
 describe("payout", () => {
   it("sends exactly the signed split of the collected net, once, and settles", async () => {

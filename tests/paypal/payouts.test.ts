@@ -4,7 +4,7 @@ import type { PayoutLine } from "../../src/core/split";
 import { SANDBOX_BASE } from "../../src/paypal/config";
 import { PayPalError } from "../../src/paypal/errors";
 import { PayPalHttp } from "../../src/paypal/http";
-import { getPayoutBatch, isDuplicateBatch, payoutBatchId, payoutItemId, sendPayouts } from "../../src/paypal/payouts";
+import { getPayoutBatch, isDuplicateBatch, isInsufficientFunds, payoutBatchId, payoutItemId, sendPayouts } from "../../src/paypal/payouts";
 import { fakeFetch } from "./fake-fetch";
 
 const fixture = (name: string) => JSON.parse(readFileSync(`tests/paypal/fixtures/${name}.json`, "utf8"));
@@ -80,6 +80,23 @@ describe("isDuplicateBatch", () => {
     expect(isDuplicateBatch(new PayPalError(500, rec.name, "x", undefined, rec.issues))).toBe(false);
     expect(isDuplicateBatch(new Error("x"))).toBe(false);
     expect(isDuplicateBatch(undefined)).toBe(false);
+  });
+});
+
+describe("isInsufficientFunds", () => {
+  it("recognises a 422 named INSUFFICIENT_FUNDS", () => {
+    expect(isInsufficientFunds(new PayPalError(422, "INSUFFICIENT_FUNDS", "x"))).toBe(true);
+  });
+  it("recognises the issue code under a generic name", () => {
+    expect(isInsufficientFunds(new PayPalError(422, "UNPROCESSABLE_ENTITY", "x", undefined, [{ issue: "INSUFFICIENT_FUNDS" }]))).toBe(true);
+    expect(isInsufficientFunds(new PayPalError(400, "USER_BUSINESS_ERROR", "x", undefined, [{ field: "x", issue: "insufficient_funds" }]))).toBe(true);
+  });
+  it("is false for other refusals, other statuses and non-PayPal errors", () => {
+    expect(isInsufficientFunds(new PayPalError(400, "USER_BUSINESS_ERROR", "x"))).toBe(false);
+    expect(isInsufficientFunds(new PayPalError(422, "UNPROCESSABLE_ENTITY", "x", undefined, [{ issue: "RECEIVER_UNREGISTERED" }]))).toBe(false);
+    expect(isInsufficientFunds(new PayPalError(500, "INSUFFICIENT_FUNDS", "x"))).toBe(false);
+    expect(isInsufficientFunds(new Error("INSUFFICIENT_FUNDS"))).toBe(false);
+    expect(isInsufficientFunds(undefined)).toBe(false);
   });
 });
 

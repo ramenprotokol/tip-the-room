@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AuthorizeResponse } from "../../src/worker/api-types";
 import { ApiFailure } from "../../src/web/shared/api";
-import { CANCELLED, cleanInitials, failureMessage, PledgeFlow, type PledgeApi, type PledgeEvent } from "../../src/web/shared/pledge-flow";
+import { CANCELLED, cleanInitials, failureMessage, PledgeFlow, REFUSED_RESUME, STALLED, UNCONFIRMED, type ApprovedOrder, type OrderMemory, type PledgeApi, sessionMemory, type PledgeEvent } from "../../src/web/shared/pledge-flow";
 
 const held = { pledgeId: "p1", status: "held", tipped: false, show: {} } as unknown as AuthorizeResponse;
+
+function memoryStore(): OrderMemory & { value: ApprovedOrder | null } {
+  const m = { value: null as ApprovedOrder | null, get: () => m.value, set: (o: ApprovedOrder) => { m.value = o; }, clear: () => { m.value = null; } };
+  return m;
+}
 
 function setup(authorize: (orderId: string, n: number) => Promise<AuthorizeResponse>, createOrder?: () => Promise<never>) {
   const events: PledgeEvent[] = [];
@@ -14,7 +19,8 @@ function setup(authorize: (orderId: string, n: number) => Promise<AuthorizeRespo
     createOrder: createOrder ?? (async () => { orders += 1; return { orderId: `ORDER${orders}`, pledgeId: `p${orders}`, amountCents: 1500 }; }),
     authorize: (id) => { authorized.push(id); return authorize(id, ++auths); },
   };
-  return { flow: new PledgeFlow(api, (e) => events.push(e), () => "MR"), events, authorized };
+  const memory = memoryStore();
+  return { flow: new PledgeFlow(api, (e) => events.push(e), () => "MR", { retryDelaysMs: [0, 0], memory }), events, authorized, memory };
 }
 
 describe("pledge flow", () => {
@@ -29,15 +35,29 @@ describe("pledge flow", () => {
     expect(t.flow.busy).toBe(false);
   });
 
-  it("after a 502 on authorize, says so plainly and the next try uses a NEW order", async () => {
+  it("a 502 on authorize is uncertain: the SAME order is asked again and nothing new is created", async () => {
     const t = setup(async (_id, n) => { if (n === 1) throw new ApiFailure(502, "paypal_error", "PayPal didn't answer as expected. Nothing was charged."); return held; });
     await t.flow.approve(await t.flow.createOrder());
-    expect(t.events.at(-1)).toEqual({ kind: "failed", message: "PayPal didn't answer as expected. Nothing was charged. Please try again." });
-    expect(t.flow.busy).toBe(false);
-    expect(t.flow.done).toBe(false);
-    await t.flow.approve(await t.flow.createOrder());
-    expect(t.authorized).toEqual(["ORDER1", "ORDER2"]);
+    expect(t.authorized).toEqual(["ORDER1", "ORDER1"]);
     expect(t.events.at(-1)?.kind).toBe("held");
+    expect(t.memory.value).toBeNull();
+  });
+
+  it("when a 502 keeps coming, the order stays remembered and no new order can start", async () => {
+    const t = setup(async () => { throw new ApiFailure(502, "paypal_error", "PayPal is having trouble."); });
+    await t.flow.approve(await t.flow.createOrder());
+    expect(t.events.at(-1)).toEqual({ kind: "unconfirmed", message: UNCONFIRMED });
+    expect(t.memory.value).toEqual({ orderId: "ORDER1", initials: "MR" });
+    expect(t.flow.canStart()).toBe(false);
+    await expect(t.flow.createOrder()).rejects.toThrow(/still being checked/);
+  });
+
+  it("a late approval for an order that isn't the current one is ignored", async () => {
+    const t = setup(async () => held);
+    await t.flow.createOrder();
+    await t.flow.approve("ORDER-OLD");
+    expect(t.authorized).toEqual([]);
+    expect(t.memory.value).toBeNull();
   });
 
   it("a cancelled popup places no hold and can be tried again", async () => {
@@ -68,7 +88,7 @@ describe("pledge flow", () => {
   it("simulate() runs the same create → authorize path and never throws", async () => {
     const t = setup(async () => { throw new ApiFailure(0, "network", "We couldn't reach Tip the Room. Check your connection and try again."); });
     await expect(t.flow.simulate()).resolves.toBeUndefined();
-    expect(t.events.at(-1)?.kind).toBe("failed");
+    expect(t.events.at(-1)?.kind).toBe("unconfirmed");
   });
 
   it("cleans initials and words unknown failures plainly", () => {
@@ -110,10 +130,119 @@ describe("pledge flow", () => {
     let box = "MR";
     const events: PledgeEvent[] = [];
     const api: PledgeApi = { createOrder: async () => ({ orderId: "O1", pledgeId: "p1", amountCents: 1500 }), authorize: async () => held };
-    const flow = new PledgeFlow(api, (e) => events.push(e), () => box);
+    const flow = new PledgeFlow(api, (e) => events.push(e), () => box, { retryDelaysMs: [0, 0] });
     const id = await flow.createOrder();
     box = "ZZ";
     await flow.approve(id);
     expect(events.at(-1)).toMatchObject({ kind: "held", initials: "MR" });
+  });
+
+  it("a lost answer (network) is asked again on the SAME order, and never creates a second one", async () => {
+    const t = setup(async (_id, n) => { if (n < 3) throw new ApiFailure(0, "network", "lost"); return held; });
+    await t.flow.approve(await t.flow.createOrder());
+    expect(t.authorized).toEqual(["ORDER1", "ORDER1", "ORDER1"]);
+    expect(t.events.at(-1)?.kind).toBe("held");
+    expect(t.memory.value).toBeNull();
+  });
+
+  it("after the retries run out, the approved order is remembered for a reload", async () => {
+    const t = setup(async () => { throw new ApiFailure(0, "network", "lost"); });
+    await t.flow.approve(await t.flow.createOrder());
+    expect(t.events.at(-1)?.kind).toBe("unconfirmed");
+    expect(t.memory.value).toEqual({ orderId: "ORDER1", initials: "MR" });
+  });
+
+  it("a definite refusal (4xx) forgets the order", async () => {
+    const t = setup(async () => { throw new ApiFailure(409, "conflict", "Pledging has closed for this show."); });
+    await t.flow.approve(await t.flow.createOrder());
+    expect(t.authorized).toEqual(["ORDER1"]);
+    expect(t.memory.value).toBeNull();
+  });
+
+  it("resume() asks about a remembered order and reports it as held without a new order", async () => {
+    const t = setup(async () => held);
+    t.memory.set({ orderId: "ORDERX", initials: "JD" });
+    await t.flow.resume();
+    expect(t.authorized).toEqual(["ORDERX"]);
+    expect(t.events).toEqual([{ kind: "busy" }, { kind: "held", res: held, initials: "JD", resumed: true }]);
+    expect(t.flow.done).toBe(true);
+    expect(t.memory.value).toBeNull();
+  });
+
+  it("resume() does nothing without a remembered order, and says so plainly when the server refuses", async () => {
+    const t = setup(async () => { throw new ApiFailure(404, "not_found", "nope"); });
+    await t.flow.resume();
+    expect(t.authorized).toEqual([]);
+    expect(t.events).toEqual([]);
+    t.memory.set({ orderId: "ORDERX", initials: "JD" });
+    await t.flow.resume();
+    expect(t.events.at(-1)).toEqual({ kind: "failed", message: REFUSED_RESUME });
+    expect(t.flow.busy).toBe(false);
+    expect(t.memory.value).toBeNull();
+    expect(t.flow.canStart()).toBe(true);
+  });
+
+  it("resume() that gets no answer keeps the order and offers to check again on the same one", async () => {
+    let n = 0;
+    const t = setup(async () => { n += 1; if (n === 1) throw new ApiFailure(0, "network", "lost"); return held; });
+    t.memory.set({ orderId: "ORDERX", initials: "JD" });
+    await t.flow.resume();
+    expect(t.events.at(-1)).toEqual({ kind: "unconfirmed", message: UNCONFIRMED });
+    expect(t.flow.canStart()).toBe(false);
+    await t.flow.resume();
+    expect(t.authorized).toEqual(["ORDERX", "ORDERX"]);
+    expect(t.events.at(-1)?.kind).toBe("held");
+    expect(t.memory.value).toBeNull();
+  });
+
+  it("unlocks the button when PayPal never calls back (blocked popup)", async () => {
+    vi.useFakeTimers();
+    try {
+      const events: PledgeEvent[] = [];
+      const flow = new PledgeFlow({ createOrder: async () => ({ orderId: "ORDER1", pledgeId: "p1", amountCents: 1500 }), authorize: async () => held }, (e) => events.push(e), () => "MR", { stallMs: 1000 });
+      await flow.createOrder();
+      expect(flow.canStart()).toBe(false);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(flow.canStart()).toBe(true);
+      expect(events.at(-1)).toEqual({ kind: "failed", message: STALLED });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("the unconfirmed wording matches what the page does", () => {
+  it("says to press Check again (nothing rechecks by itself) and uses straight apostrophes", () => {
+    expect(UNCONFIRMED).toBe("We didn't hear back. Your pledge may have gone through. Press Check again.");
+    expect(STALLED).not.toContain("’");
+  });
+});
+
+describe("an unconfirmed order keeps the page locked", () => {
+  it("even when browser storage is switched off", async () => {
+    vi.stubGlobal("window", { get sessionStorage(): Storage { throw new Error("blocked"); } });
+    try {
+      let orders = 0;
+      const api: PledgeApi = {
+        createOrder: async () => { orders += 1; return { orderId: `ORDER${orders}`, pledgeId: "p", amountCents: 1500 }; },
+        authorize: async () => { throw new ApiFailure(0, "network", "lost"); },
+      };
+      const flow = new PledgeFlow(api, () => undefined, () => "MR", { retryDelaysMs: [0], memory: sessionMemory("s1") });
+      await flow.approve(await flow.createOrder());
+      expect(flow.canStart()).toBe(false);
+      await expect(flow.createOrder()).rejects.toThrow();
+      expect(orders).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a 429 after a lost attempt is uncertain: same order, memory kept", async () => {
+    const t = setup(async (_id, n) => { throw n === 1 ? new ApiFailure(0, "network", "lost") : new ApiFailure(429, "rate_limited", "Too many tries."); });
+    await t.flow.approve(await t.flow.createOrder());
+    expect(t.authorized).toEqual(["ORDER1", "ORDER1", "ORDER1"]);
+    expect(t.events.at(-1)?.kind).toBe("unconfirmed");
+    expect(t.memory.value).toEqual({ orderId: "ORDER1", initials: "MR" });
+    expect(t.flow.canStart()).toBe(false);
   });
 });

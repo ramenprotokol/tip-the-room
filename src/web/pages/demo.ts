@@ -1,17 +1,21 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
+import "../shared/boot.css";
+import { IDLE_MS, watchIdle } from "../shared/idle";
+import { compareVersion } from "../shared/version";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
-import { API_BASE, HOOKS, QUIET, SANDBOX_BUYER, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, PARITY, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, rulesLine, ShowClock, when } from "../shared/format";
+import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
-const api = apiClient(API_BASE);
+const idle = watchIdle();
+const api = apiClient(API_BASE, undefined, { judgeCode });
 const store = safeStorage();
 
 type Key = 'a' | 'b';
@@ -20,7 +24,7 @@ interface Look { crest: string; yaw: number; seed: number; label: string }
 // aren't in the API; everything else on the page comes from it.
 const LOOK: Record<Key, Look> = { a: { crest: 'SPINDLE RECORDS', yaw: .2, seed: 7, label: 'Show A' }, b: { crest: 'ELM ST HOUSE SHOW', yaw: -.2, seed: 19, label: 'Show B' } };
 type CtlPhase = 'open' | 'tipping' | 'tipped' | 'ff' | 'paying' | 'paid' | 'missing' | 'released';
-type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
+type StatusKey = 'held' | 'tipped' | 'paying' | 'funds' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
 const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6, done: 2.6 }, MISS: { release: .12, msg: 2.05, done: 3.1, wave: .9 }, R: { tip: .7, payout: .7, miss: 1.3 } };
 const log = new AgentLog($('#log'));
 let payout: PayoutStrip | null = null;
@@ -28,13 +32,13 @@ let demo: SavedDemo | null = null;
 let inflight = false;
 const judgeMsg = (text: string) => { $('[data-judge-msg]').textContent = text; };
 const failed = (e: unknown) => judgeMsg(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.');
-const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned' } as const;
+const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned', funds: 'Waiting on PayPal' } as const;
 
 class ShowCtl {
   key: Key; look: Look; el: HTMLElement; stage: HTMLElement; tipEl: HTMLElement; status: HTMLElement; clockEl: HTMLElement; fansSub: HTMLElement; of: HTMLElement; moneySub: HTMLElement;
   odoFans: Odo; odoHeld: Odo; odoCharged: Odo; bAdd: HTMLButtonElement; bFF: HTMLButtonElement; bReset: HTMLButtonElement;
   ph: Placeholder | null = null; cues = new Cues(); view: SignView | null = null;
-  show: PublicShow | null = null; parties: ManageParty[] = []; openProposals = 0; clock: ShowClock | null = null; queue: AgentLogDto[] = []; lastSeq = 0; viewVersion: string | null = null; viewP: Promise<void> | null = null;
+  show: PublicShow | null = null; parties: ManageParty[] = []; openProposals = 0; clock: ShowClock | null = null; queue: AgentLogDto[] = []; lastSeq = 0; resting = false; viewVersion: string | null = null; viewP: Promise<void> | null = null;
   phase: CtlPhase = 'open'; tipped = false; fans = 0; remain = 0; busy = false; ffRaf = 0;
   constructor(key: Key) {
     this.key = key; this.look = LOOK[key]; const el = this.el = $('#show-' + key);
@@ -54,9 +58,9 @@ class ShowCtl {
   get refunded(): boolean { return !!this.show && endOf(this.show.state) === 'cancelled'; }
   refundSub(): string { return `Called off. Every fan who was charged is getting ${dollars(this.cents)} back.`; }
   /** The status line once the deadline has passed on a show that was on: paid, failed, paying (nothing sent yet) or sent (PayPal confirming). */
-  get payKey(): StatusKey { return ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying' } as const)[payState(this.parties)]; }
-  payMoneySub(): string { const s = payState(this.parties); return s === 'confirmed' ? 'Paid out in one PayPal batch.' : s === 'failed' ? 'Sent in one PayPal batch. One payout didn’t go through.' : s === 'planned' ? 'Paying everyone in one PayPal batch. Nothing has been sent yet.' : 'Sent in one PayPal batch. PayPal is confirming it.'; }
-  payFansSub(): string { return ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', waiting: 'Payouts sent' } as const)[payState(this.parties)]; }
+  get payKey(): StatusKey { return ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying', funds: 'funds' } as const)[payState(this.parties)]; }
+  payMoneySub(): string { const s = payState(this.parties); return s === 'confirmed' ? 'Paid out in one PayPal batch.' : s === 'failed' ? 'Sent in one PayPal batch. One payout didn’t go through.' : s === 'planned' ? 'Paying everyone in one PayPal batch. Nothing has been sent yet.' : s === 'funds' ? 'Paying everyone in one PayPal batch. PayPal needs more funds first, so the agent will try again.' : 'Sent in one PayPal batch. PayPal is confirming it.'; }
+  payFansSub(): string { return ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', funds: 'Paying everyone · waiting on PayPal', waiting: 'Payouts sent' } as const)[payState(this.parties)]; }
   visual(): { phase: Phase; fans: number } { const p = this.phase; return { phase: p === 'paying' || p === 'paid' ? 'paid' : p === 'missing' || p === 'released' ? 'released' : this.tipped ? 'tipped' : 'held', fans: this.fans }; }
   splitOf(fans: number): number[] { return this.show ? planSplit(this.show.split, fans * this.cents).map(c => c / 100) : []; }
   payees(): Payee[] { const a = this.splitOf(Math.max(this.fans, this.target)); return (this.show?.split ?? []).map((p, i) => ({ label: ROLE_WORD[p.role], amount: a[i] })); }
@@ -102,7 +106,7 @@ class ShowCtl {
   }
   setStatus(k: StatusKey, instant?: boolean) {
     const roles = andList((this.show?.split ?? []).map(p => ROLE_WORD[p.role].toLowerCase()));
-    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
+    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], funds: ['paying', 'Paying everyone', '· waiting on PayPal'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
     const [s, w, said] = S[k]; setStatus(this.status, s, w, said, instant);
   }
   renderMoney(instant?: boolean) { const total = this.fans * this.cents / 100; this.odoHeld.set(this.tipped || this.phase === 'released' || this.phase === 'missing' ? 0 : total, instant); this.odoCharged.set(this.tipped ? total : 0, instant); }
@@ -143,6 +147,7 @@ class ShowCtl {
     this.buttons(); this.step();
   }
   takeView(v: ManageView, instant = false) {
+    this.resting = aiResting(v.log); showResting();
     this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length;
     for (const e of [...v.log].reverse()) if (e.seq > this.lastSeq) { this.queue.push(e); this.lastSeq = e.seq; }
     if (this.phase === 'paid') { this.setStatus(this.payKey, true); this.renderFans(); this.moneySub.textContent = this.payMoneySub(); }
@@ -281,6 +286,7 @@ async function solo(fn: () => Promise<void>) {
 }
 function lock() { ctls.forEach(c => c.buttons()); $<HTMLButtonElement>('#pace').disabled = inflight; }
 
+function showResting() { const p = $('#resting'); p.hidden = PARITY || !ctls.some(c => c.resting); p.textContent = p.hidden ? '' : restingLine(Date.now(), ctls.find(c => c.resting)?.show?.timeZone); }
 function pullView(c: ShowCtl, instant = false): Promise<void> {
   if (!demo || !c.show) return Promise.resolve();
   if (c.show.version === c.viewVersion) return c.viewP ?? Promise.resolve();
@@ -308,11 +314,12 @@ function links() {
   set('#manage-b', `/s/${encodeURIComponent(B.show.showId)}/manage#${demo.demoKey}`, `${B.show.showName}’s show page`);
 }
 function start(r: DemoResponse) {
+  lastChangeAt = Date.now();
   demo = { demoId: r.demoId, demoKey: r.demoKey, expiresAt: r.expiresAt }; saveDemo(store, demo);
   log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links();
 }
 /** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
-async function begin(r: DemoResponse) { start(r); await Promise.all([pullView(A, true), pullView(B, true)]); }
+async function begin(r: DemoResponse) { start(r); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
 async function freshCopy(msg: string) { await begin(await api.createDemo()); judgeMsg(msg); }
 async function resetDemo() {
   const d = demo; if (!d) return;
@@ -323,6 +330,7 @@ async function resetDemo() {
 }
 async function checkPace() {
   const d = demo; if (!d) return;
+  if (![A, B].some(c => c.show?.state === 'live')) { judgeMsg('Neither show is still waiting for fans, so there’s no pace to check. Press Start over for a fresh pair.'); return; }
   await solo(async () => {
     const r = await api.demoPace(d.demoId, d.demoKey);
     await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]);
@@ -351,13 +359,19 @@ async function boot() {
     : 'Sandbox buyer login coming soon';
   $('#judge').hidden = false;
 }
-let retryAt = 0;
+let retryAt = 0, lastChangeAt = Date.now();
+/** A passive watcher must not see the demo freeze: keep going while a copy is still seating fans or settling, and for a while after its last change. */
+const settling = () => Date.now() - lastChangeAt < IDLE_MS || ctls.some(c => c.busy || c.phase === 'ff' || c.phase === 'paying' || (c.show !== null && c.fans !== c.show.fans.committed));
+function pausedLine(paused: boolean) { const p = $('#paused'); p.hidden = PARITY || !paused; p.textContent = p.hidden ? '' : 'Paused · tap or move the mouse to keep watching'; }
 async function poll() {
   if (!demo || document.hidden || inflight) return;
+  const paused = idle.idle() && !settling();
+  pausedLine(paused);
+  if (paused) return;
   await act(async () => {
     for (const c of [A, B]) {
       if (!c.show) continue;
-      try { const s = await api.getShow(c.show.showId); if (s.version !== c.show.version) await applyShow(c, s); }
+      try { const s = await api.getShow(c.show.showId); if (compareVersion(s.version, c.show.version) > 0) { lastChangeAt = Date.now(); await applyShow(c, s); } }
       catch (e) {
         if (e instanceof ApiFailure && e.status === 404) {
           // The server forgot this copy. Start a new one, but back off after a refusal (429) instead of asking again every 4 s.
@@ -392,7 +406,7 @@ if (HOOKS) addEventListener('keydown', e => {
 const hooks: DemoHooks = { page: 'demo', ctls, views: [], host: null, ready: false, get pending() { return pendingCount(); } };
 if (HOOKS) window.__marquee = hooks;
 
-await boot();
+try { await boot(); } finally { markBooted(); }
 // 3D layer (optional): one shared WebGL renderer for both signs
 let host: SignHost | null = null;
 if (A.show && B.show) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { /* 3D is optional: host stays null, the flat SVG signs remain */ } }

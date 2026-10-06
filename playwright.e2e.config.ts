@@ -1,6 +1,12 @@
 // Local end-to-end judge flow: the real Worker (wrangler dev --local --env check, PayPal sandbox from .dev.vars)
 // and the built pages without test hooks. Run: npm run e2e:local
 import { defineConfig } from "@playwright/test";
+import { extraHostsFromEnv, liveOrigin } from "./scripts/lib/live";
+
+// E2E_BASE_URL=https://<site> runs the same flow against the deployed site (npm run e2e:live); nothing is started or deployed.
+const raw = process.env.E2E_BASE_URL?.trim() || null;
+const live = raw === null ? null : liveOrigin(raw, extraHostsFromEnv());
+if (raw !== null && live === null) throw new Error("E2E_BASE_URL must be an https origin on an allowed host (*.pages.dev, *.workers.dev or LIVE_ALLOWED_HOSTS)");
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -8,8 +14,8 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   reporter: [["list"]],
-  use: { baseURL: "http://127.0.0.1:5173", launchOptions: { args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] } },
-  webServer: [
+  use: { baseURL: live ?? "http://127.0.0.1:5173", launchOptions: { args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] } },
+  webServer: live ? undefined : [
     {
       command: "rm -rf .wrangler/e2e && npx wrangler dev --local --env check --ip 127.0.0.1 --port 8788 --persist-to .wrangler/e2e",
       url: "http://127.0.0.1:8788/api/health",

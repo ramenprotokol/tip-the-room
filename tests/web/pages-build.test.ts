@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { apiOrigin, assertProductionApiBase, contentSecurityPolicy, headersFile } from "../../src/web/build/pages";
+import { apiOrigin, assertProductionApiBase, contentSecurityPolicy, headersFile, stripRefOnly } from "../../src/web/build/pages";
 
 const directive = (csp: string, name: string) => csp.split("; ").find((d) => d.startsWith(`${name} `)) ?? "";
 
@@ -32,6 +32,7 @@ describe("Pages build files", () => {
     expect(lines.slice(1).filter(Boolean).every((l) => l.startsWith("  "))).toBe(true);
     expect(lines.some((l) => l.startsWith("  Content-Security-Policy: default-src 'self'"))).toBe(true);
     expect(lines).toContain("  X-Content-Type-Options: nosniff");
+    expect(lines).toContain("  Strict-Transport-Security: max-age=31536000");
   });
   it("routes share and manage links to their pages, manage first", () => {
     expect(readFileSync("public/_redirects", "utf8").trim().split("\n").map((l) => l.trim().split(/\s+/))).toEqual([
@@ -45,5 +46,19 @@ describe("Pages build files", () => {
     expect(html).toContain('href="/"');
     expect(html).toContain('href="/start"');
     expect(html).toContain("There’s nothing here");
+  });
+});
+
+describe("stripRefOnly", () => {
+  it("removes each data-ref-only element with its children, and nothing else", () => {
+    const html = `<main><p>keep</p><div class="x" data-ref-only><div><button>a</button></div></div><button id="simulate" data-ref-only>Sim</button><p>also</p></main><nav class="ref-nav" data-ref-only aria-label="R">R: <a href="demo.html">d</a></nav>`;
+    expect(stripRefOnly(html)).toBe(`<main><p>keep</p><p>also</p></main>`);
+  });
+  it("leaves pages without ref-only markup alone and refuses an unclosed element", () => {
+    expect(stripRefOnly("<main><p>x</p></main>")).toBe("<main><p>x</p></main>");
+    expect(() => stripRefOnly("<div data-ref-only><p>x</p>")).toThrow(/no closing tag/);
+  });
+  it("strips every real page", () => {
+    for (const f of ["index.html", "start.html", "pledge.html", "manage.html"]) expect(stripRefOnly(readFileSync(f, "utf8"))).not.toMatch(/data-ref-only/);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { act, apiClient, ApiFailure, FALLBACK_MESSAGE, NETWORK_MESSAGE, pendingCount, type FetchLike } from "../../src/web/shared/api";
+import { act, apiClient, ApiFailure, FALLBACK_MESSAGE, NETWORK_MESSAGE, pendingCount, TIMEOUT_MESSAGE, type FetchLike } from "../../src/web/shared/api";
 
 interface Seen { url: string; init: RequestInit }
 function fake(status: number, body: string): { fetch: FetchLike; seen: Seen[] } {
@@ -8,6 +8,12 @@ function fake(status: number, body: string): { fetch: FetchLike; seen: Seen[] } 
 }
 
 describe("api client", () => {
+  it("gives up after timeoutMs with a plain message (status 0, so the pledge flow treats it as a lost answer)", async () => {
+    const hang: FetchLike = (_url, init) => new Promise((_res, rej) => init.signal?.addEventListener("abort", () => rej(init.signal?.reason)));
+    const api = apiClient("https://api.test", hang, { timeoutMs: 20 });
+    await expect(api.getShow("s1")).rejects.toMatchObject({ status: 0, code: "network", message: TIMEOUT_MESSAGE });
+  });
+
   it("calls the right path, sends JSON and the manage key only when given", async () => {
     const f = fake(200, JSON.stringify({ ok: 1 }));
     const api = apiClient("https://api.example", f.fetch);
@@ -25,6 +31,18 @@ describe("api client", () => {
     expect((f.seen[1].init.headers as Record<string, string>)["x-manage-key"]).toBe("secret-key");
     expect(f.seen[2].init.body).toBe(JSON.stringify({ option: "extend" }));
     expect(f.seen[3].init.body).toBe(JSON.stringify({ show: "b" }));
+  });
+
+  it("sends the judge code on demo create and reset only", async () => {
+    const f = fake(201, JSON.stringify({ demoId: "d1" }));
+    const api = apiClient("https://api.test", f.fetch, { judgeCode: () => "judge-code-123" });
+    await api.createDemo();
+    await api.demoReset("d1", "k123456");
+    await api.getShow("s1");
+    const h = (i: number) => f.seen[i].init.headers as Record<string, string>;
+    expect(h(0)["x-judge-code"]).toBe("judge-code-123");
+    expect(h(1)["x-judge-code"]).toBe("judge-code-123");
+    expect(h(2)["x-judge-code"]).toBeUndefined();
   });
 
   it("encodes ids so a path can't be smuggled", async () => {

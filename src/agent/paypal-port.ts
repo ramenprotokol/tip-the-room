@@ -7,6 +7,7 @@ import {
   createCardHold,
   createPledgeOrder,
   getCapture,
+  getAuthorization,
   getOrderPayments,
   refundCharge,
   voidHold,
@@ -58,6 +59,8 @@ export interface PayPalPort {
   voidHold(authorizationId: string): Promise<void>;
   refundCharge(captureId: string): Promise<Refund>;
   getOrderPayments(orderId: string): Promise<OrderPayments>;
+  /** Full read of one hold (amount, times, custom_id): to record a hold whose authorize answer was lost or unreadable. */
+  getAuthorization(authorizationId: string, orderId: string): Promise<Hold>;
   getCapture(captureId: string, authorizationId: string): Promise<Charge>;
   sendPayouts(showId: string, lines: PayoutLine[], retry: boolean): Promise<SentBatch>;
   getPayoutBatch(batchId: string): Promise<PayoutBatch>;
@@ -74,6 +77,7 @@ export function paypalPort(http: PayPalHttp, meter: CallMeter = new CallMeter())
     voidHold: (id) => voidHold(http, id),
     refundCharge: (id) => refundCharge(http, id),
     getOrderPayments: (id) => getOrderPayments(http, id),
+    getAuthorization: (authorizationId, orderId) => getAuthorization(http, authorizationId, orderId),
     getCapture: (captureId, authorizationId) => getCapture(http, captureId, authorizationId),
     sendPayouts: async (showId, lines, retry) => {
       // The payout id helpers only check length and characters; our own show-id shape is checked first.

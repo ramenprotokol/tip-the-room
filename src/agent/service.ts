@@ -20,13 +20,13 @@ import { sweepStuckHolds, sweepWakes } from "./hold-runner";
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { DEMO_GRACE_MS, DEMO_PACE_POINT, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
+import { DEMO_GRACE_MS, DEMO_PACE_POINT, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, ORDER_OPEN_MS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
 import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
 import { SIM_INITIALS } from "./sim-runner";
 import type { Store } from "./store";
-import { attentionLines, ledgerRows, logRows, manageParties, payoutStateOf, proposalRows, publicShow, reversalLines, UNCONFIRMED_PAYOUT_LINE, unconfirmedPayoutLines, unconfirmedPayouts } from "./views";
-import { fanName, holdDescription, sawCounts } from "./words";
+import { attentionLines, ledgerRows, logRows, manageParties, payoutStateOf, payoutWaitingOnFunds, proposalRows, publicShow, reversalLines, UNCONFIRMED_PAYOUT_LINE, unconfirmedPayoutLines, unconfirmedPayouts } from "./views";
+import { fanName, holdDescription, sawCounts, showTime } from "./words";
 
 export interface ServiceDeps {
   store: Store;
@@ -164,7 +164,7 @@ export class CampaignService {
       store.deleteMeta("expires_at");
       return commit(store, now, { type: "mandate_signed", mandate: signed.mandate, hash: signed.hash, signedAt: signed.signedAt });
     });
-    this.log({ saw: "The artist read the money rules and held to sign.", did: `Opened pledging: ${mandate.threshold} fans by ${new Date(Date.parse(mandate.deadline)).toUTCString()}.`, rule: null, resultId: signed.hash.slice(0, 12) });
+    this.log({ saw: "The artist read the money rules and held to sign.", did: `Opened pledging: ${mandate.threshold} fans by ${showTime(Date.parse(mandate.deadline), mandate.timeZone ?? "UTC")}.`, rule: null, resultId: signed.hash.slice(0, 12) });
     return { showId, manageKey, mandateHash: signed.hash, threshold: mandate.threshold, deadline: mandate.deadline, sharePath: `/s/${showId}`, managePath: `/s/${showId}/manage`, show: this.publicView(projection) };
   }
 
@@ -209,7 +209,10 @@ export class CampaignService {
     const p = this.applyDeadline();
     const m = this.requireMandate(p);
     if (p.campaign.state !== "live" && p.campaign.state !== "tipped") throw new ServiceError(409, "conflict", "Pledging has closed for this show.");
-    if (p.orders.size >= MAX_ORDERS_PER_SHOW) throw new ServiceError(409, "conflict", "This show has taken as many pledges as it can.");
+    const at = this.now();
+    let open = 0;
+    for (const o of p.orders.values()) if (o.resolved || at - o.createdAt < ORDER_OPEN_MS) open += 1;
+    if (open >= MAX_ORDERS_PER_SHOW) throw new ServiceError(409, "conflict", "This show has taken as many pledges as it can.");
     const pledgeId = newId("p", this.deps.random);
     let orderId: string;
     try {
@@ -232,8 +235,7 @@ export class CampaignService {
     } catch {
       throw new ServiceError(400, "bad_request", "That isn't a PayPal order id.");
     }
-    const store = this.deps.store;
-    let p = this.applyDeadline();
+    const p = this.applyDeadline();
     const m = this.requireMandate(p);
     const order = p.orders.get(orderId);
     if (!order) throw new ServiceError(404, "not_found", "We didn't create that order for this show.");
@@ -242,19 +244,40 @@ export class CampaignService {
       if (!existing) throw new ServiceError(409, "conflict", "This order was already used and didn't become a pledge.");
       return { pledgeId: existing.pledgeId, status: "held", tipped: p.campaign.state !== "live", show: this.publicView(p) };
     }
+    if (this.now() - order.createdAt >= ORDER_OPEN_MS) {
+      await this.retireAbandoned(orderId, order);
+      throw new ServiceError(409, "conflict", "This pledge took too long to finish, so nothing was held or charged. Please start again.");
+    }
     if (p.campaign.state !== "live" && p.campaign.state !== "tipped") throw new ServiceError(409, "conflict", "Pledging has closed for this show. Nothing was held or charged.");
     let hold: Hold;
     try {
       hold = await this.deps.paypal.authorizeOrder(orderId);
     } catch (e) {
-      if (e instanceof PayPalError && UNREADABLE.has(e.paypalName)) {
-        await this.recoverUnreadable(orderId, order);
+      if (e instanceof PayPalError && (UNREADABLE.has(e.paypalName) || e.hasIssue("ORDER_ALREADY_AUTHORIZED"))) {
+        const raced = this.recordedHold(orderId); // a concurrent call may have recorded the hold while PayPal answered
+        if (raced) return raced;
+        const recovered = await this.recoverExisting(orderId, order, m, !UNREADABLE.has(e.paypalName));
+        if (recovered) return recovered;
         throw new ServiceError(502, "paypal_error", "PayPal's answer wasn't clear. Nothing was charged and any hold is being cancelled; please try again.");
       }
       if (e instanceof PayPalError && !e.retryable) throw new ServiceError(409, "conflict", "PayPal didn't place the hold. Nothing was charged.");
       throw new ServiceError(502, "paypal_error", "PayPal is having trouble. Nothing was charged; please try again.");
     }
-    p = this.applyDeadline(); // the deadline may have passed while PayPal answered
+    return this.recordHold(orderId, order, m, hold);
+  }
+
+  /** The success for an order a concurrent call already turned into a held pledge (re-read after every await), else null. */
+  private recordedHold(orderId: string): AuthorizeResponse | null {
+    const p = this.project();
+    const order = p.orders.get(orderId);
+    const pledge = order?.resolved ? p.pledges.get(order.pledgeId) : undefined;
+    return pledge ? { pledgeId: pledge.pledgeId, status: "held", tipped: p.campaign.state !== "live", show: this.publicView(p) } : null;
+  }
+
+  /** PayPal answered with a hold for this order: check it against the order and the mandate, then count it, or refuse it and queue it to be cancelled. */
+  private recordHold(orderId: string, order: OrderView, m: Mandate, hold: Hold): AuthorizeResponse {
+    const store = this.deps.store;
+    let p = this.applyDeadline(); // the deadline may have passed while PayPal answered
     const now = this.now();
     const problem = holdProblem(hold, orderId, order, m);
     if (problem) {
@@ -283,22 +306,70 @@ export class CampaignService {
   }
 
   /**
-   * PayPal answered, but not in a form we trust, so a hold may exist that we never recorded. Ask PayPal
-   * (GET) what the order holds; any live hold found is retired and queued to be cancelled, and the order
-   * is closed so it can't be counted later. If PayPal can't say, the order stays open and the fan can retry.
+   * An order older than ORDER_OPEN_MS that never became a pledge. Ask PayPal (GET) whether it holds anything; close the
+   * order either way and queue any live hold to be cancelled. If PayPal can't say, the order stays open (it no longer
+   * counts toward the cap, and a later call looks again).
    */
-  private async recoverUnreadable(orderId: string, order: OrderView): Promise<void> {
+  private async retireAbandoned(orderId: string, order: OrderView): Promise<void> {
+    let live: string | null;
     try {
       const found = await this.deps.paypal.getOrderPayments(orderId);
-      const live = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && /^[A-Za-z0-9-]{1,64}$/.test(a.id));
-      if (!live) return;
-      const now = this.now();
-      commit(this.deps.store, now, { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: live.id, reason: "PayPal's answer could not be read" });
-      queueVoid(this.deps.store, live.id, now);
-      this.log({ saw: `PayPal's answer for order ${orderId} couldn't be read, but a hold exists.`, did: "Refused it and queued it to be cancelled. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: live.id });
+      live = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && SAFE_REF.test(a.id))?.id ?? null;
     } catch {
-      // Leave the order open: nothing was recorded, and the fan can try again.
+      return;
     }
+    const now = this.now();
+    commit(this.deps.store, now, { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: live, reason: "the order was abandoned" });
+    if (live) {
+      queueVoid(this.deps.store, live, now);
+      this.log({ saw: `Order ${orderId} was never finished, but PayPal holds money on it.`, did: "Refused it and queued the hold to be cancelled. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: live });
+    }
+  }
+
+  /**
+   * PayPal may hold money on this order that we never recorded: its answer was unreadable, or our earlier answer was
+   * lost and PayPal now says ORDER_ALREADY_AUTHORIZED. Look the order up and read any live hold in full. If it is
+   * exactly this order's hold at the signed price, record it as the fan's pledge (so the fan is never pushed into a
+   * second hold). Otherwise refuse it and queue it to be cancelled. Null when nothing was recorded.
+   */
+  private async recoverExisting(orderId: string, order: OrderView, m: Mandate, alreadyAuthorized: boolean): Promise<AuthorizeResponse | null> {
+    let liveId: string | undefined;
+    let orderCustomId: string | undefined;
+    try {
+      const found = await this.deps.paypal.getOrderPayments(orderId);
+      liveId = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && SAFE_REF.test(a.id))?.id;
+      orderCustomId = found.customId;
+    } catch {
+      return this.recordedHold(orderId); // PayPal can't say: the order stays open and the fan's retry asks again.
+    }
+    const raced = this.recordedHold(orderId);
+    if (raced) return raced;
+    if (!liveId) {
+      // PayPal says the order was authorized, yet nothing live is on it (voided or expired): end the order for good, so a retry can't loop.
+      if (alreadyAuthorized) {
+        commit(this.deps.store, this.now(), { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: null, reason: "PayPal's hold on this order is no longer live" });
+        this.log({ saw: `PayPal says order ${orderId} was already authorized, but no hold on it is live.`, did: "Closed the order. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: null });
+        throw new ServiceError(409, "conflict", "PayPal didn't place the hold. Nothing was charged.");
+      }
+      return null;
+    }
+    let hold: Hold | null;
+    try {
+      hold = await this.deps.paypal.getAuthorization(liveId, orderId);
+    } catch {
+      hold = null;
+    }
+    const racedAfterRead = this.recordedHold(orderId);
+    if (racedAfterRead) return racedAfterRead;
+    const wantCustomId = customIdFor(m.showId, order.pledgeId);
+    const mismatch = orderCustomId !== undefined && orderCustomId !== wantCustomId ? "PayPal's hold belongs to a different pledge" : hold && hold.authorizationId === liveId ? holdProblem(hold, orderId, order, m) : null;
+    if (hold && hold.authorizationId === liveId && !mismatch) return this.recordHold(orderId, order, m, hold);
+    const now = this.now();
+    commit(this.deps.store, now, { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: liveId, reason: mismatch ?? "PayPal's answer could not be read" });
+    queueVoid(this.deps.store, liveId, now);
+    this.log({ saw: mismatch ? `PayPal holds money on order ${orderId}, but ${mismatch}.` : `PayPal's answer for order ${orderId} couldn't be read, but a hold exists.`, did: "Refused it and queued it to be cancelled. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: liveId });
+    if (mismatch) throw new ServiceError(422, "invalid", "PayPal's hold didn't match this show, so it is being cancelled. Nothing was charged.");
+    return null;
   }
 
   manageView(): ManageView {
@@ -309,7 +380,7 @@ export class CampaignService {
       ledger: ledgerRows(this.deps.store.events(), p, showId),
       log: logRows(this.deps.store.logs()),
       proposals: proposalRows(p),
-      parties: manageParties(p, showId),
+      parties: manageParties(p, showId, payoutWaitingOnFunds(this.deps.store.jobs())),
       notes: (p.notes ?? []).map((n) => ({ role: n.role, label: n.label, text: n.text, source: n.source })),
       attention: [...attentionLines(this.deps.store.jobs()), ...reversalLines(this.deps.store.events()), ...unconfirmedPayoutLines(p, this.now())],
       collectedNetCents: p.collectedNet,
@@ -482,6 +553,10 @@ export class CampaignService {
     const proposal = typeof proposalId === "string" ? p.proposals.get(proposalId) : undefined;
     if (!proposal) throw new ServiceError(404, "not_found", "There's no such proposal.");
     if (proposal.approved) throw new ServiceError(409, "conflict", "That proposal was already approved.");
+    if (p.campaign.state !== "live") throw new ServiceError(409, "conflict", "This show is past the point where that choice matters.");
+    const mark = `declined:${proposalId}`;
+    if (this.deps.store.getMeta(mark) !== undefined) return { proposalId, show: this.publicView(p) };
+    this.deps.store.setMeta(mark, "1");
     this.log({ saw: sawCounts(p), did: `You said not now to ${proposal.options.map((o) => `"${o.label}"`).join(" or ")}. Nothing changes.`, rule: null });
     return { proposalId, show: this.publicView(p) };
   }
@@ -707,7 +782,7 @@ export class CampaignService {
   async checkPaceNow(): Promise<PublicShow> {
     this.requireDemo();
     const store = this.deps.store;
-    this.deps.paypal.meter.reset();
+    // Each invocation has its own PayPal port and meter (CampaignAgent.invocation), so there is nothing to reset here.
     const p = this.applyDeadline();
     const m = this.requireMandate(p);
     const c = p.campaign;

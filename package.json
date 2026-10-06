@@ -16,6 +16,10 @@
     "spike": "node --env-file=.dev.vars --import tsx scripts/spikes/paypal-sandbox.ts",
     "worker:check": "node --import tsx scripts/worker-check.ts",
     "e2e:local": "playwright test -c playwright.e2e.config.ts",
+    "e2e:live": "node -e \"if(!/^https:\\/\\//.test(process.env.E2E_BASE_URL||'')){console.error('Set E2E_BASE_URL to the site origin');process.exit(2)}\" && playwright test -c playwright.e2e.config.ts",
+    "video:record": "playwright test -c playwright.video.config.ts",
+    "video:build": "node --import tsx scripts/video-build.ts",
+    "ship:check": "node --import tsx scripts/ship-check.ts",
     "sandbox:check": "node --env-file=.dev.vars --import tsx scripts/sandbox-check.ts"
   },
   "engines": {

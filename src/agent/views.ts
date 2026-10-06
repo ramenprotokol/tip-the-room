@@ -1,10 +1,9 @@
 import { fansCommitted, type CampaignState } from "../core/campaign";
 import type { Mandate } from "../core/mandate";
-import { RULES } from "../core/rules";
 import { payoutItemId } from "../paypal/payouts";
 import type { AgentLogDto, BulbStatus, LedgerRowDto, LedgerStatus, ManageParty, ProposalDto, PublicShow, StatusWords } from "../worker/api-types";
 import type { PayoutItemStatus } from "./events";
-import { PAYOUT_FAILED } from "./payout-runner";
+import { FUNDS_WAIT_NOTE, PAYOUT_FAILED } from "./payout-runner";
 import { RECOVERED_BATCH_ATTENTION_MS } from "./policy";
 import type { PayoutView, PledgeStatus, PledgeView, Projection } from "./project";
 import type { Job, LoggedEntry, StoredEvent } from "./store";
@@ -152,12 +151,12 @@ export function ledgerRows(events: StoredEvent[], p: Projection, showId: string)
 }
 
 export function logRows(entries: LoggedEntry[]): AgentLogDto[] {
-  return entries.map((e) => ({ ...e, ruleTitle: e.rule ? RULES[e.rule].title : null })).reverse();
+  return entries.map((e) => ({ ...e })).reverse();
 }
 
 export function proposalRows(p: Projection): ProposalDto[] {
   return [...p.proposals.values()]
-    .map((x) => ({ proposalId: x.proposalId, explanation: x.explanation, recommend: x.recommend, source: x.source, options: x.options.map((o) => ({ id: o.id, label: o.label, newDeadline: o.newDeadline !== undefined ? new Date(o.newDeadline).toISOString() : null, newThreshold: o.newThreshold ?? null })), approved: x.approved?.option ?? null, madeAt: x.madeAt }))
+    .map((x) => ({ proposalId: x.proposalId, explanation: x.explanation, recommend: x.recommend, source: x.source, options: x.options.map((o) => ({ id: o.id, label: o.label, newDeadline: o.newDeadline !== undefined ? new Date(o.newDeadline).toISOString() : null, newThreshold: o.newThreshold ?? null })), approved: x.approved?.option ?? null }))
     .reverse();
 }
 
@@ -189,16 +188,22 @@ export function unconfirmedPayoutLines(p: Projection, now: number): string[] {
   return unconfirmedPayouts(p, now).map(() => UNCONFIRMED_PAYOUT_LINE);
 }
 
-export function manageParties(p: Projection, showId: string): ManageParty[] {
+/** A payout (or its second try) is waiting for the PayPal account to have enough funds. */
+export function payoutWaitingOnFunds(jobs: Job[]): boolean {
+  return jobs.some((j) => (j.kind === "payout" || j.kind === "payout_retry") && j.status === "pending" && j.note.startsWith(FUNDS_WAIT_NOTE));
+}
+
+export function manageParties(p: Projection, showId: string, waitingOnFunds = false): ManageParty[] {
   const m = p.mandate;
   if (!m) return [];
   const first = p.payouts.find((x) => !x.retry);
   return m.parties.map((x) => {
     const line = first?.lines.find((l) => l.role === x.role);
     const payoutStatus = ((): ManageParty["payoutStatus"] => {
-      if (!first) return "planned";
+      if (!first) return waitingOnFunds ? "funds" : "planned";
       if (!line) return "none";
-      return payoutStateOf(p, showId, x.role);
+      const s = payoutStateOf(p, showId, x.role);
+      return waitingOnFunds && s === "failed" && !p.payouts.some((y) => y.retry) ? "funds" : s;
     })();
     return { role: x.role, label: x.label, fixedCents: x.fixed ?? null, minimumCents: x.minimum ?? null, paypalEmail: x.paypalEmail, payoutCents: line?.amount ?? null, payoutStatus };
   });

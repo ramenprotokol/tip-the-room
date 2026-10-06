@@ -7,6 +7,22 @@ import type { AiSource, ProposalOptionId } from "../agent/events";
 
 export const MANAGE_KEY_HEADER = "x-manage-key";
 
+/** Judges' links carry ?judge=<code>; the page sends it on demo create/reset only. */
+export const JUDGE_CODE_HEADER = "x-judge-code";
+
+/** What /api/health says about the live setup. Booleans and the PUBLIC PayPal client id only, never a secret. */
+export interface SetupReport {
+  rateSalt: boolean;
+  webhook: boolean;
+  judgeCode: boolean;
+  receivers: boolean;
+  paypalClientId: string | null;
+}
+export interface HealthResponse {
+  ok: true;
+  setup: SetupReport;
+}
+
 export type ErrorCode = "bad_request" | "not_found" | "forbidden" | "conflict" | "invalid" | "rate_limited" | "paypal_error" | "too_large" | "unavailable" | "internal";
 
 /** Every error body. `message` is plain English and safe to show. */
@@ -88,6 +104,7 @@ export interface PublicShow {
   showId: string;
   demo: boolean;
   state: CampaignState;
+  /** Read by the worker tests and the e2e run; the pages work the status out from state and fans. */
   status: StatusWords;
   showName: string;
   roomName: string;
@@ -98,6 +115,7 @@ export interface PublicShow {
   deadline: string;
   launchedAt: string;
   fans: { committed: number; held: number; charged: number; released: number; refunded: number; failed: number; more: number };
+  /** Read by the worker tests and the e2e run. */
   money: { heldCents: Cents; chargedCents: Cents };
   /** One per pledge, in arrival order (bulb slots). */
   bulbs: { initials: string; status: BulbStatus }[];
@@ -116,6 +134,7 @@ export interface CreateOrderRequest {
   initials: string;
 }
 
+/** Read by scripts/worker-check.ts, the worker tests and the e2e run (the pledge page only needs orderId). */
 export interface CreateOrderResponse {
   orderId: string;
   pledgeId: string;
@@ -149,7 +168,6 @@ export interface AgentLogDto {
   saw: string;
   did: string;
   rule: RuleId | null;
-  ruleTitle: string | null;
   requestId: string | null;
   resultId: string | null;
   source: AiSource | "code";
@@ -162,7 +180,6 @@ export interface ProposalDto {
   source: AiSource;
   options: { id: ProposalOptionId; label: string; newDeadline: string | null; newThreshold: number | null }[];
   approved: ProposalOptionId | null;
-  madeAt: number;
 }
 
 export interface DeclineResponse {
@@ -177,7 +194,7 @@ export interface DemoPaceResponse {
 export interface ManageParty extends PublicParty {
   paypalEmail: string;
   payoutCents: Cents | null;
-  payoutStatus: "planned" | "paid" | "pending" | "failed" | "none";
+  payoutStatus: "planned" | "funds" | "paid" | "pending" | "failed" | "none";
 }
 
 export interface NoteDto {

@@ -426,4 +426,17 @@ describe("decline a proposal", () => {
     await h.svc.approve(id, { option: "lower" });
     expect(() => h.svc.declineProposal(id)).toThrow(/already approved/);
   });
+
+  it("saying not now twice logs once, and is refused once the show is no longer live", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    await h.svc.checkPaceNow();
+    const id = h.svc.manageView().proposals[0].proposalId;
+    const before = h.store.logs().length;
+    h.svc.declineProposal(id);
+    h.svc.declineProposal(id);
+    expect(h.store.logs().length).toBe(before + 1);
+    h.svc.fastForward(false);
+    expect(() => h.svc.declineProposal(id)).toThrow(expect.objectContaining({ status: 409 }));
+  });
 });

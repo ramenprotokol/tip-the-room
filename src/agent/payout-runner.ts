@@ -1,10 +1,11 @@
 import { formatUSD } from "../core/money";
 import { splitPayout, type PayoutLine } from "../core/split";
 import { PayPalError } from "../paypal/errors";
-import { isDuplicateBatch, payoutBatchId, type PayoutBatch, type SentBatch } from "../paypal/payouts";
+import { isDuplicateBatch, isInsufficientFunds, payoutBatchId, type PayoutBatch, type SentBatch } from "../paypal/payouts";
 import { block, commit, decide, done, fail, logStep, retryLater, skip, type ExecDeps, type Runner, type Runners } from "./executor";
 import { isShowId } from "./ids";
-import { PAYOUT_POLL_MAX, POLL_DELAY_MS } from "./policy";
+import { FUNDS_RETRY_TOTAL_MS, fundsRetryMs, PAYOUT_POLL_MAX, POLL_DELAY_MS } from "./policy";
+import type { Job } from "./store";
 import type { PayoutView, Projection } from "./project";
 import { errText, sawCounts } from "./words";
 
@@ -12,6 +13,23 @@ import { errText, sawCounts } from "./words";
 export const PAYOUT_FAILED: ReadonlySet<string> = new Set(["FAILED", "RETURNED", "BLOCKED", "DENIED", "CANCELED", "REFUNDED"]);
 /** Errors after which the batch may already exist at PayPal: retry with the same sender_batch_id. */
 const MAYBE_SENT = new Set(["BAD_RESPONSE_BODY", "EMPTY_RESPONSE_BODY"]);
+
+/** A payout job waiting for the account to have funds carries this note plus the number of waits so far (internal, never shown). */
+export const FUNDS_WAIT_NOTE = "waiting for funds:";
+export const FUNDS_WAIT_LINE = "PayPal says the account doesn't have enough funds to pay everyone yet. The agent will try again.";
+
+/**
+ * PayPal refused the batch for lack of funds: not a failure. The same job is tried again later (same sender_batch_id; a
+ * refused batch was never created, and a duplicate answer on a later success already means "already sent").
+ * Attempts are reset because this wait is not a failing attempt. The job fails only once it is FUNDS_RETRY_TOTAL_MS old.
+ */
+function waitForFunds(d: ExecDeps, job: Job, what: string): void {
+  const now = d.clock.now();
+  if (now - job.createdAt >= FUNDS_RETRY_TOTAL_MS) return fail(d, job, `${what} was still refused for low funds after 7 days.`);
+  const waits = job.note.startsWith(FUNDS_WAIT_NOTE) ? Number(job.note.slice(FUNDS_WAIT_NOTE.length)) || 0 : 0;
+  d.store.updateJob(job.key, { attempts: 0, nextAt: now + fundsRetryMs(waits), note: `${FUNDS_WAIT_NOTE}${waits + 1}` });
+  if (waits === 0) logStep(d, { saw: `A ${what} step is waiting.`, did: `Needs attention: ${FUNDS_WAIT_LINE}`, rule: null });
+}
 
 export function roleOfItem(showId: string, senderItemId: string): string | null {
   const prefix = `${showId}-`;
@@ -86,6 +104,7 @@ const runPayout: Runner = async (d, job, attempt) => {
       logStep(d, { saw: sawCounts(p), did: "PayPal already has this payout batch, so it was not sent again. Waiting for PayPal to confirm it.", rule: decision.rule, requestId: senderBatchId });
       return done(d, job, "Already sent.");
     }
+    if (isInsufficientFunds(e)) return waitForFunds(d, job, "payout");
     if (e instanceof PayPalError && (e.retryable || MAYBE_SENT.has(e.paypalName))) return retryLater(d, job, attempt, errText(e));
     return fail(d, job, `PayPal refused the payout batch (${errText(e)}).`);
   }
@@ -162,6 +181,7 @@ const runPayoutRetry: Runner = async (d, job, attempt) => {
       logStep(d, { saw: sawCounts(p), did: "PayPal already has the retry batch, so it was not sent again.", rule: "rule-4-pay-the-split", requestId: senderBatchId });
       return done(d, job, "Already sent.");
     }
+    if (isInsufficientFunds(e)) return waitForFunds(d, job, "payout retry");
     if (e instanceof PayPalError && (e.retryable || MAYBE_SENT.has(e.paypalName))) return retryLater(d, job, attempt, errText(e));
     return fail(d, job, `PayPal refused the retry batch (${errText(e)}).`);
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DemoFansResponse, DemoPaceResponse, DemoResponse, ManageView } from "../../src/worker/api-types";
+import { LIMITS } from "../../src/worker/router";
 import { workerHarness } from "./harness";
 
 const HOUR = 60 * 60 * 1000;
@@ -102,14 +103,14 @@ describe("demo routes", () => {
   it("a refused reset (rate limit) leaves the old copy alone", async () => {
     const w = workerHarness();
     const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
-    for (let i = 0; i < 4; i++) await w.call("POST", "/api/demo"); // 5 copies this hour
+    for (let i = 1; i < LIMITS.demo.limit; i++) await w.call("POST", "/api/demo"); // the visitor limit is used up this hour
     expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": d.demoKey })).status).toBe(429);
     expect(w.shows.get(`${d.demoId}b`)!.svc.project().campaign.state).toBe("live");
   });
 
   it("limits demo copies per visitor and answers 404 for a bad demo id", async () => {
     const w = workerHarness();
-    for (let i = 0; i < 5; i++) expect((await w.call("POST", "/api/demo")).status).toBe(201);
+    for (let i = 0; i < LIMITS.demo.limit; i++) expect((await w.call("POST", "/api/demo")).status).toBe(201);
     expect((await w.call("POST", "/api/demo")).status).toBe(429);
     expect((await w.call("POST", "/api/demo/NOPE/fast-forward")).status).toBe(404);
     expect((await w.call("POST", "/api/demo/dabcdefghjk/fast-forward", undefined, { "x-manage-key": "x".repeat(43) })).status).toBe(404);
@@ -134,12 +135,29 @@ describe("demo routes", () => {
     const w = workerHarness();
     let status = 201;
     for (let i = 0; i < 51 && status === 201; i++) {
-      // A different visitor each time (the per-visitor limit is 5 an hour).
+      // A different visitor each time (the per-visitor limit is LIMITS.demo.limit an hour).
       const res = await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": `10.0.${Math.floor(i / 250)}.${i % 250}` });
       status = res.status;
       if (i < 50) expect(status).toBe(201);
     }
     expect(status).toBe(429);
+  });
+
+  it("a judge code skips the visitor limit and draws from its own daily pool", async () => {
+    const w = workerHarness({ judgeCode: "judge-code-123" });
+    for (let i = 0; i < LIMITS.demo.limit; i += 1) expect((await w.call("POST", "/api/demo")).status).toBe(201);
+    expect((await w.call("POST", "/api/demo")).status).toBe(429);
+    expect((await w.call("POST", "/api/demo", undefined, { "x-judge-code": "judge-code-123" })).status).toBe(201);
+    expect((await w.call("POST", "/api/demo", undefined, { "x-judge-code": "wrong-code-123" })).status).toBe(429);
+  });
+
+  it("the judge pool has its own daily cap", async () => {
+    const w = workerHarness({ judgeCode: "judge-code-123" });
+    let last = 201;
+    for (let i = 0; i <= LIMITS.demoJudgeGlobal.limit; i += 1) {
+      last = (await w.call("POST", "/api/demo", undefined, { "x-judge-code": "judge-code-123", "cf-connecting-ip": `10.0.0.${i}` })).status;
+    }
+    expect(last).toBe(429);
   });
 
   it("check pace now needs the demo key, answers with both shows and makes no PayPal call", async () => {

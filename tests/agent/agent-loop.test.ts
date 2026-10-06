@@ -456,3 +456,30 @@ describe("turn budget", () => {
     expect(h.paypal.meter.used).toBeLessThanOrEqual(38);
   });
 });
+
+describe("a payout waiting for funds", () => {
+  const noFunds = () => { throw new PayPalError(422, "INSUFFICIENT_FUNDS", "Sender does not have sufficient funds", "dbg"); };
+
+  it("shows a waiting state (not a failure), wakes at the retry time, and pays when funds arrive", async () => {
+    const h = await signedService();
+    h.paypal.script("sendPayouts", noFunds, noFunds);
+    for (const i of ["AA", "BB", "CC"]) await pledge(h.svc, i);
+    await h.svc.tick();
+    h.clock.t = DEADLINE;
+    await h.svc.tick();
+    expect(h.svc.project().campaign.state).toBe("paying_out");
+    const v = h.svc.manageView();
+    expect(v.parties.map((x) => x.payoutStatus)).toEqual(["funds", "funds"]);
+    expect(v.attention).toEqual([]);
+    expect(v.show.status).toBe("Paying everyone");
+    expect(h.svc.nextWakeAt()).toBe(DEADLINE + 15 * 60_000);
+    h.clock.t = DEADLINE + 15 * 60_000;
+    await h.svc.tick();
+    expect(h.svc.nextWakeAt()).toBe(DEADLINE + 45 * 60_000);
+    h.clock.t = DEADLINE + 45 * 60_000;
+    await h.svc.tick();
+    expect(h.svc.project().campaign.state).toBe("settled");
+    expect(h.svc.manageView().parties.map((x) => x.payoutStatus)).not.toContain("funds");
+    expect(h.paypal.count("sendPayouts")).toBe(3);
+  });
+});

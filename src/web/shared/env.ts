@@ -28,8 +28,14 @@ export function removeRefOnly(): void {
   if (!HOOKS) document.querySelectorAll("[data-ref-only]").forEach((e) => e.remove());
 }
 
+/** The page has its real data (or has given up and shown a notice): lift the loading veil (boot.css). */
+export function markBooted(): void {
+  document.body.dataset.booted = "1";
+}
+
 /** Tests (and the local e2e run) wait for this instead of window.__marquee, which production builds don't have. */
 export function markReady(): void {
+  markBooted();
   document.body.dataset.ready = "1";
 }
 
@@ -38,5 +44,17 @@ export function safeStorage(): Storage | null {
     return window.localStorage;
   } catch {
     return null;
+  }
+}
+
+/** The judge code from a judge's link (?judge=...), kept for this tab, so judges draw from their own pool of demo copies. */
+export function judgeCode(): string | null {
+  const ok = (v: string | null) => (v && /^[A-Za-z0-9_-]{8,64}$/.test(v) ? v : null);
+  const fromUrl = ok(query.get("judge"));
+  try {
+    if (fromUrl) window.sessionStorage.setItem("ttr:judge", fromUrl);
+    return fromUrl ?? ok(window.sessionStorage.getItem("ttr:judge"));
+  } catch {
+    return fromUrl;
   }
 }

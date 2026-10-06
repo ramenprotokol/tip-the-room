@@ -1,17 +1,22 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
+import "../shared/boot.css";
+import { watchIdle } from "../shared/idle";
+import { compareVersion } from "../shared/version";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, HoldButton, setStatus, countdownHTML, drawQR, copyText, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, ManageView, ProposalDto, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
-import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, planSplit, payoutsConfirmed, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
+import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, planSplit, restingLine, payoutsConfirmed, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
 import { dismiss, forgetKey, isDismissed, recallKey, rememberKey, showIdFromPath, takeKeyFromHash } from "../shared/keys";
-import { LedgerGrid } from "../shared/ledger";
+import type { LedgerGrid } from "../shared/ledger";
+const ledgerModule = import("../shared/ledger"); // AG Grid is the biggest chunk: start fetching it now, in parallel with the API
 
 removeRefOnly();
+const idle = watchIdle();
 const api = apiClient(API_BASE);
 const store = safeStorage();
 const showId = showIdFromPath(location.pathname, location.search);
@@ -36,8 +41,8 @@ const odoFans = new Odo($('[data-fans]')), odoHeld = new Odo($('[data-held]')), 
 const log = new AgentLog($('#log')), cues = new Cues();
 Ticker.lamp(el.status);
 
-type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
-const STATUS: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', ''], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
+type StatusKey = 'held' | 'tipped' | 'paying' | 'funds' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
+const STATUS: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], funds: ['paying', 'Paying everyone', '· waiting on PayPal'], paid: ['paid', 'Everyone’s paid', ''], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
 const say = (k: StatusKey, instant?: boolean) => setStatus(el.status, ...STATUS[k], instant);
 const show = (): PublicShow => mv!.show;
 const target = () => mv?.show.threshold ?? 1;
@@ -46,13 +51,14 @@ const tz = () => mv?.show.timeZone ?? 'UTC';
 const fixedParties = () => show().split.filter(p => p.role !== 'artist');
 const confirmed = () => payoutsConfirmed(mv?.parties ?? []);
 const payState = (): PayState => payStateOf(mv?.parties ?? []);
-const payKey = (): StatusKey => ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying' } as const)[payState()];
+const payKey = (): StatusKey => ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying', funds: 'funds' } as const)[payState()];
 /** The sentence under the sign once the deadline has passed on a show that was on. */
 function paidSentence(a: number[]): string {
   const fixed = fixedParties(), last = a.length - 1, ps = mv?.parties ?? [], ps0 = payState();
   const bit = (i: number, who: string, you: boolean) => { const st = ps[i]?.payoutStatus; return st === 'failed' ? `${who} didn’t get ${usd(a[i])}` : st === 'paid' ? `${who} got ${usd(a[i])}` : `${who} ${you ? 'are' : 'is'} owed ${usd(a[i])}`; };
   if (ps0 === 'failed') return `A payout didn’t go through. ${andList([...fixed.map((p, i) => bit(i, p.label, false)), bit(last, 'you', true)])}.`;
   if (ps0 === 'planned') return `Paying everyone: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. Nothing has been sent yet.`;
+  if (ps0 === 'funds') return `Paying everyone: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. PayPal doesn’t have enough funds in the account yet, so the agent will try again.`;
   if (ps0 === 'waiting') return `Payouts sent: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. PayPal is still confirming them.`;
   return `Everyone’s paid. ${andList([...fixed.map((p, i) => `${p.label} got ${usd(a[i])}`), `you got ${usd(a[last])}`])}.`;
 }
@@ -80,7 +86,7 @@ function render(instant = false) {
   const s = show(), { fans } = st, t = s.threshold, total = fans * priceCents() / 100, v = visual().phase, d = Date.parse(s.deadline), dl = when(d, s.timeZone, 'long');
   odoFans.set(fans, instant); odoHeld.set(st.tipped || v === 'released' ? 0 : total, instant); odoCharged.set(st.tipped && !cancelled() ? total : 0, instant);
   el.of.textContent = fans <= t ? `of ${t} fans` : `fans · target was ${t}`;
-  el.sub.textContent = v === 'paid' ? ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', waiting: 'Payouts sent' } as const)[payState()] : v === 'released' ? (cancelled() ? 'Called off · refunding' : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? `It’s on! · ${fans - t} joined after it tipped` : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
+  el.sub.textContent = v === 'paid' ? ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', funds: 'Paying everyone · waiting on PayPal', waiting: 'Payouts sent' } as const)[payState()] : v === 'released' ? (cancelled() ? 'Called off · refunding' : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? `It’s on! · ${fans - t} joined after it tipped` : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
   const a = v === 'paid' ? paidAmounts() : splitOf(fans), fixed = fixedParties();
   el.sentence.textContent = v === 'paid' ? paidSentence(a)
     : v === 'released' ? (cancelled() ? `Called off. All ${fans} fans who were charged are getting ${dollars(priceCents())} back.` : `Called off. Every hold was cancelled, ${usd(total)} went back to ${fans} fans, and nobody paid.`)
@@ -137,9 +143,24 @@ function renderAttention() {
   for (const l of lines) { const li = document.createElement('li'); li.textContent = l; el.attention.append(li); }
   el.attention.hidden = lines.length === 0;
 }
+function renderNotes(v: ManageView) {
+  const box = $('#notes');
+  box.hidden = PARITY || v.notes.length === 0;
+  if (box.hidden) return;
+  $('[data-net]').textContent = v.collectedNetCents > 0 ? `Collected after PayPal’s fees: ${money2(v.collectedNetCents)}.` : '';
+  const list = $('[data-notes]'); list.textContent = '';
+  for (const n of v.notes) {
+    const li = document.createElement('li');
+    const b = document.createElement('b'); b.textContent = `${n.label}: `;
+    const small = document.createElement('small'); small.textContent = n.source === 'model' ? 'Written by the agent' : 'Standard wording';
+    li.append(b, document.createTextNode(n.text), small);
+    list.append(li);
+  }
+}
+function renderResting(v: ManageView) { const p = $('#resting'); p.hidden = PARITY || !aiResting(v.log); p.textContent = p.hidden ? '' : restingLine(Date.now(), mv?.show.timeZone); }
 function renderCallOff() { el.calloff.hidden = mv?.show.state !== 'tipped'; }
 function payNote(a: number[]) { const fixed = fixedParties(); return `One PayPal payout, in money-rule order: ${[...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[a.length - 1])}`].join(', then ')}.`; }
-const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned' } as const;
+const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned', funds: 'Waiting on PayPal' } as const;
 const payTags = () => (mv?.parties ?? []).map(p => TAG[p.payoutStatus]);
 
 /** One step toward the latest data, with the reference's beats. Each beat calls step() again when it ends. */
@@ -216,7 +237,7 @@ function jumpTo(s: PublicShow) {
   const fixed = fixedParties(), artist = s.split.find(p => p.role === 'artist');
   if (st.phase === 'paid') { const a = paidAmounts(); payout?.set(a, confirmed() ? a.map(() => 'Paid') : payTags(), a.map(() => 'paid'), payNote(a)); }
   else { payout?.reset(); if (st.phase !== 'released') payout?.plan(splitOf(Math.max(st.fans, s.threshold)), [...fixed.map(() => 'Planned'), `At least ${dollars(artist?.minimumCents ?? 0)} · planned`]); }
-  say(st.phase === 'open' ? 'held' : st.phase === 'tipped' ? 'tipped' : st.phase === 'paid' ? (s.state === 'paying_out' ? 'paying' : payKey()) : cancelled() ? 'refunding' : 'released', true);
+  say(st.phase === 'open' ? 'held' : st.phase === 'tipped' ? 'tipped' : st.phase === 'paid' ? (s.state === 'paying_out' ? (payState() === 'funds' ? 'funds' : 'paying') : payKey()) : cancelled() ? 'refunding' : 'released', true);
 }
 
 function apply(v: ManageView) {
@@ -225,7 +246,7 @@ function apply(v: ManageView) {
   if (prev && (prev.show.threshold !== v.show.threshold || prev.show.deadline !== v.show.deadline)) { texts(v.show); ph?.setModel({ name: v.show.showName, target: v.show.threshold }); view?.setModel(model()); }
   takeLog(v);
   grid?.setRows(v.ledger);
-  renderAsk(); renderAttention(); renderCallOff();
+  renderAsk(); renderAttention(); renderCallOff(); renderNotes(v); renderResting(v);
   step();
   render();
 }
@@ -303,14 +324,15 @@ async function boot() {
   payout = new PayoutStrip($('#payout'), s.split.map(p => ({ label: PAYEE[p.role], who: p.role === 'artist' ? `You (${p.label})` : p.label })));
   const fixed = fixedParties();
   payout.idle(fixed.length ? `Paid at the deadline once the show is on: ${fixed.map(p => p.label).join(', then ')} first, then you get the rest.` : 'Paid at the deadline once the show is on: you get everything collected.');
-  grid = new LedgerGrid($('#ledger'), tz); grid.setRows(v.ledger);
+  try { const { LedgerGrid } = await ledgerModule; grid = new LedgerGrid($('#ledger'), tz); grid.setRows(v.ledger); }
+  catch { $('[data-note]').textContent = 'The ledger couldn’t load. Refresh the page to try again.'; }
   // Parity runs keep the reference's exact note text (a fixture-mode text); real pages say what the grid can do.
   if (!PARITY) { $('[data-note]').textContent = 'Newest first. Sort or filter any column.'; $('#csv').hidden = false; }
   const share = `${PUBLIC_ORIGIN}${v.sharePath || `/s/${showId}`}`;
   $('#share-url').textContent = share; drawQR($<HTMLCanvasElement>('#qr'), share, { scale: 4, margin: 3 });
   takeLog(v); flush(null, true);
   jumpTo(s);
-  renderAsk(); renderAttention(); renderCallOff();
+  renderAsk(); renderAttention(); renderCallOff(); renderNotes(v); renderResting(v);
   render(true);
 }
 
@@ -320,7 +342,7 @@ $('#decline').addEventListener('click', () => { void declineNow(); });
 $('#copy').addEventListener('click', () => copyText($('#share-url').textContent ?? '', $('[data-copied]')));
 $('#csv').addEventListener('click', () => grid?.csv(`tip-the-room-${showId ?? 'show'}.csv`));
 setInterval(() => { if (mv && live()) { st.remain = remainSec(show().deadline, clock); el.clock.innerHTML = countdownHTML(st.remain); } }, 1000);
-if (!PARITY) setInterval(() => { if (!mv || !showId || document.hidden) return; api.getShow(showId).then(s => (s.version !== mv?.version ? refresh() : undefined)).catch(() => undefined); }, 5000);
+if (!PARITY) setInterval(() => { if (!mv || !showId || document.hidden || idle.idle()) return; api.getShow(showId).then(s => (mv && compareVersion(s.version, mv.version) > 0 ? refresh() : undefined)).catch(() => undefined); }, 5000);
 soundToggle($('#sound'));
 
 interface ManageHooks extends MarqueeHooks { readonly state: ManageState; addFans(max?: number): void; skip(): void; reset(): void; approve(): void; decline(): void; holdTo(p: number): void }
@@ -340,7 +362,7 @@ if (HOOKS) {
   document.querySelector('[data-act=reset]')?.addEventListener('click', () => hooks.reset());
 }
 
-await boot();
+try { await boot(); } finally { markBooted(); }
 let host: SignHost | null = null;
 if (mv) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ } }
 if (host && mv) {

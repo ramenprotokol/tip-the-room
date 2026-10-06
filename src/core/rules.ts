@@ -1,5 +1,6 @@
 export type RuleId = "rule-1-hold-only" | "rule-2-capture-at-tip" | "rule-3-void-on-miss" | "rule-4-pay-the-split" | "rule-5-ask-first";
 
+// A rule's id (e.g. "rule-3-void-on-miss") is stable and stored in logs; its number is display order only and may change.
 export const RULES: Record<RuleId, { number: 1 | 2 | 3 | 4 | 5; title: string }> = {
   "rule-1-hold-only": { number: 1, title: "Fans are only held, never charged, until the target is reached." },
   "rule-2-capture-at-tip": { number: 2, title: "When the target is reached, charge every hold." },

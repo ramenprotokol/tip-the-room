@@ -76,3 +76,25 @@ test("the real start page doesn't call itself a sample", async ({ page }) => {
   await open(page, startApi());
   await expect(page.locator(".mode")).toHaveText("Start a show");
 });
+
+test("Fill it in again after an edit asks first", async ({ page }) => {
+  const seen = await open(page, startApi());
+  await fillDraft(page);
+  const created = () => seen.filter((r) => r.method === "POST" && r.path === "/api/shows").length;
+  expect(created()).toBe(1);
+  await page.fill("#f-name", "Late Set");
+  await page.click("#fill");
+  await expect(page.locator("#fill")).toHaveText("Replace your edits? Click again");
+  expect(created()).toBe(1);
+  await page.click("#fill");
+  await expect.poll(created).toBe(2);
+  await expect(page.locator("#fill")).toHaveText("Fill it in again");
+});
+
+test("an amount typed as 100.005 is kept as $100.01, to the cent", async ({ page }) => {
+  await open(page, startApi());
+  await fillDraft(page);
+  await page.fill("#amt-0", "100.005");
+  const amount = await page.evaluate(() => (window as unknown as { __marquee: { data: { payees: { amount: number }[] } } }).__marquee.data.payees[0].amount);
+  expect(amount).toBe(100.01);
+});
