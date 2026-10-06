@@ -1,11 +1,45 @@
+import type { CampaignOp, CampaignReply } from "../agent/dispatch";
+import { cryptoRandom, systemClock } from "../agent/ids";
+import { loadConfig } from "../paypal/config";
+import { PayPalHttp } from "../paypal/http";
+import { verifyWebhook } from "../paypal/webhooks";
 import type { Env } from "./env";
+import { budgetPort, quotaPort } from "./quota-client";
+import { route, type CampaignsPort, type RouterDeps } from "./router";
 
 export { CampaignAgent } from "./do/campaign-agent";
 export { QuotaAgent } from "./do/quota-agent";
 
+function campaigns(env: Env): CampaignsPort {
+  return {
+    async call(showId: string, op: CampaignOp): Promise<CampaignReply> {
+      const stub = env.CAMPAIGN.get(env.CAMPAIGN.idFromName(showId));
+      const res = await stub.fetch("https://campaign/op", { method: "POST", body: JSON.stringify(op) });
+      return (await res.json()) as CampaignReply;
+    },
+  };
+}
+
+function routerDeps(env: Env): RouterDeps {
+  const binding = env.AI;
+  return {
+    campaigns: campaigns(env),
+    quota: quotaPort(env),
+    ai: { ai: binding ? { run: (model, input) => binding.run(model, input) } : null, budget: budgetPort(env) },
+    random: cryptoRandom,
+    clock: systemClock,
+    config: {
+      allowedOrigins: (env.ALLOWED_ORIGINS ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      webhookId: env.PAYPAL_WEBHOOK_ID?.trim() || null,
+      rateSalt: env.RATE_SALT ?? "tip-the-room",
+    },
+    verifyWebhook: (headers, rawBody, webhookId) => verifyWebhook(new PayPalHttp(loadConfig(env)), headers, rawBody, webhookId),
+  };
+}
+
 export default {
-  async fetch(request: Request): Promise<Response> {
-    if (new URL(request.url).pathname === "/api/health") return Response.json({ ok: true });
-    return Response.json({ error: { code: "not_found", message: "There's nothing here." } }, { status: 404 });
-  },
+  fetch: (request: Request, env: Env) => route(request, routerDeps(env)),
 } satisfies ExportedHandler<Env>;
