@@ -10,7 +10,7 @@ import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } f
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, RESTING_LINE, rulesLine, ShowClock, when } from "../shared/format";
+import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
@@ -286,7 +286,7 @@ async function solo(fn: () => Promise<void>) {
 }
 function lock() { ctls.forEach(c => c.buttons()); $<HTMLButtonElement>('#pace').disabled = inflight; }
 
-function showResting() { const p = $('#resting'); p.hidden = PARITY || !ctls.some(c => c.resting); p.textContent = p.hidden ? '' : RESTING_LINE; }
+function showResting() { const p = $('#resting'); p.hidden = PARITY || !ctls.some(c => c.resting); p.textContent = p.hidden ? '' : restingLine(Date.now(), ctls.find(c => c.resting)?.show?.timeZone); }
 function pullView(c: ShowCtl, instant = false): Promise<void> {
   if (!demo || !c.show) return Promise.resolve();
   if (c.show.version === c.viewVersion) return c.viewP ?? Promise.resolve();
@@ -362,7 +362,7 @@ async function boot() {
 let retryAt = 0, lastChangeAt = Date.now();
 /** A passive watcher must not see the demo freeze: keep going while a copy is still seating fans or settling, and for a while after its last change. */
 const settling = () => Date.now() - lastChangeAt < IDLE_MS || ctls.some(c => c.busy || c.phase === 'ff' || c.phase === 'paying' || (c.show !== null && c.fans !== c.show.fans.committed));
-function pausedLine(paused: boolean) { const p = $('#paused'); p.hidden = PARITY || !paused; p.textContent = p.hidden ? '' : 'Paused · move the mouse to keep watching'; }
+function pausedLine(paused: boolean) { const p = $('#paused'); p.hidden = PARITY || !paused; p.textContent = p.hidden ? '' : 'Paused · tap or move the mouse to keep watching'; }
 async function poll() {
   if (!demo || document.hidden || inflight) return;
   const paused = idle.idle() && !settling();

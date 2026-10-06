@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RULES, type RuleId } from "../../src/core/rules";
-import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, payoutsConfirmed, payState, planSplit, remainSec, rulesLine, ShowClock, when } from "../../src/web/shared/format";
+import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, payoutsConfirmed, payState, planSplit, remainSec, RESTING_LINE, restingLine, rulesLine, ShowClock, when } from "../../src/web/shared/format";
 
 const T = (mo: number, d: number, h: number, mi = 0) => Date.UTC(2026, mo - 1, d, h, mi);
 const text = (segs: { text: string; cls: string }[]) => segs.map((s) => (s.cls ? `[${s.cls}:${s.text}]` : s.text)).join("");
@@ -109,5 +109,19 @@ describe("aiResting", () => {
     expect(aiResting([{ seq: 1, source: "resting" }, { seq: 2, source: "model" }])).toBe(false);
     expect(aiResting([{ seq: 1, source: "code" }])).toBe(false);
     expect(aiResting([])).toBe(false);
+  });
+});
+
+describe("restingLine", () => {
+  const now = Date.UTC(2026, 10, 5, 12, 0); // reset is Nov 6 00:00 UTC
+  it("shows the reset time in the show's zone", () => {
+    expect(restingLine(now, "America/Los_Angeles")).toContain("resting until 4:00 PM PST (its free daily limit)");
+  });
+  it("never says UTC or GMT", () => {
+    for (const tz of ["America/Los_Angeles", "Europe/London", "UTC", "Nope/Zone", "", null, undefined]) expect(restingLine(now, tz)).not.toMatch(/UTC|GMT/);
+  });
+  it("falls back to a plain line with no usable zone", () => {
+    expect(restingLine(now, "UTC")).toBe(RESTING_LINE);
+    expect(restingLine(now)).toContain("until its free daily limit resets (within 24 hours)");
   });
 });

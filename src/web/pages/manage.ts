@@ -10,7 +10,7 @@ import type { AgentLogDto, ManageView, ProposalDto, PublicShow } from "../../wor
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, planSplit, RESTING_LINE, payoutsConfirmed, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
+import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, planSplit, restingLine, payoutsConfirmed, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
 import { dismiss, forgetKey, isDismissed, recallKey, rememberKey, showIdFromPath, takeKeyFromHash } from "../shared/keys";
 import type { LedgerGrid } from "../shared/ledger";
 const ledgerModule = import("../shared/ledger"); // AG Grid is the biggest chunk: start fetching it now, in parallel with the API
@@ -156,7 +156,7 @@ function renderNotes(v: ManageView) {
     list.append(li);
   }
 }
-function renderResting(v: ManageView) { const p = $('#resting'); p.hidden = PARITY || !aiResting(v.log); p.textContent = p.hidden ? '' : RESTING_LINE; }
+function renderResting(v: ManageView) { const p = $('#resting'); p.hidden = PARITY || !aiResting(v.log); p.textContent = p.hidden ? '' : restingLine(Date.now(), mv?.show.timeZone); }
 function renderCallOff() { el.calloff.hidden = mv?.show.state !== 'tipped'; }
 function payNote(a: number[]) { const fixed = fixedParties(); return `One PayPal payout, in money-rule order: ${[...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[a.length - 1])}`].join(', then ')}.`; }
 const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned' } as const;

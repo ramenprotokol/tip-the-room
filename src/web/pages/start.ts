@@ -129,7 +129,7 @@ function goLive(res: SignResponse) {
   $('[data-live-lede]').textContent = `Share your link. Fans hold a spot with PayPal, and nobody is charged unless ${res.threshold} of them join by ${when(Date.parse(res.deadline), tz, 'long')}.`;
   $<HTMLAnchorElement>('#open-manage').href = `${managePath}#${res.manageKey}`;
   $<HTMLAnchorElement>('#open-share').href = sharePath;
-  if (D && res.threshold !== targetOf(D)) $('[data-live-lede]').append(` The final target is ${res.threshold} fans, worked out to the cent.`);
+  if (D && res.threshold !== targetOf(D)) $('[data-live-lede]').append(` The final target is ${res.threshold} fans, rounded up so everyone is fully paid.`);
   els.draft.hidden = true; els.live.hidden = false; enter(els.live, 12, 500);
   $('.intro').hidden = true;
   if (view) view.play('lap');
