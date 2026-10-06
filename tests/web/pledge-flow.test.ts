@@ -78,4 +78,28 @@ describe("pledge flow", () => {
     expect(cleanInitials("")).toBe("YOU");
     expect(failureMessage(new Error("INSTRUMENT_DECLINED"))).toBe("PayPal couldn't finish. Nothing was charged. Please try again.");
   });
+
+  it("takes one order at a time: a second click while one is in flight is refused", async () => {
+    let release: () => void = () => {};
+    let calls = 0;
+    const gate = new Promise<void>((r) => { release = r; });
+    const t = setup(async () => held, async () => { calls += 1; await gate; return { orderId: "ORDER1", pledgeId: "p1", amountCents: 1500 } as never; });
+    const first = t.flow.createOrder();
+    await expect(t.flow.createOrder()).rejects.toThrow();
+    release();
+    expect(await first).toBe("ORDER1");
+    expect(calls).toBe(1);
+    expect(t.events.map((e) => e.kind)).toEqual(["busy"]);
+  });
+
+  it("confirms with the initials that were sent, even if the box changes during the popup", async () => {
+    let box = "MR";
+    const events: PledgeEvent[] = [];
+    const api: PledgeApi = { createOrder: async () => ({ orderId: "O1", pledgeId: "p1", amountCents: 1500 }), authorize: async () => held };
+    const flow = new PledgeFlow(api, (e) => events.push(e), () => box);
+    const id = await flow.createOrder();
+    box = "ZZ";
+    await flow.approve(id);
+    expect(events.at(-1)).toMatchObject({ kind: "held", initials: "MR" });
+  });
 });

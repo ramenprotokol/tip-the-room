@@ -1,7 +1,7 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, Placeholder, setStatus, countdownHTML, enter, pad2 } from "../shared/ui";
-import type { SignHost, SignView, Phase } from "../shared/sign";
+import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AuthorizeResponse, PublicShow } from "../../worker/api-types";
 import { API_BASE, HOOKS, PARITY, markReady, paypalClientId, removeRefOnly } from "../shared/env";
@@ -68,6 +68,12 @@ function texts(s: PublicShow) {
   $('[data-faq-when]').textContent = `Only once ${t} fans have joined, and only if that happens by ${when(d, tz, 'faq')}. Then everyone is charged at once, and the room and the artist are paid at the deadline.`;
   document.title = `Tip the Room · Hold my spot at ${s.showName}`;
   document.querySelector('meta[name="description"]')?.setAttribute('content', `Hold a spot at ${s.showName}, ${s.roomName}. PayPal holds ${p} and you’re only charged if the show happens.`);
+}
+
+/** The sign for a show: also used again when the artist changes the target or the deadline. */
+function signModel(s: PublicShow): SignModel {
+  const amounts = planSplit(s.split, Math.max(st.fans, s.threshold) * s.ticketPriceCents);
+  return { name: s.showName, crest: s.roomName.toUpperCase(), target: s.threshold, seed: SEED, yaw: YAW, payees: s.split.map((p, i) => ({ label: ROLE_WORD[p.role], amount: amounts[i] / 100 })) };
 }
 
 function notice(text: string) {
@@ -148,10 +154,12 @@ async function poll() {
   try { s = await api.getShow(showId); } catch { return; }
   if (s.version === show.version || st.busy) return;
   const wasLive = st.phase === 'held';
+  const termsChanged = s.threshold !== show.threshold || s.deadline !== show.deadline;
   show = s; clock?.sync(s.now);
   const e = endOf(s.state);
   if (e !== 'live' && e !== 'tipped') { st.phase = 'closed'; closedState(s); render(); view?.reset(); return; }
   st.fans = s.fans.committed;
+  if (termsChanged) { texts(s); const m = signModel(s); ph?.setModel(m); view?.setModel(m); view?.reset(); }
   if (wasLive && e === 'tipped') {
     st.phase = 'tipping'; st.busy = true; if (view) view.play(REDUCED ? 'reduced' : 'tip', REDUCED ? { to: 'tipped' } : {});
     cues.at(REDUCED ? .05 : .62, () => { st.phase = 'tipped'; Snd.flare(); setStatus(el.status, 'tipped', 'It’s on!', '· everyone’s charged'); texts(s); render(); st.busy = false; });
@@ -164,11 +172,12 @@ setInterval(() => { if (st.phase !== 'closed') renderClock(); }, 1000);
 if (!PARITY) setInterval(() => { void poll(); }, 10_000);
 soundToggle($('#sound'));
 
-interface PledgeHooks extends MarqueeHooks { state: PledgeState; approve(): void; setFans(n: number): void; setInitials(v: string): void }
+interface PledgeHooks extends MarqueeHooks { state: PledgeState; poll(): void; approve(): void; setFans(n: number): void; setInitials(v: string): void }
 const hooks: PledgeHooks = {
   page: 'pledge', ready: false, views: [], state: st, get pending() { return pendingCount(); },
   approve: () => { if (!st.busy && st.phase !== 'closed') void flow.simulate(); },
   setFans(n) { st.fans = n; render(true); if (view) view.reset(); },
+  poll: () => { void act(() => poll()); },
   setInitials(v) { el.initials.value = v; },
 };
 if (HOOKS) { window.__marquee = hooks; simulateBtn()?.addEventListener('click', () => hooks.approve()); }
@@ -178,8 +187,8 @@ let host: SignHost | null = null;
 const booted = current();
 if (booted) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { host = null; /* 3D is optional: the flat SVG sign remains */ } }
 if (host && booted) {
-  const s = booted, amounts = planSplit(s.split, Math.max(st.fans, s.threshold) * s.ticketPriceCents), each = dollars(s.ticketPriceCents);
-  view = host.add(el.stage, { name: s.showName, crest: s.roomName.toUpperCase(), target: s.threshold, seed: SEED, yaw: YAW, payees: s.split.map((p, i) => ({ label: ROLE_WORD[p.role], amount: amounts[i] / 100 })) },
+  const s = booted, each = dollars(s.ticketPriceCents);
+  view = host.add(el.stage, signModel(s),
     { state: visual, tipEl: $('[data-tip]'), ph: $('[data-ph]'), tip: slot => slot < st.fans ? (slot === st.mine ? `You · ${each} ${visual().phase === 'held' ? 'on hold' : 'charged'}` : `Fan ${pad2(slot + 1)} · ${each} ${visual().phase === 'held' ? 'on hold' : 'charged'}`) : null });
   const h = host; Ticker.add(now => h.tick(now)); hooks.views = host.views; hooks.host = host;
 }

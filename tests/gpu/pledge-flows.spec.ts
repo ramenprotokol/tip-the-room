@@ -79,3 +79,35 @@ test("a show that is over takes no pledges", async ({ page }) => {
   await expect(page.locator("#pledge-card")).toBeHidden();
   await expect(page.locator("[data-word]")).toHaveText("Called off");
 });
+
+test("when the artist changes the target and deadline, every fact and the bulb count follow the next poll", async ({ page }) => {
+  const inner = pledgeApi();
+  let changed = false;
+  const api: FakeApi = (req) => (req.method === "GET" && req.path === `/api/shows/${MAYA_ID}`
+    ? { body: changed ? showOf(MAYA, { fans: 12, threshold: 25, deadline: Date.UTC(2026, 10, 14, 18), version: 2 }) : showOf(MAYA, { fans: 12 }) }
+    : inner(req));
+  await open(page, api);
+  await expect(page.locator("[data-of]")).toHaveText("of 21 fans");
+  expect(await page.locator("[data-ph] circle").count()).toBe(21);
+  const before = await page.locator(".stat.clock dt").textContent();
+  changed = true;
+  await page.evaluate(() => (window as unknown as { __marquee: { poll(): void } }).__marquee.poll());
+  await expect(page.locator("[data-of]")).toHaveText("of 25 fans");
+  await expect(page.locator(".stat.clock dt")).not.toHaveText(before ?? "");
+  await expect(page.locator(".stat.clock dt")).toContainText("Nov 14");
+  await expect(page.locator("[data-pledge-text]")).toContainText("if 25 fans join by");
+  await expect(page.locator("[data-faq-when]")).toContainText("Only once 25 fans");
+  await expect(page.locator("[data-fans-sub]")).toHaveText("13 more to make it happen");
+  expect(await page.locator("[data-ph] circle").count()).toBe(25);
+});
+
+test("a second click while an order is being made does not start a second order", async ({ page }) => {
+  const seen = await open(page, pledgeApi());
+  await page.evaluate(() => {
+    const btn = document.querySelector("paypal-button") as HTMLElement;
+    btn.click();
+    btn.click();
+  });
+  await expect(page.locator("#confirm")).toBeVisible();
+  expect(seen.filter((r) => r.path.endsWith("/orders")).length).toBe(1);
+});

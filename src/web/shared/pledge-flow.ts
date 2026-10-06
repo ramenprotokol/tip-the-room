@@ -26,6 +26,8 @@ export function failureMessage(e: unknown): string {
 export class PledgeFlow {
   busy = false;
   done = false;
+  /** The initials sent with the order in flight; the confirmation uses these, not whatever the box says later. */
+  private sent = "YOU";
 
   constructor(
     private readonly api: PledgeApi,
@@ -36,10 +38,12 @@ export class PledgeFlow {
   /** The PayPal button calls this for every attempt, so a failed or cancelled order is never reused. */
   async createOrder(): Promise<string> {
     if (this.done) throw new Error("This fan is already on hold.");
+    if (this.busy) throw new Error("A pledge is already in progress.");
     this.busy = true;
+    this.sent = this.initials();
     this.emit({ kind: "busy" });
     try {
-      return (await this.api.createOrder(this.initials())).orderId;
+      return (await this.api.createOrder(this.sent)).orderId;
     } catch (e) {
       this.fail(e);
       throw e;
@@ -52,7 +56,7 @@ export class PledgeFlow {
       const res = await this.api.authorize(orderId);
       this.busy = false;
       this.done = true;
-      this.emit({ kind: "held", res, initials: this.initials() });
+      this.emit({ kind: "held", res, initials: this.sent });
     } catch (e) {
       this.fail(e);
     }
