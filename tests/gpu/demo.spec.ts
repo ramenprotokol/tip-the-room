@@ -1,22 +1,28 @@
 import { test } from "@playwright/test";
-import { DESKTOP, PHONE, expectParity, type Scenario } from "./parity";
+import { DESKTOP, PHONE, expectParity, settle, type Scenario } from "./parity";
+import { PAGES } from "./pages";
 
+const P = PAGES.demo;
+const press = async (f: Parameters<Scenario>[0], key: string) => {
+  await f.page.keyboard.press(key);
+  await settle(f.page);
+};
 const tipTo = (t: number): Scenario => async (f) => {
-  await f.page.keyboard.press("t");
+  await press(f, "t");
   await f.run(1700);
   await f.toAnim(0, t);
 };
 const payoutTo = (t: number): Scenario => async (f) => {
-  await f.page.keyboard.press("t");
+  await press(f, "t");
   await f.run(1700);
   await f.toAnim(0, 4.8);
   await f.run(500);
-  await f.page.keyboard.press("p");
+  await press(f, "p");
   await f.run(1250);
   await f.toAnim(0, t);
 };
 const missTo = (t: number): Scenario => async (f) => {
-  await f.page.keyboard.press("m");
+  await press(f, "m");
   await f.run(1250);
   await f.toAnim(1, t);
 };
@@ -36,6 +42,6 @@ const cases: Array<{ slug: string; scenario: Scenario; viewport: typeof DESKTOP;
 
 for (const c of cases) {
   test(`parity: ${c.slug}`, async ({ browser }) => {
-    await expectParity(browser, "demo.html", "", c.scenario, { viewport: c.viewport, fullPage: c.fullPage, slug: c.slug });
+    await expectParity(browser, P.refPath, P.appPath, c.scenario, { viewport: c.viewport, fullPage: c.fullPage, slug: c.slug, api: P.api, dataFields: P.dataFields, skip: P.skip });
   });
 }

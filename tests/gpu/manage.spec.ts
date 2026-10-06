@@ -1,13 +1,16 @@
 import { test } from "@playwright/test";
-import { DESKTOP, PHONE, expectParity, type Frozen, type Scenario } from "./parity";
+import { DESKTOP, PHONE, expectParity, settle, type Frozen, type Scenario } from "./parity";
+import { MANAGE_SCRIPTS, manageApi } from "./fixtures";
+import { PAGES } from "./pages";
 
 interface ManageHooks { approve(): void; addFans(n: number): void; skip(): void; reset(): void; decline(): void }
 type ManageWindow = { __marquee: ManageHooks };
+const P = PAGES.manage;
 
-const approve = (f: Frozen) => f.page.evaluate(() => (window as unknown as ManageWindow).__marquee.approve());
-const decline = (f: Frozen) => f.page.evaluate(() => (window as unknown as ManageWindow).__marquee.decline());
-const addFans = (f: Frozen, n: number) => f.page.evaluate((count) => (window as unknown as ManageWindow).__marquee.addFans(count), n);
-const skip = (f: Frozen) => f.page.evaluate(() => (window as unknown as ManageWindow).__marquee.skip());
+const approve = async (f: Frozen) => { await f.page.evaluate(() => (window as unknown as ManageWindow).__marquee.approve()); await settle(f.page); };
+const decline = async (f: Frozen) => { await f.page.evaluate(() => (window as unknown as ManageWindow).__marquee.decline()); await settle(f.page); };
+const addFans = async (f: Frozen, n: number) => { await f.page.evaluate((count) => (window as unknown as ManageWindow).__marquee.addFans(count), n); await settle(f.page); };
+const skip = async (f: Frozen) => { await f.page.evaluate(() => (window as unknown as ManageWindow).__marquee.skip()); await settle(f.page); };
 
 const tipped: Scenario = async (f) => {
   await approve(f);
@@ -28,14 +31,14 @@ const calledOff: Scenario = async (f) => {
   await f.run(4850);
 };
 
-for (const [slug, scenario, viewport] of [
-  ["manage-initial", async () => {}, DESKTOP],
-  ["manage-tipped", tipped, DESKTOP],
-  ["manage-paid", paid, DESKTOP],
-  ["manage-called-off", calledOff, DESKTOP],
-  ["manage-phone-initial", async () => {}, PHONE],
+for (const [slug, scenario, viewport, frames] of [
+  ["manage-initial", async () => {}, DESKTOP, MANAGE_SCRIPTS.tipped],
+  ["manage-tipped", tipped, DESKTOP, MANAGE_SCRIPTS.tipped],
+  ["manage-paid", paid, DESKTOP, MANAGE_SCRIPTS.paid],
+  ["manage-called-off", calledOff, DESKTOP, MANAGE_SCRIPTS.calledOff],
+  ["manage-phone-initial", async () => {}, PHONE, MANAGE_SCRIPTS.tipped],
 ] as const) {
   test(`parity: ${slug}`, async ({ browser }) => {
-    await expectParity(browser, "manage.html", "manage.html", scenario, { viewport, fullPage: true, slug });
+    await expectParity(browser, P.refPath, P.appPath, scenario, { viewport, fullPage: true, slug, api: () => manageApi([...frames]), dataFields: P.dataFields, skip: P.skip });
   });
 }
