@@ -1,6 +1,6 @@
 import type { Cents } from "../core/money";
 import { assertPayPalId, centsToValue, valueToCents } from "./amount";
-import { PayPalError } from "./errors";
+import { PayPalError, requireBody } from "./errors";
 import type { PayPalHttp } from "./http";
 
 export interface PledgeRef {
@@ -29,6 +29,8 @@ export interface Hold {
   createdAt: number;
   /** Epoch ms. */
   expiresAt: number;
+  /** The custom_id PayPal echoed back ("show:pledge"), when it sent one. */
+  customId?: string;
 }
 
 export interface Charge {
@@ -45,6 +47,15 @@ export interface Refund {
   refundId: string;
   captureId: string;
   status: string;
+}
+
+/** What PayPal says happened to an order: used to reconcile when an answer was lost or refused. */
+export interface OrderPayments {
+  orderId: string;
+  status: string;
+  customId?: string;
+  authorizations: { id: string; status: string }[];
+  captures: { id: string; status: string }[];
 }
 
 /** Deterministic PayPal-Request-Ids: replaying the same step can never move money twice. */
@@ -68,11 +79,12 @@ interface AuthBody {
   amount?: Money;
   create_time?: string;
   expiration_time?: string;
+  custom_id?: string;
 }
 interface OrderBody {
   id: string;
   status: string;
-  purchase_units?: { payments?: { authorizations?: AuthBody[] } }[];
+  purchase_units?: { custom_id?: string; payments?: { authorizations?: AuthBody[]; captures?: { id: string; status: string }[] } }[];
 }
 interface CaptureBody {
   id: string;
@@ -90,50 +102,27 @@ function usdCents(m: Money, field: string): Cents {
   return valueToCents(m.value);
 }
 
-function toHold(orderId: string, a: AuthBody, fallbackCents?: Cents): Hold {
+function toHold(orderId: string, a: AuthBody, fallbackCents?: Cents, unitCustomId?: string): Hold {
   const createdAt = Date.parse(a.create_time ?? "");
   const expiresAt = Date.parse(a.expiration_time ?? "");
   if (!Number.isFinite(createdAt) || !Number.isFinite(expiresAt)) throw new Error(`authorization ${a.id} is missing its create or expiration time`);
   const amountCents = a.amount ? usdCents(a.amount, "authorization amount") : fallbackCents;
   if (amountCents === undefined) throw new Error(`authorization ${a.id} has no amount`);
-  return { authorizationId: a.id, orderId, amountCents, status: a.status, createdAt, expiresAt };
+  const hold: Hold = { authorizationId: a.id, orderId, amountCents, status: a.status, createdAt, expiresAt };
+  const customId = a.custom_id ?? unitCustomId;
+  if (customId !== undefined) hold.customId = customId;
+  return hold;
+}
+
+function firstUnit(o: OrderBody | undefined) {
+  return o?.purchase_units?.[0];
 }
 
 function firstAuth(o: OrderBody | undefined): AuthBody | undefined {
-  return o?.purchase_units?.[0]?.payments?.authorizations?.[0];
+  return firstUnit(o)?.payments?.authorizations?.[0];
 }
 
-/** For the JS SDK button: the browser approves this order, then the server calls authorizeOrder. */
-export async function createPledgeOrder(http: PayPalHttp, p: PledgeRef): Promise<{ orderId: string }> {
-  const o = await http.request<OrderBody>({ method: "POST", path: "/v2/checkout/orders", requestId: requestIds.order(p.showId, p.pledgeId), body: { intent: "AUTHORIZE", purchase_units: [purchaseUnit(p)] } });
-  return { orderId: o!.id };
-}
-
-export async function authorizeOrder(http: PayPalHttp, orderId: string): Promise<Hold> {
-  assertPayPalId(orderId, "order id");
-  const o = await http.request<OrderBody>({ method: "POST", path: `/v2/checkout/orders/${orderId}/authorize`, requestId: requestIds.authorize(orderId), prefer: "return=representation", body: {} });
-  const a = firstAuth(o);
-  if (!a) throw new Error(`order ${orderId} (${o?.status}) was not authorized`);
-  return toHold(orderId, a);
-}
-
-/** Simulated fan: a real sandbox hold on a test card, with no buyer login. */
-export async function createCardHold(http: PayPalHttp, p: PledgeRef, card: TestCard): Promise<Hold> {
-  const o = await http.request<OrderBody>({
-    method: "POST",
-    path: "/v2/checkout/orders",
-    requestId: requestIds.hold(p.showId, p.pledgeId),
-    prefer: "return=representation",
-    body: { intent: "AUTHORIZE", purchase_units: [purchaseUnit(p)], payment_source: { card: { number: card.number, expiry: card.expiry, security_code: card.securityCode, name: card.name } } },
-  });
-  const a = firstAuth(o);
-  if (a) return toHold(o!.id, a, p.amountCents);
-  return authorizeOrder(http, o!.id);
-}
-
-export async function captureHold(http: PayPalHttp, authorizationId: string): Promise<Charge> {
-  assertPayPalId(authorizationId, "authorization id");
-  const c = (await http.request<CaptureBody>({ method: "POST", path: `/v2/payments/authorizations/${authorizationId}/capture`, requestId: requestIds.capture(authorizationId), prefer: "return=representation", body: { final_capture: true } }))!;
+function toCharge(c: CaptureBody, authorizationId: string): Charge {
   const b = c.seller_receivable_breakdown;
   const grossCents = b ? usdCents(b.gross_amount, "gross_amount") : undefined;
   const netCents = b ? usdCents(b.net_amount, "net_amount") : undefined;
@@ -142,23 +131,83 @@ export async function captureHold(http: PayPalHttp, authorizationId: string): Pr
   return { captureId: c.id, authorizationId, status: c.status, grossCents, feeCents, netCents };
 }
 
+/** For the JS SDK button: the browser approves this order, then the server calls authorizeOrder. */
+export async function createPledgeOrder(http: PayPalHttp, p: PledgeRef): Promise<{ orderId: string }> {
+  const o = requireBody(await http.request<OrderBody>({ method: "POST", path: "/v2/checkout/orders", requestId: requestIds.order(p.showId, p.pledgeId), body: { intent: "AUTHORIZE", purchase_units: [purchaseUnit(p)] } }), "order");
+  return { orderId: o.id };
+}
+
+export async function authorizeOrder(http: PayPalHttp, orderId: string): Promise<Hold> {
+  assertPayPalId(orderId, "order id");
+  const o = await http.request<OrderBody>({ method: "POST", path: `/v2/checkout/orders/${orderId}/authorize`, requestId: requestIds.authorize(orderId), prefer: "return=representation", body: {} });
+  const a = firstAuth(o);
+  if (!a) throw new Error(`order ${orderId} (${o?.status}) was not authorized`);
+  return toHold(orderId, a, undefined, firstUnit(o)?.custom_id);
+}
+
+/** Simulated fan: a real sandbox hold on a test card, with no buyer login. Callers MUST check `status === "CREATED"`. */
+export async function createCardHold(http: PayPalHttp, p: PledgeRef, card: TestCard): Promise<Hold> {
+  const o = requireBody(
+    await http.request<OrderBody>({
+      method: "POST",
+      path: "/v2/checkout/orders",
+      requestId: requestIds.hold(p.showId, p.pledgeId),
+      prefer: "return=representation",
+      body: { intent: "AUTHORIZE", purchase_units: [purchaseUnit(p)], payment_source: { card: { number: card.number, expiry: card.expiry, security_code: card.securityCode, name: card.name } } },
+    }),
+    "order",
+  );
+  const a = firstAuth(o);
+  if (a) return toHold(o.id, a, p.amountCents, firstUnit(o)?.custom_id);
+  return authorizeOrder(http, o.id);
+}
+
+export async function captureHold(http: PayPalHttp, authorizationId: string): Promise<Charge> {
+  assertPayPalId(authorizationId, "authorization id");
+  const c = requireBody(await http.request<CaptureBody>({ method: "POST", path: `/v2/payments/authorizations/${authorizationId}/capture`, requestId: requestIds.capture(authorizationId), prefer: "return=representation", body: { final_capture: true } }), "capture");
+  return toCharge(c, authorizationId);
+}
+
+/** Reads a capture, e.g. to learn its net after a lost or PENDING answer. */
+export async function getCapture(http: PayPalHttp, captureId: string, authorizationId: string): Promise<Charge> {
+  assertPayPalId(captureId, "capture id");
+  assertPayPalId(authorizationId, "authorization id");
+  const c = requireBody(await http.request<CaptureBody>({ method: "GET", path: `/v2/payments/captures/${captureId}` }), "capture");
+  return toCharge(c, authorizationId);
+}
+
+/** Reads an order's authorizations and captures (reconcile before re-trying a money call). */
+export async function getOrderPayments(http: PayPalHttp, orderId: string): Promise<OrderPayments> {
+  assertPayPalId(orderId, "order id");
+  const o = requireBody(await http.request<OrderBody>({ method: "GET", path: `/v2/checkout/orders/${orderId}` }), "order");
+  const unit = firstUnit(o);
+  const out: OrderPayments = {
+    orderId: o.id,
+    status: o.status,
+    authorizations: (unit?.payments?.authorizations ?? []).map((a) => ({ id: a.id, status: a.status })),
+    captures: (unit?.payments?.captures ?? []).map((c) => ({ id: c.id, status: c.status })),
+  };
+  if (unit?.custom_id !== undefined) out.customId = unit.custom_id;
+  return out;
+}
+
 export async function voidHold(http: PayPalHttp, authorizationId: string): Promise<void> {
   assertPayPalId(authorizationId, "authorization id");
   await http.request({ method: "POST", path: `/v2/payments/authorizations/${authorizationId}/void`, requestId: requestIds.void(authorizationId) });
 }
 
 /**
- * Returns the NEW authorization. `orderId` is "" because PayPal's reauthorize response does not carry the order;
- * the caller (Plan 4) copies it over from the old hold. PayPal allows this only after the 3-day honor period (see spike findings).
+ * Returns the NEW authorization. `orderId` is "" because PayPal's reauthorize response does not carry the order.
+ * Plan 4 never relies on this (spike decision 4); kept for the sandbox check.
  */
 export async function reauthorizeHold(http: PayPalHttp, authorizationId: string, amountCents: Cents): Promise<Hold> {
   assertPayPalId(authorizationId, "authorization id");
-  const a = (await http.request<AuthBody>({ method: "POST", path: `/v2/payments/authorizations/${authorizationId}/reauthorize`, requestId: requestIds.reauthorize(authorizationId), prefer: "return=representation", body: { amount: { currency_code: "USD", value: centsToValue(amountCents) } } }))!;
+  const a = requireBody(await http.request<AuthBody>({ method: "POST", path: `/v2/payments/authorizations/${authorizationId}/reauthorize`, requestId: requestIds.reauthorize(authorizationId), prefer: "return=representation", body: { amount: { currency_code: "USD", value: centsToValue(amountCents) } } }), "authorization");
   return toHold("", a, amountCents);
 }
 
 export async function refundCharge(http: PayPalHttp, captureId: string): Promise<Refund> {
   assertPayPalId(captureId, "capture id");
-  const r = (await http.request<{ id: string; status: string }>({ method: "POST", path: `/v2/payments/captures/${captureId}/refund`, requestId: requestIds.refund(captureId), prefer: "return=representation", body: {} }))!;
+  const r = requireBody(await http.request<{ id: string; status: string }>({ method: "POST", path: `/v2/payments/captures/${captureId}/refund`, requestId: requestIds.refund(captureId), prefer: "return=representation", body: {} }), "refund");
   return { refundId: r.id, captureId, status: r.status };
 }

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { SANDBOX_BASE } from "../../src/paypal/config";
 import { PayPalError } from "../../src/paypal/errors";
 import { PayPalHttp } from "../../src/paypal/http";
-import { authorizeOrder, captureHold, createCardHold, createPledgeOrder, reauthorizeHold, refundCharge, requestIds, voidHold } from "../../src/paypal/payments";
+import { authorizeOrder, captureHold, createCardHold, createPledgeOrder, getCapture, getOrderPayments, reauthorizeHold, refundCharge, requestIds, voidHold } from "../../src/paypal/payments";
 import { fakeFetch } from "./fake-fetch";
 
 const fixture = (name: string) => JSON.parse(readFileSync(`tests/paypal/fixtures/${name}.json`, "utf8"));
@@ -52,6 +52,7 @@ describe("createCardHold", () => {
       status: auth.status,
       createdAt: Date.parse(auth.create_time),
       expiresAt: Date.parse(auth.expiration_time),
+      customId: auth.custom_id,
     });
     expect(f.apiCalls()[0].headers["paypal-request-id"]).toBe("hold:show1:p7");
     expect(JSON.parse(f.apiCalls()[0].body!).payment_source.card).toEqual({ number: card.number, expiry: card.expiry, security_code: "123", name: card.name });
@@ -185,5 +186,62 @@ describe("currency and extra-field rules", () => {
     const { http } = client([{ status: 201, body: { ...fixture("capture"), brand_new_field: { x: 1 } } }]);
     const c = await captureHold(http, "A10");
     expect(c).toEqual({ captureId: "9MG27632DY398671M", authorizationId: "A10", status: "COMPLETED", grossCents: 1500, feeCents: 88, netCents: 1412 });
+  });
+});
+
+describe("empty 2xx bodies", () => {
+  it("createPledgeOrder throws EMPTY_RESPONSE_BODY instead of a TypeError", async () => {
+    const { http } = client([{ status: 201 }]);
+    await expect(createPledgeOrder(http, pledge)).rejects.toMatchObject({ paypalName: "EMPTY_RESPONSE_BODY", status: 502 });
+  });
+  it("captureHold throws EMPTY_RESPONSE_BODY and it is not retryable", async () => {
+    const { http } = client([{ status: 201 }]);
+    const err = (await captureHold(http, "A1").catch((e) => e)) as PayPalError;
+    expect(err.paypalName).toBe("EMPTY_RESPONSE_BODY");
+    expect(err.retryable).toBe(false);
+  });
+});
+
+describe("Hold.customId", () => {
+  it("comes from the authorization, falling back to the purchase unit", async () => {
+    const body = fixture("order-card-authorize");
+    delete body.purchase_units[0].payments.authorizations[0].custom_id;
+    const { http } = client([{ status: 201, body }]);
+    const hold = await createCardHold(http, pledge, card);
+    expect(hold.customId).toBe(body.purchase_units[0].custom_id);
+  });
+  it("is absent when PayPal sends none", async () => {
+    const body = fixture("order-card-authorize");
+    delete body.purchase_units[0].payments.authorizations[0].custom_id;
+    delete body.purchase_units[0].custom_id;
+    const { http } = client([{ status: 201, body }]);
+    expect((await createCardHold(http, pledge, card)).customId).toBeUndefined();
+  });
+});
+
+describe("getOrderPayments", () => {
+  it("lists the order's authorizations and captures", async () => {
+    const { f, http } = client([{ status: 200, body: { id: "O1", status: "COMPLETED", purchase_units: [{ custom_id: "s:p", payments: { authorizations: [{ id: "A1", status: "CAPTURED" }], captures: [{ id: "C1", status: "COMPLETED" }] } }] } }]);
+    expect(await getOrderPayments(http, "O1")).toEqual({ orderId: "O1", status: "COMPLETED", customId: "s:p", authorizations: [{ id: "A1", status: "CAPTURED" }], captures: [{ id: "C1", status: "COMPLETED" }] });
+    expect(f.apiCalls()[0]).toMatchObject({ method: "GET", url: `${SANDBOX_BASE}/v2/checkout/orders/O1` });
+  });
+  it("returns empty lists when the order has no payments yet", async () => {
+    const { http } = client([{ status: 200, body: { id: "O2", status: "CREATED" } }]);
+    expect(await getOrderPayments(http, "O2")).toEqual({ orderId: "O2", status: "CREATED", authorizations: [], captures: [] });
+  });
+  it("refuses an unsafe id before any call", async () => {
+    const { f, http } = client([]);
+    await expect(getOrderPayments(http, "../x")).rejects.toBeInstanceOf(RangeError);
+    expect(f.apiCalls()).toHaveLength(0);
+  });
+});
+
+describe("getCapture", () => {
+  it("parses gross, fee and net like captureHold", async () => {
+    const body = fixture("capture");
+    const { f, http } = client([{ status: 200, body }]);
+    const c = await getCapture(http, body.id, "A11");
+    expect(c).toEqual({ captureId: body.id, authorizationId: "A11", status: "COMPLETED", grossCents: 1500, feeCents: 88, netCents: 1412 });
+    expect(f.apiCalls()[0]).toMatchObject({ method: "GET", url: `${SANDBOX_BASE}/v2/payments/captures/${body.id}` });
   });
 });

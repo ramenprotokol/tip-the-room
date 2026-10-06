@@ -24,6 +24,7 @@ export interface RequestOptions {
 
 const TOKEN_MARGIN_MS = 60_000;
 const MAX_REQUEST_ID = 108;
+const MAX_RETRY_AFTER_MS = 10_000;
 
 export class PayPalHttp {
   private readonly config: PayPalConfig;
@@ -32,6 +33,7 @@ export class PayPalHttp {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly maxAttempts: number;
   private cached?: { token: string; expiresAt: number };
+  private inflight?: Promise<string>;
 
   constructor(config: PayPalConfig, opts: ClientOptions = {}) {
     if (config.baseUrl !== SANDBOX_BASE) throw new Error(`PayPal base URL must be ${SANDBOX_BASE}: this project is sandbox-only`);
@@ -44,6 +46,16 @@ export class PayPalHttp {
 
   async token(force = false): Promise<string> {
     if (!force && this.cached && this.now() < this.cached.expiresAt - TOKEN_MARGIN_MS) return this.cached.token;
+    // Concurrent callers share one token fetch.
+    if (!this.inflight) {
+      this.inflight = this.fetchToken().finally(() => {
+        this.inflight = undefined;
+      });
+    }
+    return this.inflight;
+  }
+
+  private async fetchToken(): Promise<string> {
     let res: Response;
     try {
       res = await this.fetchFn(`${this.config.baseUrl}/v1/oauth2/token`, {
@@ -125,10 +137,21 @@ export class PayPalHttp {
       }
       last = await errorFromResponse(res);
       if (!last.retryable || !canRetry) throw last;
-      await this.sleep(250 * 2 ** (attempt - 1));
+      await this.sleep(this.retryDelay(res, attempt));
     }
     if (!last) throw new Error("PayPal request made no attempts");
     throw last;
+  }
+
+  /** Backoff 250 ms, 500 ms, 1 s…, or PayPal's Retry-After (seconds or an HTTP date) if longer, capped at 10 s. */
+  private retryDelay(res: Response, attempt: number): number {
+    const backoff = 250 * 2 ** (attempt - 1);
+    const header = res.headers.get("retry-after");
+    if (!header) return backoff;
+    const seconds = Number(header);
+    const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - this.now();
+    if (!Number.isFinite(ms)) return backoff;
+    return Math.min(Math.max(ms, backoff), MAX_RETRY_AFTER_MS);
   }
 
   private async init(o: RequestOptions): Promise<RequestInit> {

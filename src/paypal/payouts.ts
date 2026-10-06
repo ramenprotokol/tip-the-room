@@ -1,7 +1,7 @@
 import type { Cents } from "../core/money";
 import type { PayoutLine } from "../core/split";
 import { assertPayPalId, centsToValue, valueToCents } from "./amount";
-import { PayPalError } from "./errors";
+import { PayPalError, requireBody } from "./errors";
 import type { PayPalHttp } from "./http";
 
 export interface SentBatch {
@@ -25,15 +25,32 @@ export interface PayoutBatch {
   items: PayoutItem[];
 }
 
-/** One batch per show, ever: PayPal refuses a second batch with the same sender_batch_id. */
-export function payoutBatchId(showId: string): string {
+export interface SendOptions {
+  /** The one allowed retry batch: ids end in "-r1". */
+  retry?: boolean;
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** PayPal's sender_item_id cap is unverified (about 63); our ids stay well under it. */
+const MAX_ITEM_ID = 63;
+
+/** One batch per show (plus at most one "-r1" retry batch): PayPal refuses a second batch with the same sender_batch_id. */
+export function payoutBatchId(showId: string, retry = false): string {
   if (!/^[A-Za-z0-9-]{1,100}$/.test(showId)) throw new RangeError("showId must be 1-100 letters, digits or dashes");
-  return `payout-${showId}`;
+  return retry ? `payout-${showId}-r1` : `payout-${showId}`;
+}
+
+/** sender_item_id: "<show>-<role>", or "<show>-<role>-r1" in the retry batch. */
+export function payoutItemId(showId: string, role: string, retry = false): string {
+  const id = `${showId}-${role}${retry ? "-r1" : ""}`;
+  if (id.length > MAX_ITEM_ID) throw new RangeError(`payout item id must be at most ${MAX_ITEM_ID} characters`);
+  return id;
 }
 
 /** Sends exactly these lines (the guard-approved split), minus any $0 line. */
-export async function sendPayouts(http: PayPalHttp, showId: string, lines: PayoutLine[]): Promise<SentBatch> {
-  const senderBatchId = payoutBatchId(showId);
+export async function sendPayouts(http: PayPalHttp, showId: string, lines: PayoutLine[], opts: SendOptions = {}): Promise<SentBatch> {
+  const retry = opts.retry === true;
+  const senderBatchId = payoutBatchId(showId, retry);
   const seen = new Set<string>();
   for (const l of lines) {
     if (!Number.isSafeInteger(l.amount) || l.amount < 0) throw new RangeError(`${l.label}: payout must be a non-negative whole number of cents`);
@@ -42,22 +59,30 @@ export async function sendPayouts(http: PayPalHttp, showId: string, lines: Payou
   }
   const sentLines = lines.filter((l) => l.amount > 0);
   if (sentLines.length === 0) throw new Error("Nothing to pay: every payout line is $0");
-  const res = await http.request<{ batch_header: { payout_batch_id: string; batch_status: string } }>({
-    method: "POST",
-    path: "/v1/payments/payouts",
-    requestId: senderBatchId,
-    body: {
-      sender_batch_header: { sender_batch_id: senderBatchId, email_subject: "Your share from Tip the Room", recipient_type: "EMAIL" },
-      items: sentLines.map((l) => ({
-        recipient_type: "EMAIL",
-        receiver: l.paypalEmail,
-        amount: { value: centsToValue(l.amount), currency: "USD" },
-        sender_item_id: `${showId}-${l.role}`,
-        note: `${l.label}: your share of the show`,
-      })),
-    },
-  });
-  return { batchId: res!.batch_header.payout_batch_id, senderBatchId, status: res!.batch_header.batch_status, sentLines };
+  for (const l of sentLines) {
+    if (typeof l.paypalEmail !== "string" || !EMAIL.test(l.paypalEmail)) throw new RangeError(`${l.label}: needs a valid PayPal email`);
+  }
+  const res = requireBody(
+    await http.request<{ batch_header?: { payout_batch_id?: string; batch_status?: string } }>({
+      method: "POST",
+      path: "/v1/payments/payouts",
+      requestId: senderBatchId,
+      body: {
+        sender_batch_header: { sender_batch_id: senderBatchId, email_subject: "Your share from Tip the Room", recipient_type: "EMAIL" },
+        items: sentLines.map((l) => ({
+          recipient_type: "EMAIL",
+          receiver: l.paypalEmail,
+          amount: { value: centsToValue(l.amount), currency: "USD" },
+          sender_item_id: payoutItemId(showId, l.role, retry),
+          note: `${l.label}: your share of the show`,
+        })),
+      },
+    }),
+    "payout batch",
+  );
+  const batchId = res.batch_header?.payout_batch_id;
+  if (typeof batchId !== "string" || batchId.length === 0) throw new PayPalError(502, "BAD_RESPONSE_BODY", "PayPal's payout answer had no payout_batch_id");
+  return { batchId, senderBatchId, status: res.batch_header?.batch_status ?? "UNKNOWN", sentLines };
 }
 
 interface BatchBody {
@@ -74,23 +99,23 @@ function usdCents(a: { value: string; currency: string } | undefined, field: str
 
 export async function getPayoutBatch(http: PayPalHttp, batchId: string): Promise<PayoutBatch> {
   assertPayPalId(batchId, "batch id");
-  const b = (await http.request<BatchBody>({ method: "GET", path: `/v1/payments/payouts/${batchId}` }))!;
+  const b = requireBody(await http.request<BatchBody>({ method: "GET", path: `/v1/payments/payouts/${batchId}` }), "payout batch");
   return {
     batchId: b.batch_header.payout_batch_id,
     senderBatchId: b.batch_header.sender_batch_header?.sender_batch_id ?? "",
     status: b.batch_header.batch_status,
-    items: (b.items ?? []).map((i) => ({
-      senderItemId: i.payout_item?.sender_item_id ?? "",
-      status: i.transaction_status ?? "UNKNOWN",
-      transactionId: i.transaction_id,
-      amountCents: usdCents(i.payout_item?.amount, "payout item amount"),
-    })),
+    items: (b.items ?? []).map((i) => {
+      const senderItemId = i.payout_item?.sender_item_id;
+      if (!senderItemId) throw new PayPalError(502, "BAD_RESPONSE_BODY", "a payout item came back without its sender_item_id");
+      return { senderItemId, status: i.transaction_status ?? "UNKNOWN", transactionId: i.transaction_id, amountCents: usdCents(i.payout_item?.amount, "payout item amount") };
+    }),
   };
 }
 
 /**
  * True when PayPal refused the batch because this sender_batch_id was already used.
  * Shape recorded in tests/paypal/fixtures/payout-duplicate.json. USER_BUSINESS_ERROR is generic, so it is never matched alone.
+ * Payouts do NOT replay by PayPal-Request-Id: after a lost response, a resend gets this error, which means "already sent".
  */
 export function isDuplicateBatch(e: unknown): boolean {
   if (!(e instanceof PayPalError)) return false;

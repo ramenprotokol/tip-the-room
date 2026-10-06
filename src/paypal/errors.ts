@@ -5,7 +5,7 @@ export interface PayPalIssue {
 }
 
 /** Our own checks on a response that may already have succeeded, or that a retry cannot fix. */
-const NOT_RETRYABLE = new Set(["UNEXPECTED_CURRENCY", "BAD_AMOUNT", "BAD_RESPONSE_BODY", "BAD_TOKEN_RESPONSE"]);
+const NOT_RETRYABLE = new Set(["UNEXPECTED_CURRENCY", "BAD_AMOUNT", "BAD_RESPONSE_BODY", "BAD_TOKEN_RESPONSE", "EMPTY_RESPONSE_BODY"]);
 
 export class PayPalError extends Error {
   readonly status: number;
@@ -52,4 +52,10 @@ export async function errorFromResponse(res: Response): Promise<PayPalError> {
   const name = body.name ?? body.error ?? `HTTP_${res.status}`;
   const message = body.message ?? body.error_description ?? res.statusText ?? "request failed";
   return new PayPalError(res.status, name, message, body.debug_id, Array.isArray(body.details) ? body.details : []);
+}
+
+/** A 2xx with no body where we need one. The call may have succeeded, so callers reconcile instead of retrying blindly. */
+export function requireBody<T>(body: T | undefined, what: string): T {
+  if (body === undefined || body === null) throw new PayPalError(502, "EMPTY_RESPONSE_BODY", `PayPal returned no ${what}`);
+  return body;
 }

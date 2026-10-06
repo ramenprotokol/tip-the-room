@@ -290,3 +290,36 @@ describe("PayPalHttp", () => {
     });
   });
 });
+
+describe("PayPalHttp sharing and Retry-After", () => {
+  it("shares one token fetch between concurrent requests", async () => {
+    const f = fakeFetch([{ status: 200, body: { a: 1 } }, { status: 200, body: { a: 2 } }]);
+    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep });
+    await Promise.all([http.request({ method: "GET", path: "/x" }), http.request({ method: "GET", path: "/y" })]);
+    expect(f.tokenCalls()).toBe(1);
+  });
+
+  it("waits the Retry-After seconds on a 429", async () => {
+    const waits: number[] = [];
+    const f = fakeFetch([{ status: 429, body: { name: "RATE_LIMIT_REACHED" }, headers: { "retry-after": "2" } }, { status: 200, body: { ok: 1 } }]);
+    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: async (ms) => void waits.push(ms) });
+    expect(await http.request({ method: "GET", path: "/x" })).toEqual({ ok: 1 });
+    expect(waits).toEqual([2000]);
+  });
+
+  it("caps a long Retry-After at 10 seconds", async () => {
+    const waits: number[] = [];
+    const f = fakeFetch([{ status: 429, body: {}, headers: { "retry-after": "600" } }, { status: 200, body: {} }]);
+    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: async (ms) => void waits.push(ms) });
+    await http.request({ method: "GET", path: "/x" });
+    expect(waits).toEqual([10_000]);
+  });
+
+  it("uses normal backoff when Retry-After is missing or unreadable", async () => {
+    const waits: number[] = [];
+    const f = fakeFetch([{ status: 503, body: {} }, { status: 429, body: {}, headers: { "retry-after": "soon" } }, { status: 200, body: {} }]);
+    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: async (ms) => void waits.push(ms) });
+    await http.request({ method: "GET", path: "/x" });
+    expect(waits).toEqual([250, 500]);
+  });
+});

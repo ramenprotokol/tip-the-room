@@ -3,6 +3,8 @@
 import {
   captureHold,
   createCardHold,
+  getCapture,
+  getOrderPayments,
   getPayoutBatch,
   isDuplicateBatch,
   loadConfig,
@@ -75,7 +77,17 @@ async function flowD() {
   line(batch.batchId === sent.batchId, "D · batch readable", `${batch.status}, ${batch.items.length} item(s)`);
 }
 
-for (const [name, flow] of [["A", flowA], ["B", flowB], ["C", flowC], ["D", flowD]] as const) {
+async function flowE() {
+  const hold = await createCardHold(http, pledge("e"), card);
+  const charge = await captureHold(http, hold.authorizationId);
+  const order = await getOrderPayments(http, hold.orderId);
+  line(order.captures.some((c) => c.id === charge.captureId) && order.authorizations.some((a) => a.id === hold.authorizationId), "E · order lists its authorization and capture", `${order.status} auth=${order.authorizations.map((a) => a.status).join(",")} capture=${order.captures.map((c) => c.status).join(",")}`);
+  const read = await getCapture(http, charge.captureId, hold.authorizationId);
+  line(read.netCents === charge.netCents && read.status === "COMPLETED", "E · capture readable with its net", `net ${read.netCents}`);
+  await refundCharge(http, charge.captureId);
+}
+
+for (const [name, flow] of [["A", flowA], ["B", flowB], ["C", flowC], ["D", flowD], ["E", flowE]] as const) {
   try {
     await flow();
   } catch (e) {
