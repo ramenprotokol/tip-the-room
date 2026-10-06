@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../../src/agent/ids";
 import { TURN_CALL_BUDGET } from "../../src/agent/policy";
 import type { CampaignOp, CampaignReply } from "../../src/agent/dispatch";
-import type { PayPalPort } from "../../src/agent/paypal-port";
-import { ALARM_RETRY_MAX_MS, CampaignAgent } from "../../src/worker/do/campaign-agent";
+import { meteredPayPal, type PayPalPort } from "../../src/agent/paypal-port";
+import { SANDBOX_BASE } from "../../src/paypal/config";
+import { TokenHolder } from "../../src/paypal/http";
+import { fakeFetch } from "../paypal/fake-fetch";
+import { ALARM_BACKOFF_MAX_MS, ALARM_BACKOFF_MIN_MS, CampaignAgent } from "../../src/worker/do/campaign-agent";
 import { QuotaAgent } from "../../src/worker/do/quota-agent";
 import type { StorageLike } from "../../src/worker/do/sql-adapter";
 import type { Env } from "../../src/worker/env";
@@ -17,7 +20,11 @@ function fakeCtx() {
   const db = new DatabaseSync(":memory:");
   let open = false;
   const state = { alarm: null as number | null };
-  const storage: StorageLike & { setAlarm(t: number): Promise<void>; deleteAlarm(): Promise<void>; deleteAll(): Promise<void> } = {
+  const kv = new Map<string, unknown>();
+  const storage: StorageLike & { setAlarm(t: number): Promise<void>; deleteAlarm(): Promise<void>; deleteAll(): Promise<void>; get<T>(k: string): Promise<T | undefined>; put(k: string, v: unknown): Promise<void>; delete(k: string): Promise<boolean> } = {
+    get: async <T,>(k: string) => kv.get(k) as T | undefined,
+    put: async (k, v) => void kv.set(k, v),
+    delete: async (k) => kv.delete(k),
     sql: { exec: (q, ...b) => ({ toArray: () => db.prepare(q).all(...b) }) },
     transactionSync<T>(fn: () => T): T {
       if (open) throw new Error("nested");
@@ -36,9 +43,9 @@ function fakeCtx() {
     },
     setAlarm: async (t) => void (state.alarm = t),
     deleteAlarm: async () => void (state.alarm = null),
-    deleteAll: async () => undefined,
+    deleteAll: async () => void kv.clear(),
   };
-  return { ctx: { storage } as unknown as DurableObjectState, state };
+  return { ctx: { storage } as unknown as DurableObjectState, state, kv };
 }
 
 const ENV = { PAYPAL_CLIENT_ID: "test-id", PAYPAL_CLIENT_SECRET: "test-secret" } as unknown as Env;
@@ -113,6 +120,38 @@ describe("CampaignAgent per-invocation subrequest meter", () => {
   });
 });
 
+describe("CampaignAgent OAuth token", () => {
+  it("is fetched once and reused by later invocations (each invocation still meters its own fetches)", async () => {
+    const f = fakeFetch([
+      { status: 201, body: { id: "ORDER1" } },
+      { status: 201, body: { id: "ORDER2" } },
+    ]);
+    const { ctx } = fakeCtx();
+    const clock = new TestClock(LAUNCH);
+    const agent = new CampaignAgent(ctx, ENV, { clock, fetch: f.fetch });
+    const send = async (op: CampaignOp) => (await (await agent.fetch(new Request("https://do/op", { method: "POST", body: JSON.stringify(op) }))).json()) as CampaignReply;
+    await send({ op: "init", showId: SHOW, signTokenHash: await sha256Hex(SIGN_TOKEN) });
+    await send({ op: "sign", body: { signToken: SIGN_TOKEN, draft: DRAFT } });
+    expect(await send({ op: "order", body: { initials: "AB" } })).toMatchObject({ ok: true });
+    expect(await send({ op: "order", body: { initials: "CD" } })).toMatchObject({ ok: true });
+    expect(f.apiCalls()).toHaveLength(2);
+    expect(f.tokenCalls()).toBe(1);
+  });
+
+  it("is metered when it is fetched, and not when another invocation already holds it", async () => {
+    const f = fakeFetch([]);
+    const holder = new TokenHolder();
+    const config = { clientId: "id", clientSecret: "secret", baseUrl: SANDBOX_BASE };
+    const first = meteredPayPal(config, { fetch: f.fetch, tokenHolder: holder });
+    const second = meteredPayPal(config, { fetch: f.fetch, tokenHolder: holder });
+    await first.http.token();
+    await second.http.token();
+    expect(f.tokenCalls()).toBe(1);
+    expect(first.meter.used).toBe(1);
+    expect(second.meter.used).toBe(0);
+  });
+});
+
 describe("CampaignAgent alarm", () => {
   function throwingPort(): PayPalPort {
     return new Proxy({} as PayPalPort, {
@@ -134,7 +173,52 @@ describe("CampaignAgent alarm", () => {
     throwNow = true;
     await expect(agent.alarm()).rejects.toThrow("boom");
     expect(state.alarm).not.toBeNull();
-    expect(state.alarm).toBeLessThanOrEqual(LAUNCH + ALARM_RETRY_MAX_MS);
+    expect(state.alarm).toBeLessThanOrEqual(LAUNCH + ALARM_BACKOFF_MIN_MS);
+  });
+
+  it("backs off 60 s, 2 min, 4 min ... up to 1 h when the turn keeps throwing, and resets on success", async () => {
+    let throwNow = false;
+    const clock = new TestClock(LAUNCH);
+    const { ctx, state, kv } = fakeCtx();
+    const agent = new CampaignAgent(ctx, ENV, { clock, paypal: () => (throwNow ? throwingPort() : new FakePayPal(clock)) });
+    const send = (op: CampaignOp) => agent.fetch(new Request("https://do/op", { method: "POST", body: JSON.stringify(op) }));
+    await send({ op: "init", showId: SHOW, signTokenHash: await sha256Hex(SIGN_TOKEN) });
+    await send({ op: "sign", body: { signToken: SIGN_TOKEN, draft: DRAFT } });
+    state.alarm = LAUNCH + 10 * 86_400_000;
+    throwNow = true;
+    const waits: number[] = [];
+    for (let i = 0; i < 9; i++) {
+      await expect(agent.alarm()).rejects.toThrow("boom");
+      waits.push((state.alarm as number) - clock.now());
+    }
+    expect(waits).toEqual([60_000, 120_000, 240_000, 480_000, 960_000, 1_920_000, ALARM_BACKOFF_MAX_MS, ALARM_BACKOFF_MAX_MS, ALARM_BACKOFF_MAX_MS]);
+    expect(kv.get("alarm_backoff_ms")).toBe(ALARM_BACKOFF_MAX_MS);
+    throwNow = false;
+    await agent.alarm();
+    expect(kv.has("alarm_backoff_ms")).toBe(false);
+    throwNow = true;
+    await expect(agent.alarm()).rejects.toThrow("boom");
+    expect((state.alarm as number) - clock.now()).toBe(ALARM_BACKOFF_MIN_MS);
+  });
+
+  it("backs off the same way while the sandbox keys are missing, and recovers when they return", async () => {
+    const clock = new TestClock(LAUNCH);
+    const { ctx, state, kv } = fakeCtx();
+    const env = { PAYPAL_CLIENT_ID: "test-id", PAYPAL_CLIENT_SECRET: "test-secret" } as unknown as Env & Record<string, string | undefined>;
+    const agent = new CampaignAgent(ctx, env, { clock, paypal: () => new FakePayPal(clock) });
+    const send = (op: CampaignOp) => agent.fetch(new Request("https://do/op", { method: "POST", body: JSON.stringify(op) }));
+    await send({ op: "init", showId: SHOW, signTokenHash: await sha256Hex(SIGN_TOKEN) });
+    await send({ op: "sign", body: { signToken: SIGN_TOKEN, draft: DRAFT } });
+    delete env.PAYPAL_CLIENT_SECRET;
+    const waits: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      await agent.alarm();
+      waits.push((state.alarm as number) - clock.now());
+    }
+    expect(waits).toEqual([60_000, 120_000, 240_000]);
+    env.PAYPAL_CLIENT_SECRET = "test-secret";
+    await agent.alarm();
+    expect(kv.has("alarm_backoff_ms")).toBe(false);
   });
 
   it("re-arms normally when the turn succeeds", async () => {

@@ -4,7 +4,18 @@ import { errorFromResponse, PayPalError } from "./errors";
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+/**
+ * An OAuth token that outlives one PayPalHttp. A long-lived owner (a Durable Object) keeps one holder and hands it to every
+ * invocation's client, so a token is fetched once, not once per request. Metering stays with each client's own fetch.
+ */
+export class TokenHolder {
+  cached?: { token: string; expiresAt: number };
+  inflight?: Promise<string>;
+}
+
 export interface ClientOptions {
+  /** Share a token across clients (default: each client keeps its own). */
+  tokenHolder?: TokenHolder;
   fetch?: FetchLike;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -32,8 +43,7 @@ export class PayPalHttp {
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly maxAttempts: number;
-  private cached?: { token: string; expiresAt: number };
-  private inflight?: Promise<string>;
+  private readonly holder: TokenHolder;
 
   constructor(config: PayPalConfig, opts: ClientOptions = {}) {
     if (config.baseUrl !== SANDBOX_BASE) throw new Error(`PayPal base URL must be ${SANDBOX_BASE}: this project is sandbox-only`);
@@ -42,17 +52,19 @@ export class PayPalHttp {
     this.now = opts.now ?? Date.now;
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.maxAttempts = opts.maxAttempts ?? 3;
+    this.holder = opts.tokenHolder ?? new TokenHolder();
   }
 
   async token(force = false): Promise<string> {
-    if (!force && this.cached && this.now() < this.cached.expiresAt - TOKEN_MARGIN_MS) return this.cached.token;
+    const h = this.holder;
+    if (!force && h.cached && this.now() < h.cached.expiresAt - TOKEN_MARGIN_MS) return h.cached.token;
     // Concurrent callers share one token fetch.
-    if (!this.inflight) {
-      this.inflight = this.fetchToken().finally(() => {
-        this.inflight = undefined;
+    if (!h.inflight) {
+      h.inflight = this.fetchToken().finally(() => {
+        h.inflight = undefined;
       });
     }
-    return this.inflight;
+    return h.inflight;
   }
 
   private async fetchToken(): Promise<string> {
@@ -76,7 +88,7 @@ export class PayPalHttp {
     if (typeof token !== "string" || token.length === 0 || typeof expiresIn !== "number" || !Number.isFinite(expiresIn) || expiresIn <= 0) {
       throw new PayPalError(502, "BAD_TOKEN_RESPONSE", "PayPal's token response was missing a usable access_token or expires_in");
     }
-    this.cached = { token, expiresAt: this.now() + expiresIn * 1000 };
+    this.holder.cached = { token, expiresAt: this.now() + expiresIn * 1000 };
     return token;
   }
 
@@ -118,7 +130,7 @@ export class PayPalHttp {
         } catch (e) {
           if (!(e instanceof PayPalError) || !e.retryable || !canRetry) throw e;
           last = e;
-          this.cached = undefined; // the old token is dead: the next attempt must fetch a fresh one
+          this.holder.cached = undefined; // the old token is dead: the next attempt must fetch a fresh one
           await this.sleep(250 * 2 ** (attempt - 1));
           continue;
         }

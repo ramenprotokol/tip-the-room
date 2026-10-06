@@ -15,7 +15,11 @@ function fakeCtx() {
   const db = new DatabaseSync(":memory:");
   let open = false;
   const state = { alarm: null as number | null, deleted: 0 };
-  const storage: StorageLike & { setAlarm(t: number): Promise<void>; deleteAlarm(): Promise<void>; deleteAll(): Promise<void> } = {
+  const kv = new Map<string, unknown>();
+  const storage: StorageLike & { setAlarm(t: number): Promise<void>; deleteAlarm(): Promise<void>; deleteAll(): Promise<void>; get(k: string): Promise<unknown>; put(k: string, v: unknown): Promise<void>; delete(k: string): Promise<boolean> } = {
+    get: async (k) => kv.get(k),
+    put: async (k, v) => void kv.set(k, v),
+    delete: async (k) => kv.delete(k),
     sql: { exec: (q, ...b) => ({ toArray: () => db.prepare(q).all(...b) }) },
     transactionSync<T>(fn: () => T): T {
       if (open) throw new Error("nested");
@@ -36,6 +40,7 @@ function fakeCtx() {
     deleteAlarm: async () => void (state.alarm = null),
     deleteAll: async () => {
       state.deleted += 1;
+      kv.clear();
       for (const t of ["meta", "events", "jobs", "agent_log"]) db.exec(`DROP TABLE IF EXISTS ${t}`);
     },
   };
