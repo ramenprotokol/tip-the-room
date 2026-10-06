@@ -169,3 +169,19 @@ test("settlement notes show who wrote them, and the resting line shows when the 
   await expect(notes).toContainText("$508.32");
   await expect(page.locator("#resting")).toHaveText(RESTING_LINE);
 });
+
+test("polling: an older answer does not refetch the manage view; a newer one does", async ({ page }) => {
+  const inner = manageApi([MANAGE_FRAMES.initial, MANAGE_FRAMES.approved]);
+  let version = "e0.l0";
+  const api: FakeApi = (req) => (req.method === "GET" && req.path === `/api/shows/${MAYA_ID}` ? { body: showOf(MAYA, { fans: 12, version: Number(version.slice(1, version.indexOf("."))) }) } : inner(req));
+  const seen = await installFakeApi(page, api);
+  await page.goto(`${APP_BASE}s/${MAYA_ID}/manage?e2e#${MAYA_KEY}`);
+  await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+  const manageReads = () => seen.filter((r) => r.path === `/api/shows/${MAYA_ID}/manage`).length;
+  expect(manageReads()).toBe(1);
+  await page.waitForTimeout(11_000);
+  expect(seen.some((r) => r.path === `/api/shows/${MAYA_ID}`)).toBe(true);
+  expect(manageReads()).toBe(1);
+  version = "e9.l9";
+  await expect.poll(manageReads, { timeout: 15_000 }).toBe(2);
+});

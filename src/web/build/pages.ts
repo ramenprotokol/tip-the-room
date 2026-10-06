@@ -45,7 +45,7 @@ export function contentSecurityPolicy(apiBase: string): string {
 }
 
 export function headersFile(apiBase: string): string {
-  return ["/*", `  Content-Security-Policy: ${contentSecurityPolicy(apiBase)}`, "  X-Content-Type-Options: nosniff", "  Referrer-Policy: strict-origin-when-cross-origin", "  Permissions-Policy: camera=(), microphone=(), geolocation=()", ""].join("\n");
+  return ["/*", `  Content-Security-Policy: ${contentSecurityPolicy(apiBase)}`, "  X-Content-Type-Options: nosniff", "  Strict-Transport-Security: max-age=31536000", "  Referrer-Policy: strict-origin-when-cross-origin", "  Permissions-Policy: camera=(), microphone=(), geolocation=()", ""].join("\n");
 }
 
 /** Removes every element carrying data-ref-only (with its children). Production builds without test hooks only. */

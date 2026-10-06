@@ -32,6 +32,7 @@ describe("Pages build files", () => {
     expect(lines.slice(1).filter(Boolean).every((l) => l.startsWith("  "))).toBe(true);
     expect(lines.some((l) => l.startsWith("  Content-Security-Policy: default-src 'self'"))).toBe(true);
     expect(lines).toContain("  X-Content-Type-Options: nosniff");
+    expect(lines).toContain("  Strict-Transport-Security: max-age=31536000");
   });
   it("routes share and manage links to their pages, manage first", () => {
     expect(readFileSync("public/_redirects", "utf8").trim().split("\n").map((l) => l.trim().split(/\s+/))).toEqual([
