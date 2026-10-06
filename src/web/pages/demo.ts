@@ -24,7 +24,7 @@ interface Look { crest: string; yaw: number; seed: number; label: string }
 // aren't in the API; everything else on the page comes from it.
 const LOOK: Record<Key, Look> = { a: { crest: 'SPINDLE RECORDS', yaw: .2, seed: 7, label: 'Show A' }, b: { crest: 'ELM ST HOUSE SHOW', yaw: -.2, seed: 19, label: 'Show B' } };
 type CtlPhase = 'open' | 'tipping' | 'tipped' | 'ff' | 'paying' | 'paid' | 'missing' | 'released';
-type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
+type StatusKey = 'held' | 'tipped' | 'paying' | 'funds' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
 const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6, done: 2.6 }, MISS: { release: .12, msg: 2.05, done: 3.1, wave: .9 }, R: { tip: .7, payout: .7, miss: 1.3 } };
 const log = new AgentLog($('#log'));
 let payout: PayoutStrip | null = null;
@@ -32,7 +32,7 @@ let demo: SavedDemo | null = null;
 let inflight = false;
 const judgeMsg = (text: string) => { $('[data-judge-msg]').textContent = text; };
 const failed = (e: unknown) => judgeMsg(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.');
-const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned' } as const;
+const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned', funds: 'Waiting on PayPal' } as const;
 
 class ShowCtl {
   key: Key; look: Look; el: HTMLElement; stage: HTMLElement; tipEl: HTMLElement; status: HTMLElement; clockEl: HTMLElement; fansSub: HTMLElement; of: HTMLElement; moneySub: HTMLElement;
@@ -58,9 +58,9 @@ class ShowCtl {
   get refunded(): boolean { return !!this.show && endOf(this.show.state) === 'cancelled'; }
   refundSub(): string { return `Called off. Every fan who was charged is getting ${dollars(this.cents)} back.`; }
   /** The status line once the deadline has passed on a show that was on: paid, failed, paying (nothing sent yet) or sent (PayPal confirming). */
-  get payKey(): StatusKey { return ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying' } as const)[payState(this.parties)]; }
-  payMoneySub(): string { const s = payState(this.parties); return s === 'confirmed' ? 'Paid out in one PayPal batch.' : s === 'failed' ? 'Sent in one PayPal batch. One payout didn’t go through.' : s === 'planned' ? 'Paying everyone in one PayPal batch. Nothing has been sent yet.' : 'Sent in one PayPal batch. PayPal is confirming it.'; }
-  payFansSub(): string { return ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', waiting: 'Payouts sent' } as const)[payState(this.parties)]; }
+  get payKey(): StatusKey { return ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying', funds: 'funds' } as const)[payState(this.parties)]; }
+  payMoneySub(): string { const s = payState(this.parties); return s === 'confirmed' ? 'Paid out in one PayPal batch.' : s === 'failed' ? 'Sent in one PayPal batch. One payout didn’t go through.' : s === 'planned' ? 'Paying everyone in one PayPal batch. Nothing has been sent yet.' : s === 'funds' ? 'Paying everyone in one PayPal batch. PayPal needs more funds first, so the agent will try again.' : 'Sent in one PayPal batch. PayPal is confirming it.'; }
+  payFansSub(): string { return ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', funds: 'Paying everyone · waiting on PayPal', waiting: 'Payouts sent' } as const)[payState(this.parties)]; }
   visual(): { phase: Phase; fans: number } { const p = this.phase; return { phase: p === 'paying' || p === 'paid' ? 'paid' : p === 'missing' || p === 'released' ? 'released' : this.tipped ? 'tipped' : 'held', fans: this.fans }; }
   splitOf(fans: number): number[] { return this.show ? planSplit(this.show.split, fans * this.cents).map(c => c / 100) : []; }
   payees(): Payee[] { const a = this.splitOf(Math.max(this.fans, this.target)); return (this.show?.split ?? []).map((p, i) => ({ label: ROLE_WORD[p.role], amount: a[i] })); }
@@ -106,7 +106,7 @@ class ShowCtl {
   }
   setStatus(k: StatusKey, instant?: boolean) {
     const roles = andList((this.show?.split ?? []).map(p => ROLE_WORD[p.role].toLowerCase()));
-    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
+    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], funds: ['paying', 'Paying everyone', '· waiting on PayPal'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
     const [s, w, said] = S[k]; setStatus(this.status, s, w, said, instant);
   }
   renderMoney(instant?: boolean) { const total = this.fans * this.cents / 100; this.odoHeld.set(this.tipped || this.phase === 'released' || this.phase === 'missing' ? 0 : total, instant); this.odoCharged.set(this.tipped ? total : 0, instant); }

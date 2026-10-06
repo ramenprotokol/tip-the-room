@@ -100,6 +100,8 @@ describe("payState", () => {
     expect(payState(ps("planned", "pending"))).toBe("planned");
     expect(payState(ps("paid", "pending"))).toBe("waiting");
     expect(payState([])).toBe("waiting");
+    expect(payState(ps("funds", "funds"))).toBe("funds");
+    expect(payState(ps("paid", "funds"))).toBe("funds");
   });
 });
 

@@ -194,7 +194,7 @@ export interface DemoPaceResponse {
 export interface ManageParty extends PublicParty {
   paypalEmail: string;
   payoutCents: Cents | null;
-  payoutStatus: "planned" | "paid" | "pending" | "failed" | "none";
+  payoutStatus: "planned" | "funds" | "paid" | "pending" | "failed" | "none";
 }
 
 export interface NoteDto {

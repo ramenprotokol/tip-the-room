@@ -60,6 +60,18 @@ const BACKOFF = [30_000, 120_000, 600_000, 1_800_000, HOUR_MS];
 export function backoffMs(attempt: number): number {
   return BACKOFF[Math.min(Math.max(attempt, 1), BACKOFF.length) - 1];
 }
+/**
+ * A payout batch PayPal refused for lack of funds was never created, so it is tried again later (same sender_batch_id).
+ * The wait starts at FUNDS_RETRY_FIRST_MS, doubles each time, never passes FUNDS_RETRY_MAX_MS, and the job gives up
+ * (fails) once it is FUNDS_RETRY_TOTAL_MS old.
+ */
+export const FUNDS_RETRY_FIRST_MS = 15 * 60_000;
+export const FUNDS_RETRY_MAX_MS = 6 * HOUR_MS;
+export const FUNDS_RETRY_TOTAL_MS = 7 * DAY_MS;
+/** Wait before low-funds retry number `waits` (0-based): 15 min, 30 min, 1 h, 2 h, 4 h, then 6 h. */
+export function fundsRetryMs(waits: number): number {
+  return Math.min(FUNDS_RETRY_FIRST_MS * 2 ** Math.min(Math.max(waits, 0), 10), FUNDS_RETRY_MAX_MS);
+}
 /** Payout batch polls: n-th poll waits n minutes; at most this many. */
 export const POLL_DELAY_MS = 60_000;
 export const PAYOUT_POLL_MAX = 8;

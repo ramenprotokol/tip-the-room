@@ -117,6 +117,17 @@ export async function getPayoutBatch(http: PayPalHttp, batchId: string): Promise
 }
 
 /**
+ * True when PayPal refused a payout batch because the business account can't cover it (422 INSUFFICIENT_FUNDS).
+ * The name or an issue code carries it. A refused batch is never created, so the same sender_batch_id may be sent again later.
+ */
+export function isInsufficientFunds(e: unknown): boolean {
+  if (!(e instanceof PayPalError)) return false;
+  if (e.status !== 422 && e.status !== 400) return false;
+  const code = "INSUFFICIENT_FUNDS";
+  return e.paypalName === code || e.issues.some((i) => typeof i.issue === "string" && i.issue.toUpperCase() === code);
+}
+
+/**
  * True when PayPal refused the batch because this sender_batch_id was already used.
  * Shape recorded in tests/paypal/fixtures/payout-duplicate.json. USER_BUSINESS_ERROR is generic, so it is never matched alone.
  * Payouts do NOT replay by PayPal-Request-Id: after a lost response, a resend gets this error, which means "already sent".

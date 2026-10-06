@@ -41,8 +41,8 @@ const odoFans = new Odo($('[data-fans]')), odoHeld = new Odo($('[data-held]')), 
 const log = new AgentLog($('#log')), cues = new Cues();
 Ticker.lamp(el.status);
 
-type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
-const STATUS: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', ''], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
+type StatusKey = 'held' | 'tipped' | 'paying' | 'funds' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
+const STATUS: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], funds: ['paying', 'Paying everyone', '· waiting on PayPal'], paid: ['paid', 'Everyone’s paid', ''], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'], refunding: ['released', 'Called off', '· refunding everyone'] };
 const say = (k: StatusKey, instant?: boolean) => setStatus(el.status, ...STATUS[k], instant);
 const show = (): PublicShow => mv!.show;
 const target = () => mv?.show.threshold ?? 1;
@@ -51,13 +51,14 @@ const tz = () => mv?.show.timeZone ?? 'UTC';
 const fixedParties = () => show().split.filter(p => p.role !== 'artist');
 const confirmed = () => payoutsConfirmed(mv?.parties ?? []);
 const payState = (): PayState => payStateOf(mv?.parties ?? []);
-const payKey = (): StatusKey => ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying' } as const)[payState()];
+const payKey = (): StatusKey => ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying', funds: 'funds' } as const)[payState()];
 /** The sentence under the sign once the deadline has passed on a show that was on. */
 function paidSentence(a: number[]): string {
   const fixed = fixedParties(), last = a.length - 1, ps = mv?.parties ?? [], ps0 = payState();
   const bit = (i: number, who: string, you: boolean) => { const st = ps[i]?.payoutStatus; return st === 'failed' ? `${who} didn’t get ${usd(a[i])}` : st === 'paid' ? `${who} got ${usd(a[i])}` : `${who} ${you ? 'are' : 'is'} owed ${usd(a[i])}`; };
   if (ps0 === 'failed') return `A payout didn’t go through. ${andList([...fixed.map((p, i) => bit(i, p.label, false)), bit(last, 'you', true)])}.`;
   if (ps0 === 'planned') return `Paying everyone: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. Nothing has been sent yet.`;
+  if (ps0 === 'funds') return `Paying everyone: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. PayPal doesn’t have enough funds in the account yet, so the agent will try again.`;
   if (ps0 === 'waiting') return `Payouts sent: ${andList([...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[last])}`])}. PayPal is still confirming them.`;
   return `Everyone’s paid. ${andList([...fixed.map((p, i) => `${p.label} got ${usd(a[i])}`), `you got ${usd(a[last])}`])}.`;
 }
@@ -85,7 +86,7 @@ function render(instant = false) {
   const s = show(), { fans } = st, t = s.threshold, total = fans * priceCents() / 100, v = visual().phase, d = Date.parse(s.deadline), dl = when(d, s.timeZone, 'long');
   odoFans.set(fans, instant); odoHeld.set(st.tipped || v === 'released' ? 0 : total, instant); odoCharged.set(st.tipped && !cancelled() ? total : 0, instant);
   el.of.textContent = fans <= t ? `of ${t} fans` : `fans · target was ${t}`;
-  el.sub.textContent = v === 'paid' ? ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', waiting: 'Payouts sent' } as const)[payState()] : v === 'released' ? (cancelled() ? 'Called off · refunding' : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? `It’s on! · ${fans - t} joined after it tipped` : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
+  el.sub.textContent = v === 'paid' ? ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', funds: 'Paying everyone · waiting on PayPal', waiting: 'Payouts sent' } as const)[payState()] : v === 'released' ? (cancelled() ? 'Called off · refunding' : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? `It’s on! · ${fans - t} joined after it tipped` : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
   const a = v === 'paid' ? paidAmounts() : splitOf(fans), fixed = fixedParties();
   el.sentence.textContent = v === 'paid' ? paidSentence(a)
     : v === 'released' ? (cancelled() ? `Called off. All ${fans} fans who were charged are getting ${dollars(priceCents())} back.` : `Called off. Every hold was cancelled, ${usd(total)} went back to ${fans} fans, and nobody paid.`)
@@ -159,7 +160,7 @@ function renderNotes(v: ManageView) {
 function renderResting(v: ManageView) { const p = $('#resting'); p.hidden = PARITY || !aiResting(v.log); p.textContent = p.hidden ? '' : restingLine(Date.now(), mv?.show.timeZone); }
 function renderCallOff() { el.calloff.hidden = mv?.show.state !== 'tipped'; }
 function payNote(a: number[]) { const fixed = fixedParties(); return `One PayPal payout, in money-rule order: ${[...fixed.map((p, i) => `${p.label} ${usd(a[i])}`), `you ${usd(a[a.length - 1])}`].join(', then ')}.`; }
-const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned' } as const;
+const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned', funds: 'Waiting on PayPal' } as const;
 const payTags = () => (mv?.parties ?? []).map(p => TAG[p.payoutStatus]);
 
 /** One step toward the latest data, with the reference's beats. Each beat calls step() again when it ends. */
@@ -236,7 +237,7 @@ function jumpTo(s: PublicShow) {
   const fixed = fixedParties(), artist = s.split.find(p => p.role === 'artist');
   if (st.phase === 'paid') { const a = paidAmounts(); payout?.set(a, confirmed() ? a.map(() => 'Paid') : payTags(), a.map(() => 'paid'), payNote(a)); }
   else { payout?.reset(); if (st.phase !== 'released') payout?.plan(splitOf(Math.max(st.fans, s.threshold)), [...fixed.map(() => 'Planned'), `At least ${dollars(artist?.minimumCents ?? 0)} · planned`]); }
-  say(st.phase === 'open' ? 'held' : st.phase === 'tipped' ? 'tipped' : st.phase === 'paid' ? (s.state === 'paying_out' ? 'paying' : payKey()) : cancelled() ? 'refunding' : 'released', true);
+  say(st.phase === 'open' ? 'held' : st.phase === 'tipped' ? 'tipped' : st.phase === 'paid' ? (s.state === 'paying_out' ? (payState() === 'funds' ? 'funds' : 'paying') : payKey()) : cancelled() ? 'refunding' : 'released', true);
 }
 
 function apply(v: ManageView) {
