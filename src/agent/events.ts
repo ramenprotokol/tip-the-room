@@ -47,6 +47,10 @@ export type LedgerEvent =
   | { type: "capture_ok"; authorizationId: string; captureId: string; grossCents: Cents; feeCents: Cents; netCents: Cents }
   | { type: "capture_failed"; authorizationId: string; reason: string }
   | { type: "void_ok"; authorizationId: string }
+  /**
+   * A refund PayPal answered. Only status "COMPLETED" counts as refunded; a PENDING answer is recorded
+   * but changes nothing. The key includes the status, so a PENDING refund can still become COMPLETED later.
+   */
   | { type: "refund_ok"; captureId: string; refundId: string | null; status: string }
   | { type: "deadline_reached"; now: number; deadline: number }
   | { type: "payout_sent"; senderBatchId: string; batchId: string | null; status: string; lines: PayoutLine[]; retry: boolean; recovered: boolean }
@@ -83,7 +87,7 @@ export function eventKey(e: LedgerEvent): string {
     case "void_ok":
       return `void:${e.authorizationId}`;
     case "refund_ok":
-      return `refund:${e.captureId}`;
+      return `refund:${e.captureId}:${e.status}`;
     case "deadline_reached":
       return `deadline:${e.deadline}`;
     case "payout_sent":

@@ -142,7 +142,7 @@ export function campaignEventFor(e: LedgerEvent, p: Projection): CampaignEvent |
       return pledgeOf(p, e.authorizationId)?.status === "held" ? { type: "holds_released", count: 1 } : null;
     case "refund_ok": {
       const id = p.pledgeByCapture.get(e.captureId);
-      return id && p.pledges.get(id)?.status === "charged" ? { type: "refunds_sent", count: 1 } : null;
+      return e.status === "COMPLETED" && id && p.pledges.get(id)?.status === "charged" ? { type: "refunds_sent", count: 1 } : null;
     }
     case "deadline_reached":
       return { type: "deadline_reached", now: e.now };
@@ -253,7 +253,7 @@ export function applyEvent(p: Projection, s: StoredEvent): void {
     case "refund_ok": {
       const id = p.pledgeByCapture.get(e.captureId);
       const pledge = id ? p.pledges.get(id) : undefined;
-      if (pledge && pledge.status === "charged") {
+      if (e.status === "COMPLETED" && pledge && pledge.status === "charged") {
         pledge.status = "refunded";
         pledge.refundId = e.refundId;
       }

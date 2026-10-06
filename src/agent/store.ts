@@ -3,6 +3,14 @@ import { eventKey, type AiSource, type LedgerEvent } from "./events";
 import { applyEvent, emptyProjection, type Projection } from "./project";
 import type { SqlDb, SqlValue } from "./sql";
 
+/** An event names an authorization, pledge or capture the ledger has no record of. Nothing was written. */
+export class UnknownLedgerReference extends Error {
+  constructor(type: string, ref: string) {
+    super(`Cannot record ${type}: the ledger has no record of ${ref}`);
+    this.name = "UnknownLedgerReference";
+  }
+}
+
 export interface StoredEvent {
   seq: number;
   key: string;
@@ -86,8 +94,17 @@ export class Store {
     }
   }
 
+  /**
+   * Runs fn atomically. On any error the cached projection is dropped: SQLite rolls back the AUTOINCREMENT
+   * counter too, so a rolled-back event's seq is reused and the cache could otherwise stay ahead of the table.
+   */
   transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn);
+    try {
+      return this.db.transaction(fn);
+    } catch (e) {
+      this.resetProjection();
+      throw e;
+    }
   }
 
   getMeta(key: string): string | undefined {
@@ -110,8 +127,32 @@ export class Store {
   appendEvent(at: number, event: LedgerEvent): boolean {
     const key = eventKey(event);
     if (this.hasEvent(key)) return false;
+    this.assertKnownReference(event);
     this.db.sql.exec("INSERT INTO events (key, at, type, data) VALUES (?, ?, ?, ?)", key, at, event.type, JSON.stringify(event));
     return true;
+  }
+
+  /** An event about a hold or pledge we never recorded would use up its key and be ignored: refuse it before writing. */
+  private assertKnownReference(e: LedgerEvent): void {
+    this.advance();
+    const p = this.cache;
+    switch (e.type) {
+      case "capture_ok":
+      case "capture_failed":
+        if (!p.pledgeByAuth.has(e.authorizationId)) throw new UnknownLedgerReference(e.type, e.authorizationId);
+        break;
+      case "void_ok":
+        if (!p.pledgeByAuth.has(e.authorizationId) && !p.retired.has(e.authorizationId)) throw new UnknownLedgerReference(e.type, e.authorizationId);
+        break;
+      case "hold_replaced":
+        if (!p.pledges.has(e.pledgeId)) throw new UnknownLedgerReference(e.type, e.pledgeId);
+        break;
+      case "refund_ok":
+        if (!p.pledgeByCapture.has(e.captureId)) throw new UnknownLedgerReference(e.type, e.captureId);
+        break;
+      default:
+        break;
+    }
   }
 
   events(): StoredEvent[] {
@@ -125,14 +166,18 @@ export class Store {
       .map((r) => ({ seq: r.seq, key: r.key, at: r.at, event: JSON.parse(r.data) as LedgerEvent }));
   }
 
-  /** The current state, rebuilt from the events (incrementally). Read-only for callers. */
+  /** The current state, rebuilt from the events (incrementally). Returns a copy: mutating it never touches the cache. */
   projection(): Projection {
+    this.advance();
+    return structuredClone(this.cache);
+  }
+
+  private advance(): void {
     try {
       for (const s of this.eventsAfter(this.cacheSeq)) {
         applyEvent(this.cache, s);
         this.cacheSeq = s.seq;
       }
-      return this.cache;
     } catch (e) {
       this.resetProjection();
       throw e;
