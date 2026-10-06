@@ -1,11 +1,20 @@
 // Spec 9 "integration": drives the real Worker (wrangler dev --local, env "check") end to end against the PayPal sandbox.
 // Run: npm run worker:check. Prints statuses and PayPal ids only. Never prints keys, tokens, manage keys or demo keys.
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream, mkdirSync, rmSync } from "node:fs";
-import type { CreateOrderResponse, CreateShowResponse, DemoResponse, ManageView, PublicShow, SignResponse } from "../src/worker/api-types";
+import type { CreateOrderResponse, CreateShowResponse, DemoResponse, HealthResponse, ManageView, PublicShow, SignResponse } from "../src/worker/api-types";
+import { extraHostsFromEnv, parseCheckArgs } from "./lib/live";
 
 const PORT = 8788;
-const BASE = `http://127.0.0.1:${PORT}`;
+const parsed = parseCheckArgs(process.argv.slice(2), extraHostsFromEnv());
+if (parsed.error) {
+  console.error(parsed.error);
+  process.exit(2);
+}
+const REMOTE = parsed.base;
+const EXPECT_AI = parsed.expectAi;
+const EXPECT_PAID = parsed.expectPaid;
+const BASE = REMOTE ?? `http://127.0.0.1:${PORT}`;
 const STATE_DIR = ".wrangler/worker-check";
 let failures = 0;
 
@@ -39,13 +48,20 @@ async function waitFor<T>(what: string, probe: () => Promise<T | undefined>, tim
 
 const looksLikePayPalId = (s: string | null) => typeof s === "string" && /^[A-Z0-9]{10,25}$/.test(s);
 
-rmSync(STATE_DIR, { recursive: true, force: true });
-mkdirSync(".wrangler", { recursive: true });
-const log = createWriteStream(".wrangler/worker-check.log");
-const child = spawn("npx", ["wrangler", "dev", "--local", "--env", "check", "--port", String(PORT), "--persist-to", STATE_DIR], { stdio: ["ignore", "pipe", "pipe"], detached: true });
+let child: ChildProcess | null = null;
+let log: ReturnType<typeof createWriteStream> | null = null;
+if (REMOTE === null) {
+  rmSync(STATE_DIR, { recursive: true, force: true });
+  mkdirSync(".wrangler", { recursive: true });
+  log = createWriteStream(".wrangler/worker-check.log");
+  child = spawn("npx", ["wrangler", "dev", "--local", "--env", "check", "--port", String(PORT), "--persist-to", STATE_DIR], { stdio: ["ignore", "pipe", "pipe"], detached: true });
+  child.stdout?.pipe(log);
+  child.stderr?.pipe(log);
+}
 
 /** Stops wrangler and everything it started (workerd), not just npx. */
 function stopWorker() {
+  if (!child) return;
   try {
     if (child.pid) process.kill(-child.pid, "SIGTERM");
   } catch {
@@ -56,18 +72,21 @@ process.on("SIGINT", () => {
   stopWorker();
   process.exit(130);
 });
-child.stdout.pipe(log);
-child.stderr.pipe(log);
 
 try {
   const up = await waitFor("the Worker", async () => ((await api<{ ok: boolean }>("GET", "/api/health")).data?.ok ? true : undefined), 90_000);
   line(up === true, "health");
-  if (!up) throw new Error("Worker did not start; see .wrangler/worker-check.log");
+  if (!up) throw new Error(REMOTE ? "the live Worker did not answer /api/health" : "Worker did not start; see .wrangler/worker-check.log");
+  if (REMOTE) {
+    const { setup } = (await api<HealthResponse>("GET", "/api/health")).data;
+    console.log(`setup: rateSalt=${setup.rateSalt} webhook=${setup.webhook} judgeCode=${setup.judgeCode} receivers=${setup.receivers} paypalClientId=${setup.paypalClientId ? "present" : "missing"}`);
+    line(setup.rateSalt && setup.webhook && setup.judgeCode && setup.receivers && Boolean(setup.paypalClientId), "live setup complete");
+  }
 
   // ---- a real show (the artist path) ----
   const deadline = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
   const created = await api<CreateShowResponse>("POST", "/api/shows", { sentence: "Worker check at Test Room, Dec 20, $15 tickets, room wants $10, I need $10", deadline, emails: { room: "check-room@example.com", artist: "check-artist@example.com" } });
-  line(created.status === 201 && created.data.threshold === 2, "draft: code computes the target", `status ${created.status}, target ${created.data?.threshold}, written by ${created.data?.source}`);
+  line(created.status === 201 && created.data.threshold === 2 && (!EXPECT_AI || created.data.source === "model"), "draft: code computes the target", `status ${created.status}, target ${created.data?.threshold}, written by ${created.data?.source}`);
   const signed = await api<SignResponse>("POST", `/api/shows/${created.data.showId}/sign`, { signToken: created.data.signToken, draft: created.data.draft });
   const showId = signed.data?.showId;
   line(signed.status === 200 && typeof signed.data.manageKey === "string" && signed.data.manageKey.length === 43, "sign returns a manage key once", `status ${signed.status}, show ${showId}`);
@@ -102,6 +121,11 @@ try {
   line(seated === true, "simulated fans seated as sandbox card holds");
   const firstHold = (await api<ManageView>("GET", `/api/shows/${a}/manage`, undefined, key)).data.ledger.find((r) => r.status === "On hold");
   line(looksLikePayPalId(firstHold?.ref ?? null), "a simulated fan's ledger row carries a real PayPal authorization id", firstHold?.ref ?? "none");
+  if (EXPECT_AI) {
+    const pace = await api("POST", `/api/demo/${demo.data.demoId}/pace`, undefined, key);
+    const proposal = await waitFor("a pace proposal on show B", async () => (await api<ManageView>("GET", `/api/shows/${b}/manage`, undefined, key)).data.proposals[0], 90_000);
+    line(pace.status === 200 && proposal?.source === "model", "pace proposal written by Workers AI (JSON mode)", `source ${proposal?.source ?? "none"}`);
+  }
   const more = await api("POST", `/api/demo/${demo.data.demoId}/fans`, { show: "a", count: 2 }, key);
   const thirtyOne = await waitFor("31 fans on show A", async () => ((await api<PublicShow>("GET", `/api/shows/${a}`)).data.fans.committed === 31 ? true : undefined), 120_000);
   line(more.status === 200 && thirtyOne === true, "add 2 fans");
@@ -118,6 +142,14 @@ try {
   line(settledA === true && manageA.show.fans.charged === 36 && charged.length === 36, "show A tipped: every hold charged (34 plus the 2 top-up fans)", `${charged.length} charge rows with PayPal capture ids`);
   line(paid.length >= 1 && manageA.log.some((l) => l.rule === "rule-4-pay-the-split"), "show A payout batch sent under rule 4", paid.map((r) => `${r.who} ${r.amountCents} ${r.status}`).join(" · "));
   line(manageA.collectedNetCents > 0 && manageA.collectedNetCents < 36 * 1500, "collected net comes from PayPal's net amounts", `net ${manageA.collectedNetCents} of gross ${36 * 1500}`);
+  if (EXPECT_PAID) {
+    const allPaid = await waitFor("every payout confirmed by PayPal", async () => {
+      const v = (await api<ManageView>("GET", `/api/shows/${a}/manage`, undefined, key)).data;
+      return v.parties.every((p) => !p.payoutCents || p.payoutStatus === "paid") ? v : undefined;
+    }, 900_000);
+    line(allPaid !== undefined, "payouts reached SUCCESS at the sandbox payee accounts");
+    if (allPaid && EXPECT_AI) console.log(`notes: ${allPaid.notes.map((n) => `${n.role}:${n.source}`).join(" ")}`);
+  }
   const manageB = (await api<ManageView>("GET", `/api/shows/${b}/manage`, undefined, key)).data;
   line(missedB === true && manageB.ledger.filter((r) => r.status === "Cancelled").length >= 19 && manageB.log.some((l) => l.rule === "rule-3-void-on-miss"), "show B missed: every hold cancelled under rule 3");
   const reset = await api<DemoResponse>("POST", `/api/demo/${demo.data.demoId}/reset`, undefined, key);
@@ -126,7 +158,7 @@ try {
   line(false, "check crashed", e instanceof Error ? e.message : String(e));
 } finally {
   stopWorker();
-  log.end();
+  log?.end();
 }
 
 console.log(failures === 0 ? "\nWorker check: all green." : `\nWorker check: ${failures} failure(s).`);
