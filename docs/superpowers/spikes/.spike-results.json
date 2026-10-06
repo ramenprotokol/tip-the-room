@@ -1,0 +1,55 @@
+{
+  "run": "spike-1791256675621",
+  "results": [
+    {
+      "check": "token",
+      "ok": true,
+      "detail": "issued"
+    },
+    {
+      "check": "card hold",
+      "ok": true,
+      "detail": "authorization 4SA6877655874993N status CREATED created 2026-10-06T03:17:57Z expires 2026-11-04T03:17:57Z (card 1)"
+    },
+    {
+      "check": "capture",
+      "ok": true,
+      "detail": "capture 9MG27632DY398671M status COMPLETED; gross 15.00 USD, fee 0.88 USD, net 14.12 USD, exchange_rate absent"
+    },
+    {
+      "check": "capture replay is idempotent",
+      "ok": true,
+      "detail": "replay returned 9MG27632DY398671M"
+    },
+    {
+      "check": "void",
+      "ok": true,
+      "detail": "void 4E2718717G832094A body status VOIDED"
+    },
+    {
+      "check": "reauthorize on day 0 refused (expected)",
+      "ok": true,
+      "detail": "422 UNPROCESSABLE_ENTITY [REAUTHORIZATION_TOO_SOON] debug_id=f2563466e5bd7"
+    },
+    {
+      "check": "refund",
+      "ok": true,
+      "detail": "refund 3LU712027L529170H status COMPLETED; body has seller_payable_breakdown (payable yes, receivable no); gross 15.00 USD, fee 0.00 USD, net 15.00 USD, total_refunded 15.00 USD"
+    },
+    {
+      "check": "payouts enabled",
+      "ok": true,
+      "detail": "batch V8PDK75HD9EW4 status PENDING (receiver is an unclaimed example address)"
+    },
+    {
+      "check": "duplicate sender_batch_id refused",
+      "ok": true,
+      "detail": "400 USER_BUSINESS_ERROR [Batch with given sender_batch_id already exists] debug_id=f360387a57c22"
+    },
+    {
+      "check": "payout batch readable",
+      "ok": true,
+      "detail": "fetched batch status"
+    }
+  ]
+}

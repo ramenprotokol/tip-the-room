@@ -1,5 +1,5 @@
 {
-  "id": "1UA38476L53134933",
+  "id": "3LU712027L529170H",
   "amount": {
     "currency_code": "USD",
     "value": "15.00"
@@ -17,40 +17,23 @@
       "currency_code": "USD",
       "value": "15.00"
     },
-    "net_amount_breakdown": [
-      {
-        "payable_amount": {
-          "currency_code": "CAD",
-          "value": "20.74"
-        },
-        "converted_amount": {
-          "currency_code": "USD",
-          "value": "15.00"
-        },
-        "exchange_rate": {
-          "source_currency": "CAD",
-          "target_currency": "USD",
-          "value": "0.723332537667542"
-        }
-      }
-    ],
     "total_refunded_amount": {
       "currency_code": "USD",
       "value": "15.00"
     }
   },
-  "custom_id": "spike-1791245968714:a",
+  "custom_id": "spike-1791256675621:a",
   "status": "COMPLETED",
-  "create_time": "2026-10-05T17:19:40-07:00",
-  "update_time": "2026-10-05T17:19:40-07:00",
+  "create_time": "2026-10-05T20:18:07-07:00",
+  "update_time": "2026-10-05T20:18:07-07:00",
   "links": [
     {
-      "href": "https://api.sandbox.paypal.com/v2/payments/refunds/1UA38476L53134933",
+      "href": "https://api.sandbox.paypal.com/v2/payments/refunds/3LU712027L529170H",
       "rel": "self",
       "method": "GET"
     },
     {
-      "href": "https://api.sandbox.paypal.com/v2/payments/captures/4NR48158WF224864V",
+      "href": "https://api.sandbox.paypal.com/v2/payments/captures/9MG27632DY398671M",
       "rel": "up",
       "method": "GET"
     }
