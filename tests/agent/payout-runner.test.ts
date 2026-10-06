@@ -131,6 +131,34 @@ describe("payout", () => {
     expect(h.store.projection().campaign.state).toBe("settled");
   });
 
+  it("keeps its poll number after a failed read, so the next poll is queued and the limit still holds", async () => {
+    const mixed = (b: string) => ({ batchId: b, senderBatchId: "", status: "PROCESSING", items: [
+      { senderItemId: payoutItemId(SHOW, "room"), status: "UNCLAIMED", amountCents: 2000 },
+      { senderItemId: payoutItemId(SHOW, "artist"), status: "HELD", amountCents: 2236 },
+    ] });
+    const h = await readyToPay((paypal) => {
+      paypal.script("getPayoutBatch", mixed, () => {
+        throw new PayPalError(503, "SERVICE_UNAVAILABLE", "busy");
+      });
+      for (let i = 0; i < 20; i++) paypal.script("getPayoutBatch", mixed);
+    });
+    await settle(h);
+    expect(h.store.job("poll:B-1:2")).toMatchObject({ status: "done" });
+    expect(h.store.job("poll:B-1:3")).toBeDefined();
+    expect(h.store.job("poll:B-1:8")).toMatchObject({ status: "done" });
+    expect(h.store.job("poll:B-1:9")).toBeUndefined();
+    expect(h.store.logs().some((l) => l.did.startsWith("Needs attention: some payouts are still unconfirmed"))).toBe(true);
+  });
+
+  it("refuses to send when the worker's show id is not the signed show's", async () => {
+    const h = await readyToPay();
+    const other: ExecDeps = { ...h.d, showId: "sshowothrbb" };
+    await drain(other, RUNNERS);
+    expect(h.paypal.count("sendPayouts")).toBe(0);
+    expect(h.store.job(`payout:${SHOW}`)?.status).toBe("failed");
+    expect(h.store.logs().some((l) => l.did.startsWith("Needs attention:"))).toBe(true);
+  });
+
   it("does not pay before the deadline even if a payout job appears", async () => {
     const store = new Store(memoryDb());
     store.migrate();
@@ -164,6 +192,17 @@ describe("payout retry", () => {
       [`payout-${SHOW}`, false],
       [`payout-${SHOW}-r1`, true],
     ]);
+  });
+
+  it("does not send a retry batch when the worker's show id is not the signed show's", async () => {
+    const h = await readyToPay((paypal) => paypal.script("getPayoutBatch", roomFailed));
+    await drain(h.d, RUNNERS);
+    expect(h.paypal.count("sendPayouts")).toBe(1);
+    const other: ExecDeps = { ...h.d, showId: "sshowothrbb" };
+    h.store.putJob({ key: `payout_retry:${SHOW}`, kind: "payout_retry", target: SHOW, nextAt: 0 }, 0);
+    await drain(other, RUNNERS);
+    expect(h.paypal.count("sendPayouts")).toBe(1);
+    expect(h.store.job(`payout_retry:${SHOW}`)?.status).toBe("failed");
   });
 
   it("surfaces a second failure and never sends a third batch", async () => {

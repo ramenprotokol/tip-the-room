@@ -51,10 +51,15 @@ function proposeShortfall(d: ExecDeps, p: Projection, approvalKey: string, short
   if (appended) logStep(d, { saw: sawCounts(p), did: "The money is short of the signed amounts, so payouts wait for the artist's OK.", rule: "rule-5-ask-first" });
 }
 
+/**
+ * A guard-skipped payout job is permanently spent: putJob won't re-add the `payout:<show>` key. That is acceptable
+ * because send_payouts only fires when held = 0 (the amount is final), and the guard allows it from then on.
+ */
 const runPayout: Runner = async (d, job, attempt) => {
   const p = d.store.projection();
   if (!p.mandate) return fail(d, job, "The money rules aren't signed.");
   if (!isShowId(d.showId)) return fail(d, job, "Not a valid show id.");
+  if (d.showId !== p.mandate.showId) return fail(d, job, "The worker's show id doesn't match the signed show.", "the payout was for a different show than the one signed, so nothing was sent.");
   if (p.payouts.some((x) => !x.retry)) return done(d, job, "Payouts were already sent.");
   const senderBatchId = payoutBatchId(d.showId);
   if (p.campaign.state === "paying_out" && p.campaign.pledges.held === 0 && p.collectedNet === 0) {
@@ -115,7 +120,8 @@ const runPayoutPoll: Runner = async (d, job, attempt) => {
   if (failed.length > 0 && payout.retry && appended) {
     logStep(d, { saw: "The second try failed too.", did: `Needs attention: ${failed.map((i) => labelOf(p, d.showId, i.senderItemId)).join(", ")} couldn't be paid twice. Check their PayPal email.`, rule: null, resultId: batchId });
   }
-  const n = Number(job.note) || 1;
+  // The poll number lives in the job key (poll:<batch>:<n>); job.note is overwritten by retryLater.
+  const n = Number(job.key.split(":").pop()) || 1;
   if (pending) {
     if (n < PAYOUT_POLL_MAX) schedulePoll(d, batchId, n + 1);
     else logStep(d, { saw: sawCounts(p), did: "Needs attention: some payouts are still unconfirmed at PayPal, so they need a look.", rule: null, resultId: batchId });
@@ -138,6 +144,7 @@ export function retryLines(showId: string, p: Projection, first: PayoutView): Pa
 const runPayoutRetry: Runner = async (d, job, attempt) => {
   const p = d.store.projection();
   if (!isShowId(d.showId)) return fail(d, job, "Not a valid show id.");
+  if (!p.mandate || d.showId !== p.mandate.showId) return fail(d, job, "The worker's show id doesn't match the signed show.", "the payout retry was for a different show than the one signed, so nothing was sent.");
   const first = p.payouts.find((x) => !x.retry);
   if (!first) return fail(d, job, "There is no first payout batch to retry.");
   if (p.payouts.some((x) => x.retry)) return done(d, job, "Already retried once.");
