@@ -64,8 +64,14 @@ const DRAFT_SYSTEM =
   "Money is in US dollars as plain numbers. Use 0 for a missing amount, and null for a missing showDate or ticketPriceDollars. " +
   "showDate is YYYY-MM-DD. roomName is the venue. artistMinimumDollars is what the artist says they need. Answer with JSON only.";
 
-/** Schema check for the model's draft. Null means "use the template". */
-export function parseDraft(raw: unknown): DraftSuggestion | null {
+/** Longest sentence any draft path looks at. Slicing first keeps every regex input small. */
+export const MAX_SENTENCE = 500;
+const JARGON = /authori[sz]|captur|void|payout batch|sender_|mandate/i;
+
+/** Schema check for the model's draft. Null means "use the template". Every non-zero amount and the day must appear in the sentence. */
+export function parseDraft(raw: unknown, sentence: string): DraftSuggestion | null {
+  const written = new Set(digitsIn(sentence.slice(0, MAX_SENTENCE)).map(Number));
+  const inSentence = (c: Cents | null) => c === null || c === 0 || written.has(c / 100);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   const text = (v: unknown, allowEmpty: boolean) => (typeof v === "string" && v.trim().length <= 80 && (allowEmpty || v.trim().length > 0) ? v.trim() : null);
@@ -81,6 +87,8 @@ export function parseDraft(raw: unknown): DraftSuggestion | null {
   if (showName === null || roomName === null || showDate === undefined) return null;
   if (r.ticketPriceDollars !== null && (ticketPrice === null || ticketPrice === 0)) return null;
   if (room === null || opener === null || host === null || artistMinimum === null) return null;
+  if (![ticketPrice, room, opener, host, artistMinimum].every(inSentence)) return null;
+  if (showDate !== null && !written.has(Number(showDate.slice(8)))) return null;
   return { showName, roomName, showDate, ticketPrice, room, opener, host, artistMinimum };
 }
 
@@ -89,7 +97,7 @@ const AMOUNT = String.raw`(\d+(?:\.\d{1,2})?)`;
 
 /** Deterministic fallback: the same patterns the Start page's preview used, returning cents. */
 export function templateDraft(sentence: string, now: number): DraftSuggestion {
-  const t = sentence.replace(/[’]/g, "'");
+  const t = sentence.slice(0, MAX_SENTENCE).replace(/[’]/g, "'");
   const num = (re: RegExp): number | null => {
     const m = re.exec(t);
     return m ? Number(m[1]) : null;
@@ -113,7 +121,7 @@ export function templateDraft(sentence: string, now: number): DraftSuggestion {
     const iso = `${year}-${pad(month + 1)}-${pad(day)}`;
     showDate = isIsoDate(iso) ? iso : null;
   }
-  const roomName = (/\bat\s+((?:[A-Z][\w'é&.-]*\s?)+?)(?=\s+on\b|,|$)/.exec(t)?.[1] ?? "").trim().slice(0, 80);
+  const roomName = (/\bat\s+([A-Z][\w'é&.-]*(?:\s[A-Z][\w'é&.-]*)*)(?=\s+on\b|,|$)/.exec(t)?.[1] ?? "").trim().slice(0, 80);
   const showName = (/^\s*([^,]+?)\s+at\s+/i.exec(t)?.[1] ?? "").trim().slice(0, 80) || "My show";
   return {
     showName,
@@ -131,14 +139,14 @@ export async function draftFromSentence(deps: AiDeps, sentence: string, now: num
   const answer = await askModel(deps, MODELS.small, {
     messages: [
       { role: "system", content: DRAFT_SYSTEM },
-      { role: "user", content: `Today is ${new Date(now).toISOString().slice(0, 10)}. Sentence: ${sentence.slice(0, 500)}` },
+      { role: "user", content: `Today is ${new Date(now).toISOString().slice(0, 10)}. Sentence: ${sentence.slice(0, MAX_SENTENCE)}` },
     ],
     max_tokens: 256,
     temperature: 0,
     response_format: { type: "json_schema", json_schema: DRAFT_SCHEMA },
   });
   if (answer.ok) {
-    const value = parseDraft(answer.value);
+    const value = parseDraft(answer.value, sentence);
     if (value) return { value, source: "model" };
   }
   return { value: templateDraft(sentence, now), source: fallbackSource(answer) };
@@ -181,7 +189,7 @@ export function parsePaceNote(raw: unknown, f: PaceFacts): PaceNote | null {
   if (typeof r.text !== "string" || r.text.trim().length < 10 || r.text.length > 400) return null;
   const ids: string[] = ["wait", ...f.options.map((o) => o.id)];
   if (typeof r.recommend !== "string" || !ids.includes(r.recommend)) return null;
-  if (!numbersOk(r.text, paceAllowed(f))) return null;
+  if (JARGON.test(r.text) || !numbersOk(r.text, paceAllowed(f))) return null;
   return { text: r.text.trim(), recommend: r.recommend as ProposalOptionId | "wait" };
 }
 
@@ -246,7 +254,9 @@ export function parseNote(raw: unknown, f: NoteFacts): string | null {
   const text = (raw as Record<string, unknown>).text;
   if (typeof text !== "string" || text.trim().length < 20 || text.length > 400) return null;
   const allowed = new Set([String(f.fans), ...moneyForms(f.amountCents), ...moneyForms(f.ticketPriceCents), ...digitsIn(f.showName, f.label)]);
-  return numbersOk(text, allowed) ? text.trim() : null;
+  if (JARGON.test(text) || !numbersOk(text, allowed)) return null;
+  if (f.outcome === "paid" && /\bpaid\b/i.test(text) && !digitsIn(text).some((d) => moneyForms(f.amountCents).includes(d))) return null;
+  return text.trim();
 }
 
 export async function settlementNote(deps: AiDeps, f: NoteFacts): Promise<AiResult<string>> {

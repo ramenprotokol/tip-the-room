@@ -72,8 +72,31 @@ describe("sentence → draft", () => {
     expect(r.source).toBe("template");
   });
   it("rejects a draft with absurd amounts", () => {
-    expect(parseDraft({ ...valid, roomDollars: 1e9 })).toBeNull();
-    expect(parseDraft({ ...valid, ticketPriceDollars: 0 })).toBeNull();
+    expect(parseDraft({ ...valid, roomDollars: 1e9 }, SENTENCE)).toBeNull();
+    expect(parseDraft({ ...valid, ticketPriceDollars: 0 }, SENTENCE)).toBeNull();
+  });
+  it("accepts the draft only when every amount and the day come from the sentence", () => {
+    expect(parseDraft(valid, SENTENCE)).not.toBeNull();
+    expect(parseDraft({ ...valid, roomDollars: 900 }, SENTENCE)).toBeNull();
+    expect(parseDraft({ ...valid, ticketPriceDollars: 25 }, SENTENCE)).toBeNull();
+    expect(parseDraft({ ...valid, showDate: "2026-11-21" }, SENTENCE)).toBeNull();
+  });
+  it("uses the template when the model invents a room fee", async () => {
+    const r = await draftFromSentence({ ai: new FakeAi([json({ ...valid, roomDollars: 900 })]), budget: fakeBudget().port }, SENTENCE, NOW);
+    expect(r.source).toBe("template");
+    expect(r.value.room).toBe(10000);
+  });
+  it("ignores numbers past the first 500 characters", () => {
+    const long = "x".repeat(500) + " room wants $900";
+    expect(parseDraft({ ...valid, roomDollars: 900 }, long)).toBeNull();
+    expect(templateDraft(long, NOW).room).toBe(0);
+  });
+  it("finishes fast on pathological input", () => {
+    for (const s of ["Show at " + "A".repeat(5000) + "!", "Show at " + "A ".repeat(3000) + "!", "a" + " ".repeat(5000) + "$1 at"]) {
+      const t0 = performance.now();
+      templateDraft(s, NOW);
+      expect(performance.now() - t0).toBeLessThan(50);
+    }
   });
 });
 
@@ -102,7 +125,24 @@ describe("pace note", () => {
   });
 });
 
+describe("no jargon in model text", () => {
+  it("falls back to the template when the pace note uses system words", async () => {
+    for (const text of ["You have 8 of 20 fans; the hold was authorized for all.", "8 of 20 fans, we will capture later.", "8 of 20 fans so the hold may be voided.", "8 of 20 fans, see sender_batch_id.", "8 of 20 fans under the mandate."]) {
+      const r = await paceNote({ ai: new FakeAi([json({ text, recommend: "extend" })]), budget: fakeBudget().port }, facts);
+      expect(r.source).toBe("template");
+    }
+  });
+  it("falls back to the template when a settlement note uses system words", async () => {
+    const r = await settlementNote({ ai: new FakeAi([json({ text: "The show happened with 21 fans, and Lucky's Café was paid $100 in the payout batch." })]), budget: fakeBudget().port }, note);
+    expect(r).toEqual({ source: "template", value: templateNote(note) });
+  });
+});
+
 describe("settlement note", () => {
+  it("requires the party's real amount when the note says paid", async () => {
+    const r = await settlementNote({ ai: new FakeAi([json({ text: "The show happened with 21 fans, and Lucky's Café was paid $15 for the night." })]), budget: fakeBudget().port }, note);
+    expect(r).toEqual({ source: "template", value: templateNote(note) });
+  });
   it("has a plain template for each outcome", () => {
     expect(templateNote(note)).toBe("Acoustic Set happened. 21 fans paid $15.00 each, and Lucky's Café was paid $100.00 under the money rules the artist signed.");
     expect(templateNote({ ...note, outcome: "called_off", amountCents: 0 })).toBe("Acoustic Set didn't reach its target, so every hold was cancelled. Nobody was charged, and Lucky's Café receives nothing.");
