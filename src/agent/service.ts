@@ -254,7 +254,7 @@ export class CampaignService {
       hold = await this.deps.paypal.authorizeOrder(orderId);
     } catch (e) {
       if (e instanceof PayPalError && (UNREADABLE.has(e.paypalName) || e.hasIssue("ORDER_ALREADY_AUTHORIZED"))) {
-        const recovered = await this.recoverExisting(orderId, order, m);
+        const recovered = await this.recoverExisting(orderId, order, m, !UNREADABLE.has(e.paypalName));
         if (recovered) return recovered;
         throw new ServiceError(502, "paypal_error", "PayPal's answer wasn't clear. Nothing was charged and any hold is being cancelled; please try again.");
       }
@@ -322,26 +322,39 @@ export class CampaignService {
    * exactly this order's hold at the signed price, record it as the fan's pledge (so the fan is never pushed into a
    * second hold). Otherwise refuse it and queue it to be cancelled. Null when nothing was recorded.
    */
-  private async recoverExisting(orderId: string, order: OrderView, m: Mandate): Promise<AuthorizeResponse | null> {
+  private async recoverExisting(orderId: string, order: OrderView, m: Mandate, alreadyAuthorized: boolean): Promise<AuthorizeResponse | null> {
     let liveId: string | undefined;
+    let orderCustomId: string | undefined;
     try {
       const found = await this.deps.paypal.getOrderPayments(orderId);
       liveId = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && SAFE_REF.test(a.id))?.id;
+      orderCustomId = found.customId;
     } catch {
       return null; // PayPal can't say: the order stays open and the fan's retry asks again.
     }
-    if (!liveId) return null;
+    if (!liveId) {
+      // PayPal says the order was authorized, yet nothing live is on it (voided or expired): end the order for good, so a retry can't loop.
+      if (alreadyAuthorized) {
+        commit(this.deps.store, this.now(), { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: null, reason: "PayPal's hold on this order is no longer live" });
+        this.log({ saw: `PayPal says order ${orderId} was already authorized, but no hold on it is live.`, did: "Closed the order. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: null });
+        throw new ServiceError(409, "conflict", "PayPal didn't place the hold. Nothing was charged.");
+      }
+      return null;
+    }
     let hold: Hold | null;
     try {
       hold = await this.deps.paypal.getAuthorization(liveId, orderId);
     } catch {
       hold = null;
     }
-    if (hold && hold.authorizationId === liveId && hold.status === "CREATED" && !holdProblem(hold, orderId, order, m)) return this.recordHold(orderId, order, m, hold);
+    const wantCustomId = customIdFor(m.showId, order.pledgeId);
+    const mismatch = orderCustomId !== undefined && orderCustomId !== wantCustomId ? "PayPal's hold belongs to a different pledge" : hold && hold.authorizationId === liveId ? holdProblem(hold, orderId, order, m) : null;
+    if (hold && hold.authorizationId === liveId && !mismatch) return this.recordHold(orderId, order, m, hold);
     const now = this.now();
-    commit(this.deps.store, now, { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: liveId, reason: "PayPal's answer could not be read" });
+    commit(this.deps.store, now, { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: liveId, reason: mismatch ?? "PayPal's answer could not be read" });
     queueVoid(this.deps.store, liveId, now);
-    this.log({ saw: `PayPal's answer for order ${orderId} couldn't be read, but a hold exists.`, did: "Refused it and queued it to be cancelled. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: liveId });
+    this.log({ saw: mismatch ? `PayPal holds money on order ${orderId}, but ${mismatch}.` : `PayPal's answer for order ${orderId} couldn't be read, but a hold exists.`, did: "Refused it and queued it to be cancelled. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: liveId });
+    if (mismatch) throw new ServiceError(422, "invalid", "PayPal's hold didn't match this show, so it is being cancelled. Nothing was charged.");
     return null;
   }
 

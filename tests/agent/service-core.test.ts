@@ -354,9 +354,34 @@ describe("hardening", () => {
     });
     h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-odd", status: "CREATED" }], captures: [] }));
     h.paypal.script("getAuthorization", (authorizationId: string, orderId: string) => ({ authorizationId, orderId, amountCents: 100, status: "CREATED", createdAt: 0, expiresAt: 1, customId: `${SHOW}:${o.pledgeId}` }));
-    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 502 });
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 422, message: expect.stringContaining("didn't match this show") });
     expect(h.store.job("void:A-odd")?.status).toBe("pending");
     expect(h.svc.project().campaign.pledges.held).toBe(0);
+  });
+
+  it("a recovered hold whose order custom_id is another pledge is refused and cancelled", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(422, "UNPROCESSABLE_ENTITY", "already", undefined, [{ issue: "ORDER_ALREADY_AUTHORIZED" }]);
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", customId: `${SHOW}:pother`, authorizations: [{ id: "A-other", status: "CREATED" }], captures: [] }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 422 });
+    expect(h.store.job("void:A-other")?.status).toBe("pending");
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
+  });
+
+  it("ORDER_ALREADY_AUTHORIZED with no live hold (voided or expired) ends the order with a final 409", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(422, "UNPROCESSABLE_ENTITY", "already", undefined, [{ issue: "ORDER_ALREADY_AUTHORIZED" }]);
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-gone", status: "VOIDED" }], captures: [] }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.svc.project().orders.get(o.orderId)?.resolved).toBe(true);
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 409 });
+    expect(h.paypal.count("authorizeOrder")).toBe(1);
   });
 
   it("leaves the order open when PayPal can't be reached, so the fan can try again", async () => {
