@@ -1,0 +1,10 @@
+{
+  "status": 422,
+  "name": "UNPROCESSABLE_ENTITY",
+  "issues": [
+    {
+      "issue": "REAUTHORIZATION_TOO_SOON",
+      "description": "A reauthorization is only allowed once from Day 4 to Day 29 since the date of the original authorization."
+    }
+  ]
+}

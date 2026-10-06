@@ -1,0 +1,58 @@
+{
+  "id": "1UA38476L53134933",
+  "amount": {
+    "currency_code": "USD",
+    "value": "15.00"
+  },
+  "seller_payable_breakdown": {
+    "gross_amount": {
+      "currency_code": "USD",
+      "value": "15.00"
+    },
+    "paypal_fee": {
+      "currency_code": "USD",
+      "value": "0.00"
+    },
+    "net_amount": {
+      "currency_code": "USD",
+      "value": "15.00"
+    },
+    "net_amount_breakdown": [
+      {
+        "payable_amount": {
+          "currency_code": "CAD",
+          "value": "20.74"
+        },
+        "converted_amount": {
+          "currency_code": "USD",
+          "value": "15.00"
+        },
+        "exchange_rate": {
+          "source_currency": "CAD",
+          "target_currency": "USD",
+          "value": "0.723332537667542"
+        }
+      }
+    ],
+    "total_refunded_amount": {
+      "currency_code": "USD",
+      "value": "15.00"
+    }
+  },
+  "custom_id": "spike-1791245968714:a",
+  "status": "COMPLETED",
+  "create_time": "2026-10-05T17:19:40-07:00",
+  "update_time": "2026-10-05T17:19:40-07:00",
+  "links": [
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/refunds/1UA38476L53134933",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/captures/4NR48158WF224864V",
+      "rel": "up",
+      "method": "GET"
+    }
+  ]
+}

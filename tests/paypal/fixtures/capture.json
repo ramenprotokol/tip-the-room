@@ -1,0 +1,59 @@
+{
+  "id": "4NR48158WF224864V",
+  "amount": {
+    "currency_code": "USD",
+    "value": "15.00"
+  },
+  "final_capture": true,
+  "seller_protection": {
+    "status": "NOT_ELIGIBLE"
+  },
+  "seller_receivable_breakdown": {
+    "gross_amount": {
+      "currency_code": "USD",
+      "value": "15.00"
+    },
+    "paypal_fee": {
+      "currency_code": "USD",
+      "value": "0.71"
+    },
+    "net_amount": {
+      "currency_code": "CAD",
+      "value": "19.17"
+    },
+    "receivable_amount": {
+      "currency_code": "CAD",
+      "value": "19.17"
+    },
+    "exchange_rate": {
+      "source_currency": "USD",
+      "target_currency": "CAD",
+      "value": "1.34131725"
+    }
+  },
+  "custom_id": "spike-1791245968714:a",
+  "status": "COMPLETED",
+  "create_time": "2026-10-06T00:19:32Z",
+  "update_time": "2026-10-06T00:19:32Z",
+  "links": [
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/captures/4NR48158WF224864V",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/captures/4NR48158WF224864V/refund",
+      "rel": "refund",
+      "method": "POST"
+    },
+    {
+      "href": "https://api.sandbox.paypal.com/v2/payments/authorizations/2V429058JW658963X",
+      "rel": "up",
+      "method": "GET"
+    }
+  ],
+  "network_transaction_reference": {
+    "id": "193943997880259",
+    "network": "VISA"
+  }
+}

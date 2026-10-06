@@ -1,0 +1,19 @@
+{
+  "status": 400,
+  "name": "USER_BUSINESS_ERROR",
+  "issues": [
+    {
+      "field": "SENDER_BATCH_ID",
+      "location": "body",
+      "issue": "Batch with given sender_batch_id already exists",
+      "link": [
+        {
+          "href": "https://api.sandbox.paypal.com/v1/payments/payouts/YZSF6XS9E4B44",
+          "rel": "self",
+          "method": "GET",
+          "encType": "application/json"
+        }
+      ]
+    }
+  ]
+}
