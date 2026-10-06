@@ -320,3 +320,9 @@ main{padding:0 var(--gutter) 28px}
   .page-title{font-size:38px}
   .sentence{font-size:23px}
 }
+
+/* ---------- Plan 5 (app-only): live PayPal button, pledge messages, page notices */
+.pp-slot.is-rendered{border:0;background:none;min-height:0;padding:0;display:block}
+.pledge-msg{margin:0;font:500 16px/1.4 var(--f-ui);color:#8A1A12}
+.notice{margin:0 0 22px}
+.notice p{margin:0;font:500 18px/1.45 var(--f-ui)}
