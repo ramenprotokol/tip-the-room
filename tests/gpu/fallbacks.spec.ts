@@ -45,7 +45,7 @@ async function runFlow(page: Page, name: string, tick: (ms: number) => Promise<v
     await call(page, "approve");
     await settle(page);
     await expect.poll(async () => { await tick(500); return page.locator("#confirm").isVisible(); }, { timeout: 15_000 }).toBe(true);
-    expect(await bulbs(page, 0, "s-held")).toBe(13);
+    await expect.poll(async () => { await tick(250); return bulbs(page, 0, "s-held"); }, { timeout: 15_000 }).toBe(13);
   } else {
     await call(page, "approve");
     await settle(page);

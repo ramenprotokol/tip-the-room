@@ -7,7 +7,7 @@ import type { AgentLogDto, ManageView, ProposalDto, PublicShow } from "../../wor
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, planSplit, payoutsConfirmed, remainSec, ShowClock, when, type Seg } from "../shared/format";
+import { andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, planSplit, payoutsConfirmed, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
 import { dismiss, forgetKey, isDismissed, recallKey, rememberKey, showIdFromPath, takeKeyFromHash } from "../shared/keys";
 import { LedgerGrid } from "../shared/ledger";
 
@@ -45,14 +45,7 @@ const priceCents = () => mv?.show.ticketPriceCents ?? 0;
 const tz = () => mv?.show.timeZone ?? 'UTC';
 const fixedParties = () => show().split.filter(p => p.role !== 'artist');
 const confirmed = () => payoutsConfirmed(mv?.parties ?? []);
-/** What the money did after the deadline: all paid, a payout failed, still waiting on PayPal (sent), or nothing sent yet (planned). */
-type PayState = 'confirmed' | 'failed' | 'waiting' | 'planned';
-function payState(): PayState {
-  const ps = mv?.parties ?? [];
-  if (ps.some(p => p.payoutStatus === 'failed')) return 'failed';
-  if (confirmed()) return 'confirmed';
-  return ps.some(p => p.payoutStatus === 'planned') ? 'planned' : 'waiting';
-}
+const payState = (): PayState => payStateOf(mv?.parties ?? []);
 const payKey = (): StatusKey => ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying' } as const)[payState()];
 /** The sentence under the sign once the deadline has passed on a show that was on. */
 function paidSentence(a: number[]): string {

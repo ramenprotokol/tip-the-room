@@ -5,9 +5,9 @@ import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
-import { API_BASE, HOOKS, PARITY, SANDBOX_BUYER, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, QUIET, SANDBOX_BUYER, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, planSplit, remainSec, ROLE_WORD, rulesLine, ShowClock, when } from "../shared/format";
+import { andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
@@ -20,7 +20,7 @@ interface Look { crest: string; yaw: number; seed: number; label: string }
 // aren't in the API; everything else on the page comes from it.
 const LOOK: Record<Key, Look> = { a: { crest: 'SPINDLE RECORDS', yaw: .2, seed: 7, label: 'Show A' }, b: { crest: 'ELM ST HOUSE SHOW', yaw: -.2, seed: 19, label: 'Show B' } };
 type CtlPhase = 'open' | 'tipping' | 'tipped' | 'ff' | 'paying' | 'paid' | 'missing' | 'released';
-type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'missing' | 'released';
+type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'failed' | 'missing' | 'released';
 const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6, done: 2.6 }, MISS: { release: .12, msg: 2.05, done: 3.1, wave: .9 }, R: { tip: .7, payout: .7, miss: 1.3 } };
 const log = new AgentLog($('#log'));
 let payout: PayoutStrip | null = null;
@@ -50,6 +50,10 @@ class ShowCtl {
   get target() { return this.show?.threshold ?? 1; }
   get cents() { return this.show?.ticketPriceCents ?? 0; }
   get confirmed() { return payoutsConfirmed(this.parties); }
+  /** The status line once the deadline has passed on a show that was on: paid, failed, paying (nothing sent yet) or sent (PayPal confirming). */
+  get payKey(): StatusKey { return ({ confirmed: 'paid', failed: 'failed', waiting: 'sent', planned: 'paying' } as const)[payState(this.parties)]; }
+  payMoneySub(): string { const s = payState(this.parties); return s === 'confirmed' ? 'Paid out in one PayPal batch.' : s === 'failed' ? 'Sent in one PayPal batch. One payout didn’t go through.' : s === 'planned' ? 'Paying everyone in one PayPal batch. Nothing has been sent yet.' : 'Sent in one PayPal batch. PayPal is confirming it.'; }
+  payFansSub(): string { return ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', waiting: 'Payouts sent' } as const)[payState(this.parties)]; }
   visual(): { phase: Phase; fans: number } { const p = this.phase; return { phase: p === 'paying' || p === 'paid' ? 'paid' : p === 'missing' || p === 'released' ? 'released' : this.tipped ? 'tipped' : 'held', fans: this.fans }; }
   splitOf(fans: number): number[] { return this.show ? planSplit(this.show.split, fans * this.cents).map(c => c / 100) : []; }
   payees(): Payee[] { const a = this.splitOf(Math.max(this.fans, this.target)); return (this.show?.split ?? []).map((p, i) => ({ label: ROLE_WORD[p.role], amount: a[i] })); }
@@ -88,14 +92,14 @@ class ShowCtl {
     this.renderMoney(true); this.odoFans.set(this.fans, true);
     const over = this.phase === 'paid' || this.phase === 'released';
     this.clockEl.classList.toggle('zero', over);
-    this.moneySub.textContent = this.phase === 'paid' ? 'Paid out in one PayPal batch.' : this.phase === 'released' ? `${usd(this.fans * this.cents / 100)} released back to ${this.fans} fans · nobody paid` : this.tipped ? `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}` : 'Nobody pays unless it happens.';
-    this.setStatus(this.phase === 'open' ? 'held' : this.phase === 'tipped' ? 'tipped' : this.phase === 'paid' ? (this.confirmed ? 'paid' : 'sent') : 'released', true);
+    this.moneySub.textContent = this.phase === 'paid' ? this.payMoneySub() : this.phase === 'released' ? `${usd(this.fans * this.cents / 100)} released back to ${this.fans} fans · nobody paid` : this.tipped ? `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}` : 'Nobody pays unless it happens.';
+    this.setStatus(this.phase === 'open' ? 'held' : this.phase === 'tipped' ? 'tipped' : this.phase === 'paid' ? this.payKey : 'released', true);
     this.renderClock(); this.renderFans(); this.buttons(); this.ph?.update(this.visual().phase, this.fans); this.label();
     if (this.key === 'a' && payout) payout.reset();
   }
   setStatus(k: StatusKey, instant?: boolean) {
     const roles = andList((this.show?.split ?? []).map(p => ROLE_WORD[p.role].toLowerCase()));
-    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'] };
+    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], failed: ['missing', 'A payout didn’t go through', '· needs a look'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'] };
     const [s, w, said] = S[k]; setStatus(this.status, s, w, said, instant);
   }
   renderMoney(instant?: boolean) { const total = this.fans * this.cents / 100; this.odoHeld.set(this.tipped || this.phase === 'released' || this.phase === 'missing' ? 0 : total, instant); this.odoCharged.set(this.tipped ? total : 0, instant); }
@@ -103,7 +107,7 @@ class ShowCtl {
   renderFans() {
     const { fans, target } = this, p = this.phase;
     this.of.textContent = fans <= target ? `of ${target} fans` : `fans · target was ${target}`;
-    this.fansSub.textContent = p === 'paid' || p === 'paying' ? (p === 'paid' && !this.confirmed ? 'Payouts sent' : 'Everyone’s paid')
+    this.fansSub.textContent = p === 'paid' || p === 'paying' ? (p === 'paid' ? this.payFansSub() : 'Everyone’s paid')
       : p === 'released' || p === 'missing' ? `Called off · ${target - fans} short`
       : this.tipped ? (fans > target ? `It’s on! · ${fans - target} joined after it tipped` : 'It’s on! Everyone’s charged')
       : `${target - fans} more to make it happen`;
@@ -138,6 +142,7 @@ class ShowCtl {
   takeView(v: ManageView, instant = false) {
     this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length;
     for (const e of [...v.log].reverse()) if (e.seq > this.lastSeq) { this.queue.push(e); this.lastSeq = e.seq; }
+    if (this.phase === 'paid') { this.setStatus(this.payKey, true); this.renderFans(); this.moneySub.textContent = this.payMoneySub(); }
     if (instant) this.flush(null, true); else this.step();
   }
   flush(rule: RuleId | null, instant = false) {
@@ -220,8 +225,8 @@ class ShowCtl {
     if (this.view) { this.view.setPayouts(this.payees()); this.view.play(REDUCED ? 'reduced' : 'payout', REDUCED ? { to: 'paid' } : {}); }
     if (!REDUCED) Snd.drop();
     this.cues.at(C.paid, () => {
-      Snd.paid(); this.phase = 'paid'; this.setStatus(this.confirmed ? 'paid' : 'sent'); this.renderFans(); this.label(); this.ph?.update('paid', this.fans);
-      this.moneySub.textContent = this.confirmed ? 'Paid out in one PayPal batch.' : 'Sent in one PayPal batch. PayPal is confirming it.';
+      Snd.paid(); this.phase = 'paid'; this.setStatus(this.payKey); this.renderFans(); this.label(); this.ph?.update('paid', this.fans);
+      this.moneySub.textContent = this.payMoneySub();
       if (this.key === 'a' && payout) payout.fill(amts, this.cues, `One PayPal payout, in money-rule order: ${split.map((p, i) => `${p.label} ${usd(amts[i])}`).join(' · ')}.`, this.confirmed ? undefined : this.parties.map(p => TAG[p.payoutStatus]));
       this.flush('rule-4-pay-the-split');
       this.buttons(); this.step();
@@ -287,9 +292,9 @@ function summary() {
 function links() {
   if (!demo || !A.show || !B.show) return;
   const set = (id: string, href: string, text: string) => { const x = $<HTMLAnchorElement>(id); x.href = href; x.textContent = text; };
-  set('#pledge-a', `/s/${A.show.showId}`, `Hold a spot on ${A.show.showName}`);
-  set('#manage-a', `/s/${A.show.showId}/manage#${demo.demoKey}`, `${A.show.showName}’s show page`);
-  set('#manage-b', `/s/${B.show.showId}/manage#${demo.demoKey}`, `${B.show.showName}’s show page`);
+  set('#pledge-a', `/s/${encodeURIComponent(A.show.showId)}`, `Hold a spot on ${A.show.showName}`);
+  set('#manage-a', `/s/${encodeURIComponent(A.show.showId)}/manage#${demo.demoKey}`, `${A.show.showName}’s show page`);
+  set('#manage-b', `/s/${encodeURIComponent(B.show.showId)}/manage#${demo.demoKey}`, `${B.show.showName}’s show page`);
 }
 function start(r: DemoResponse) {
   demo = { demoId: r.demoId, demoKey: r.demoKey, expiresAt: r.expiresAt }; saveDemo(store, demo);
@@ -332,27 +337,39 @@ async function boot() {
   });
   $('[data-judge-creds]').textContent = SANDBOX_BUYER.email
     ? `To try the real PayPal checkout, log in with the sandbox buyer ${SANDBOX_BUYER.email}${SANDBOX_BUYER.password ? `, password ${SANDBOX_BUYER.password}` : ''}. It’s play money: nothing real is charged.`
-    : 'To try the real PayPal checkout, log in with any PayPal sandbox personal account. It’s play money: nothing real is charged.';
+    : 'Sandbox buyer login coming soon';
   $('#judge').hidden = false;
 }
+let retryAt = 0;
 async function poll() {
   if (!demo || document.hidden || inflight) return;
-  for (const c of [A, B]) {
-    if (!c.show) continue;
-    try { const s = await api.getShow(c.show.showId); if (s.version !== c.show.version) await applyShow(c, s); }
-    catch (e) {
-      if (e instanceof ApiFailure && e.status === 404) { await solo(() => freshCopy('That demo copy has ended, so here is a fresh pair of sample shows.')); return; }
+  await act(async () => {
+    for (const c of [A, B]) {
+      if (!c.show) continue;
+      try { const s = await api.getShow(c.show.showId); if (s.version !== c.show.version) await applyShow(c, s); }
+      catch (e) {
+        if (e instanceof ApiFailure && e.status === 404) {
+          // The server forgot this copy. Start a new one, but back off after a refusal (429) instead of asking again every 4 s.
+          if (Date.now() < retryAt) return;
+          await solo(async () => {
+            try { await freshCopy('That demo copy has ended, so here is a fresh pair of sample shows.'); }
+            catch (err) { retryAt = Date.now() + (err instanceof ApiFailure && err.status === 429 ? 60_000 : 30_000); throw err; }
+          });
+          return;
+        }
+      }
     }
-  }
+  });
 }
 
 interface DemoHooks extends MarqueeHooks { ctls: ShowCtl[]; host: SignHost | null }
 const A = new ShowCtl('a'), B = new ShowCtl('b'), ctls = [A, B];
 setInterval(() => ctls.forEach(c => { if ((c.phase === 'open' || c.phase === 'tipped' || c.phase === 'tipping') && c.show) { c.remain = remainSec(c.show.deadline, c.clock); c.renderClock(); } }), 1000);
-if (!PARITY) setInterval(() => { void poll(); }, 4000);
+if (!QUIET) setInterval(() => { void poll(); }, 4000);
 soundToggle($('#sound'));
 $('#pace').addEventListener('click', () => { void checkPace(); });
-addEventListener('keydown', e => {
+// t/p/m/r are the reference's test keys: dev and test builds only. The real site has the visible buttons.
+if (HOOKS) addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
   const t = e.target as HTMLElement | null; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
   const k = e.key.toLowerCase();

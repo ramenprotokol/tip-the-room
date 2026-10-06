@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RULES, type RuleId } from "../../src/core/rules";
-import { andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, payoutsConfirmed, planSplit, remainSec, rulesLine, ShowClock, when } from "../../src/web/shared/format";
+import { andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, payoutsConfirmed, payState, planSplit, remainSec, rulesLine, ShowClock, when } from "../../src/web/shared/format";
 
 const T = (mo: number, d: number, h: number, mi = 0) => Date.UTC(2026, mo - 1, d, h, mi);
 const text = (segs: { text: string; cls: string }[]) => segs.map((s) => (s.cls ? `[${s.cls}:${s.text}]` : s.text)).join("");
@@ -89,5 +89,16 @@ describe("show state", () => {
     c.sync(T(11, 12, 18, 1), 1_005_000);
     expect(remainSec(T(11, 12, 18), c, 1_005_000)).toBe(0);
     expect(remainSec(T(11, 12, 18), null)).toBe(0);
+  });
+});
+
+describe("payState", () => {
+  const ps = (...s: string[]) => s.map((payoutStatus) => ({ payoutStatus }));
+  it("names what the money did after the deadline", () => {
+    expect(payState(ps("paid", "none"))).toBe("confirmed");
+    expect(payState(ps("paid", "failed"))).toBe("failed");
+    expect(payState(ps("planned", "pending"))).toBe("planned");
+    expect(payState(ps("paid", "pending"))).toBe("waiting");
+    expect(payState([])).toBe("waiting");
   });
 });

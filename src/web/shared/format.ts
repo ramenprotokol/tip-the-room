@@ -157,6 +157,14 @@ export function payoutsConfirmed(parties: { payoutStatus: string }[]): boolean {
   return parties.length > 0 && parties.every((p) => p.payoutStatus === "paid" || p.payoutStatus === "none");
 }
 
+/** What the money did after the deadline: all paid, a payout failed, nothing sent yet (planned), or still waiting on PayPal. */
+export type PayState = "confirmed" | "failed" | "waiting" | "planned";
+export function payState(parties: { payoutStatus: string }[]): PayState {
+  if (parties.some((p) => p.payoutStatus === "failed")) return "failed";
+  if (payoutsConfirmed(parties)) return "confirmed";
+  return parties.some((p) => p.payoutStatus === "planned") ? "planned" : "waiting";
+}
+
 /** The show's own clock: the server's `now` plus the time since it arrived. */
 export class ShowClock {
   private base: number;

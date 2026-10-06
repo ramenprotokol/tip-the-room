@@ -15,6 +15,9 @@ export const HOOKS: boolean = env.DEV || (env.VITE_E2E_HOOKS === "1" && query.ha
 /** Parity runs (?e2e=parity): no background polling, so the fake API's scripted answers stay in step. */
 export const PARITY: boolean = HOOKS && query.get("e2e") === "parity";
 
+/** No background polling: parity runs, and flow tests that open a page with ?e2e=quiet (so late polls can't land mid-assertion). */
+export const QUIET: boolean = PARITY || (HOOKS && query.get("e2e") === "quiet");
+
 /** The PayPal client id. Test pages may pass ?paypal=<id> (hooks only) to load a stubbed SDK. */
 export function paypalClientId(): string {
   const override = HOOKS ? query.get("paypal") : null;

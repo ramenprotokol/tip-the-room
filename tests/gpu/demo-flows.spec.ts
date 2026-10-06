@@ -5,7 +5,7 @@ import { APP_BASE } from "./parity";
 
 async function open(page: Page, api: FakeApi = demoApi()) {
   const seen = await installFakeApi(page, api);
-  await page.goto(`${APP_BASE}?e2e`);
+  await page.goto(`${APP_BASE}?e2e=quiet`);
   await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
   return seen;
 }
@@ -17,7 +17,7 @@ const saved = (page: Page, d: { demoId: string; demoKey: string; expiresAt: numb
 test("the judge panel prints the sandbox login sentence and links to the demo shows", async ({ page }) => {
   await open(page);
   await expect(page.locator("#judge")).toBeVisible();
-  await expect(page.locator("[data-judge-creds]")).toHaveText("To try the real PayPal checkout, log in with any PayPal sandbox personal account. It’s play money: nothing real is charged.");
+  await expect(page.locator("[data-judge-creds]")).toHaveText("Sandbox buyer login coming soon");
   await expect(page.locator("#pledge-a")).toHaveAttribute("href", `/s/${DEMO_ID}a`);
   await expect(page.locator("#pledge-a")).toHaveText("Hold a spot on Juniper Vale");
   await expect(page.locator("#manage-b")).toHaveAttribute("href", `/s/${DEMO_ID}b/manage#${DEMO_KEY}`);
@@ -104,4 +104,15 @@ test("a rate-limited control says so in plain words and the buttons come back", 
   await expect(page.locator("[data-judge-msg]")).toHaveText("Too many tries. Please wait a moment and try again.");
   await expect(page.locator("#show-a [data-act=add]")).toBeEnabled();
   await expect(page.locator("#pace")).toBeEnabled();
+});
+
+test("a payout that failed is named plainly on the demo", async ({ page }) => {
+  await open(page, demoApi("failed"));
+  await page.locator("#show-a [data-act=add]").click();
+  await expect(fans(page, "a")).toHaveText("34", { timeout: 15_000 });
+  await page.locator("#show-a [data-act=ff]").click();
+  await expect(page.locator("#show-a [data-word]")).toHaveText("A payout didn’t go through", { timeout: 20_000 });
+  await expect(page.locator("#show-a [data-fans-sub]")).toHaveText("A payout didn’t go through");
+  await expect(page.locator("#show-a [data-money-sub]")).toHaveText("Sent in one PayPal batch. One payout didn’t go through.");
+  await expect(page.locator("#show-a [data-word]")).not.toHaveText("Payouts sent");
 });

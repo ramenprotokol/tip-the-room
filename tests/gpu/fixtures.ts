@@ -271,7 +271,7 @@ function demoParties(b: ShowBase, fans: number, status: ManageParty["payoutStatu
 
 interface DemoSide { base: ShowBase; show: PublicShow; log: AgentLogDto[]; parties: ManageParty[]; proposals: ProposalDto[]; version: number }
 
-export function demoApi(): FakeApi {
+export function demoApi(payout: ManageParty["payoutStatus"] = "paid"): FakeApi {
   let seq = 0;
   let minute = 19;
   let a: DemoSide;
@@ -316,7 +316,7 @@ export function demoApi(): FakeApi {
     const deadline = Date.parse(s.show.deadline);
     if (s.show.state === "tipped") {
       set(s, { fans, state: "settled", now: deadline + 1000 });
-      s.parties = demoParties(s.base, fans, "paid", true);
+      s.parties = demoParties(s.base, fans, payout, true);
       const paid = s.parties.map((p) => `${p.label} ${usd((p.payoutCents ?? 0) / 100)}`).join(", then ");
       push(s, deadline, `Deadline reached. Paid ${paid}.`, `1 PayPal payout batch · ${s.parties.length} items`, "rule-4-pay-the-split");
     } else if (s.show.state === "live") {

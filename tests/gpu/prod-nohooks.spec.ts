@@ -15,6 +15,9 @@ for (const p of Object.values(PAGES)) {
     expect(await page.evaluate(() => typeof (window as unknown as { __marquee?: unknown }).__marquee)).toBe("undefined");
     expect(await page.locator("[data-ref-only]").count()).toBe(0);
     expect(await page.locator("#simulate").count()).toBe(0);
+    // The reference test keys (t/p/m/r) are dev-only: on the real site they do nothing.
+    for (const k of ["t", "p", "m", "r"]) await page.keyboard.press(k);
+    await page.waitForTimeout(500);
     const posts = seen.filter((r) => r.method === "POST").map((r) => r.path);
     expect(posts).toEqual(p.name === "demo" ? ["/api/demo"] : []);
     expect(errors).toEqual([]);

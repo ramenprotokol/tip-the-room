@@ -12,9 +12,17 @@ async function open(page: Page, api: FakeApi, hash = `#${MAYA_KEY}`) {
   return seen;
 }
 const holdSpace = async (page: Page, selector: string) => {
+  // Remember that the hold completed (the button gets is-done), even if a refused answer resets it a moment later.
+  await page.evaluate((sel) => {
+    const b = document.querySelector(sel)!;
+    const w = window as unknown as { __held?: boolean };
+    w.__held = false;
+    new MutationObserver(() => { if (b.classList.contains("is-done")) w.__held = true; }).observe(b, { attributes: true, attributeFilter: ["class"] });
+  }, selector);
   await page.locator(selector).focus();
   await page.keyboard.down(" ");
-  await page.waitForTimeout(1800);
+  // Keep the key down until the hold has really finished, however slow the machine is.
+  await page.waitForFunction(() => (window as unknown as { __held?: boolean }).__held === true, undefined, { timeout: 15_000 });
   await page.keyboard.up(" ");
 };
 
