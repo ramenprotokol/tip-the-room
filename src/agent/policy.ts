@@ -93,3 +93,12 @@ export const MAX_ORDERS_PER_SHOW = 500;
 export const MONEY_JOBS: JobKind[] = ["capture", "void", "refund", "payout", "payout_retry", "reconcile", "sim_hold"];
 /** A payout PayPal already had (recovered) with no batch id after this long is flagged for the artist. */
 export const RECOVERED_BATCH_ATTENTION_MS = 6 * HOUR_MS;
+/**
+ * A pledge still `held` after the show tipped, with no capture or reconcile job left to run, would block payouts forever.
+ * The sweep waits SWEEP_BACKOFF_MS[n] before sweep number n (0-based): sweeps 1 to SWEEP_MAX-1 ask PayPal again (reconcile);
+ * the last one settles on what PayPal shows was actually captured.
+ */
+export const SWEEP_BACKOFF_MS = [10 * 60_000, 30 * 60_000, 2 * HOUR_MS];
+export const SWEEP_MAX = SWEEP_BACKOFF_MS.length;
+/** Stuck holds handled per turn (each final settle costs up to 2 PayPal requests). */
+export const SWEEP_PER_TURN = 3;

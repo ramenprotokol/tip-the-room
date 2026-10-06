@@ -89,7 +89,9 @@ const runPayout: Runner = async (d, job, attempt) => {
     if (e instanceof PayPalError && (e.retryable || MAYBE_SENT.has(e.paypalName))) return retryLater(d, job, attempt, errText(e));
     return fail(d, job, `PayPal refused the payout batch (${errText(e)}).`);
   }
-  commit(d.store, d.clock.now(), { type: "payout_sent", senderBatchId: sent.senderBatchId, batchId: sent.batchId, status: sent.status, lines: sent.sentLines, retry: false, recovered: false });
+  const first = commit(d.store, d.clock.now(), { type: "payout_sent", senderBatchId: sent.senderBatchId, batchId: sent.batchId, status: sent.status, lines: sent.sentLines, retry: false, recovered: false });
+  // A second run (lease expired) may have recorded ALREADY_SENT with no batch id first: give the record the real id so polling works.
+  if (!first.appended) commit(d.store, d.clock.now(), { type: "payout_batch_seen", senderBatchId: sent.senderBatchId, batchId: sent.batchId });
   logStep(d, { saw: sawCounts(p), did: `Sent the payouts exactly as signed: ${listLines(sent.sentLines)}.`, rule: decision.rule, requestId: sent.senderBatchId, resultId: sent.batchId });
   schedulePoll(d, sent.batchId, 1);
   done(d, job, `Batch ${sent.status}.`);
@@ -163,7 +165,8 @@ const runPayoutRetry: Runner = async (d, job, attempt) => {
     if (e instanceof PayPalError && (e.retryable || MAYBE_SENT.has(e.paypalName))) return retryLater(d, job, attempt, errText(e));
     return fail(d, job, `PayPal refused the retry batch (${errText(e)}).`);
   }
-  commit(d.store, d.clock.now(), { type: "payout_sent", senderBatchId: sent.senderBatchId, batchId: sent.batchId, status: sent.status, lines: sent.sentLines, retry: true, recovered: false });
+  const again = commit(d.store, d.clock.now(), { type: "payout_sent", senderBatchId: sent.senderBatchId, batchId: sent.batchId, status: sent.status, lines: sent.sentLines, retry: true, recovered: false });
+  if (!again.appended) commit(d.store, d.clock.now(), { type: "payout_batch_seen", senderBatchId: sent.senderBatchId, batchId: sent.batchId });
   logStep(d, { saw: sawCounts(p), did: `Tried once more for the payouts that failed: ${listLines(sent.sentLines)}.`, rule: "rule-4-pay-the-split", requestId: sent.senderBatchId, resultId: sent.batchId });
   schedulePoll(d, sent.batchId, 1);
   done(d, job, `Retry batch ${sent.status}.`);

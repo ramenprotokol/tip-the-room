@@ -3,9 +3,10 @@ import type { RuleId } from "../core/rules";
 import { PayPalError } from "../paypal/errors";
 import { requestIds, type Charge, type OrderPayments, type Refund } from "../paypal/payments";
 import { eventKey } from "./events";
-import { commit, decide, done, fail, logStep, requestReconcile, retryLater, skip, type ExecDeps, type Runner, type Runners } from "./executor";
-import { backoffMs, MAX_JOB_ATTEMPTS, RECHECK_MS } from "./policy";
+import { commit, decide, done, fail, logStep, queueVoid, requestReconcile, retryLater, skip, type ExecDeps, type Runner, type Runners } from "./executor";
+import { backoffMs, MAX_JOB_ATTEMPTS, RECHECK_MS, SWEEP_BACKOFF_MS, SWEEP_MAX, SWEEP_PER_TURN, TURN_CALL_BUDGET } from "./policy";
 import type { PledgeView, Projection } from "./project";
+import type { Job, Store } from "./store";
 import { errText, fanName, sawCounts } from "./words";
 
 const FAILED_CAPTURE = new Set(["DECLINED", "FAILED"]);
@@ -136,7 +137,8 @@ const runVoid: Runner = async (d, job, attempt) => {
   let who: string;
   if (pledge) {
     const over = p.campaign.state === "missed" || p.campaign.state === "cancelled" || p.campaign.state === "settled";
-    if (pledge.status === "capture_failed" && over && !pledge.holdClosed) {
+    const swept = d.store.getMeta(`swept:${auth}`) !== undefined;
+    if (pledge.status === "capture_failed" && (over || swept) && !pledge.holdClosed) {
       // The charge failed but the hold may still be open at PayPal. Once the show is over nothing can use it: release it.
       who = `${fanName(pledge)}'s leftover hold`;
     } else if (pledge.status !== "held") {
@@ -237,12 +239,28 @@ const runRefund: Runner = async (d, job, attempt) => {
   fail(d, job, `PayPal answered ${refund.status} for the refund.`, `PayPal couldn't finish ${fanName(pledge)}'s refund. It was not retried; it needs a look.`);
 };
 
+/** A failed charge whose hold PayPal now shows as ended: record that the hold is closed so nothing waits on it. */
+async function closeFailedHold(d: ExecDeps, job: Job, pledge: PledgeView): Promise<void> {
+  let order: OrderPayments;
+  try {
+    order = await d.paypal.getOrderPayments(pledge.orderId);
+  } catch (e) {
+    return retryLater(d, job, job.attempts, errText(e));
+  }
+  const status = order.authorizations.find((a) => a.id === pledge.authorizationId)?.status ?? "UNKNOWN";
+  if (status !== "VOIDED" && status !== "EXPIRED") return done(d, job, `The hold is ${status}.`);
+  commit(d.store, d.clock.now(), { type: "void_ok", authorizationId: pledge.authorizationId });
+  logStep(d, { saw: "PayPal says the hold has ended.", did: `${fanName(pledge)}'s leftover hold is already cancelled. Nobody was charged.`, rule: "rule-1-hold-only", resultId: pledge.authorizationId });
+  done(d, job, `The hold is ${status}.`);
+}
+
 /** GET-based truth: what happened to this authorization at PayPal. Records success for "already captured/voided". */
 const runReconcile: Runner = async (d, job, attempt) => {
   const p = d.store.projection();
   const auth = job.target;
   const pledge = pledgeByAuth(p, auth);
   const retired = p.retired.get(auth);
+  if (pledge && pledge.status === "capture_failed" && !pledge.holdClosed) return closeFailedHold(d, job, pledge);
   if (pledge && pledge.status !== "held") return done(d, job, "Already settled.");
   if (!pledge && (!retired || retired.voided)) return done(d, job, "Nothing left to check.");
   const orderId = pledge?.orderId ?? retired?.orderId ?? null;
@@ -300,3 +318,70 @@ const runReconcile: Runner = async (d, job, attempt) => {
 };
 
 export const HOLD_RUNNERS: Runners = { capture: runCapture, void: runVoid, refund: runRefund, reconcile: runReconcile };
+
+/** Held pledges after the show tipped that have no capture or reconcile job left to run: nothing else will ever settle them. */
+function stuckHolds(store: Store, p: Projection): PledgeView[] {
+  if (p.campaign.state !== "tipped" && p.campaign.state !== "paying_out") return [];
+  const open = (key: string) => store.job(key)?.status === "pending";
+  return [...p.pledges.values()].filter((x) => x.status === "held" && !open(`capture:${x.authorizationId}`) && !open(`reconcile:${x.authorizationId}`));
+}
+
+function sweepState(store: Store, auth: string): { n: number; at: number } | null {
+  const raw = store.getMeta(`sweep:${auth}`);
+  if (!raw) return null;
+  const [n, at] = raw.split(":").map(Number);
+  return Number.isFinite(n) && Number.isFinite(at) ? { n, at } : null;
+}
+
+const setSweep = (store: Store, auth: string, n: number, at: number) => store.setMeta(`sweep:${auth}`, `${n}:${at}`);
+
+/** Campaign times at which the sweep wants a turn (now, when a stuck hold has not been noticed yet). */
+export function sweepWakes(store: Store, p: Projection, now: number): number[] {
+  return stuckHolds(store, p).map((x) => sweepState(store, x.authorizationId)?.at ?? now);
+}
+
+/**
+ * The final sweep: PayPal's own order record decides. A live capture is recorded (never failed); with no live capture the
+ * pledge becomes capture_failed and its hold is voided, so the payout can go ahead on what was actually captured.
+ * Returns false when the capture is still in progress, so the caller looks again later.
+ */
+async function settleOnCaptured(d: ExecDeps, p: Projection, pledge: PledgeView): Promise<boolean> {
+  const order = await d.paypal.getOrderPayments(pledge.orderId);
+  const live = order.captures.find((c) => !FAILED_CAPTURE.has(c.status));
+  if (live) {
+    const charge = await d.paypal.getCapture(live.id, pledge.authorizationId);
+    return recordCharge(d, p, pledge, charge);
+  }
+  const auth = pledge.authorizationId;
+  d.store.setMeta(`swept:${auth}`, "1");
+  writeCaptureFailed(d, p, pledge, "No charge came through before payouts", sawCounts(p), `${fanName(pledge)}'s charge never went through, so payouts go ahead on what was collected. Their hold is being released; nobody is charged.`, auth);
+  queueVoid(d.store, auth, d.clock.now());
+  return true;
+}
+
+/**
+ * Called each turn after the jobs ran. Notices held pledges nothing is working on and, with a backoff and a cap, asks
+ * PayPal again (reconcile), then settles on what was actually captured (spec 8). Never fails a pledge PayPal shows as captured.
+ */
+export async function sweepStuckHolds(d: ExecDeps): Promise<void> {
+  const now = d.clock.now();
+  let handled = 0;
+  for (const pledge of stuckHolds(d.store, d.store.projection())) {
+    const auth = pledge.authorizationId;
+    const st = sweepState(d.store, auth);
+    if (!st) {
+      setSweep(d.store, auth, 0, now + SWEEP_BACKOFF_MS[0]);
+      continue;
+    }
+    if (now < st.at || handled >= SWEEP_PER_TURN) continue;
+    handled += 1;
+    if (st.n < SWEEP_MAX - 1) {
+      requestReconcile(d.store, auth, now, "sweep");
+      setSweep(d.store, auth, st.n + 1, now + SWEEP_BACKOFF_MS[st.n + 1]);
+      continue;
+    }
+    if (TURN_CALL_BUDGET - d.paypal.meter.used < 2) continue;
+    const settled = await settleOnCaptured(d, d.store.projection(), pledge).catch(() => false);
+    if (!settled) setSweep(d.store, auth, st.n, now + SWEEP_BACKOFF_MS[SWEEP_MAX - 1]);
+  }
+}

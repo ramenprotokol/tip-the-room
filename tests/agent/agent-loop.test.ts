@@ -144,6 +144,24 @@ describe("calling off", () => {
   });
 });
 
+describe("leftover holds on a real (non-demo) show", () => {
+  it("releases the hold of a failed charge once the show is over", async () => {
+    const h = await signedService();
+    h.paypal.script("captureHold", (a: string) => ({ captureId: `C-${a}`, authorizationId: a, status: "DECLINED" }));
+    for (const i of ["AA", "BB", "CC"]) await pledge(h.svc, i);
+    await h.svc.tick();
+    const failed = [...h.svc.project().pledges.values()].find((x) => x.status === "capture_failed");
+    expect(failed).toBeDefined();
+    expect(h.svc.kind()).not.toBe("demo");
+    await h.svc.callOff();
+    await h.svc.tick();
+    expect(h.svc.nextWakeAt()).not.toBeNull();
+    await h.svc.tick();
+    expect(h.paypal.effects.has(`void:${failed?.authorizationId}`)).toBe(true);
+    expect([...h.svc.project().pledges.values()].find((x) => x.pledgeId === failed?.pledgeId)?.holdClosed).toBe(true);
+  });
+});
+
 describe("full runs", () => {
   it("tip → charge → deadline → payout → notes, then nothing left to wake for", async () => {
     const h = await signedService();

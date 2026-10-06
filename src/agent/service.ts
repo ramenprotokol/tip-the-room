@@ -16,6 +16,7 @@ import { toMandateDraft } from "./draft";
 import { ServiceError } from "./errors";
 import type { ProposalOption, SettlementNote } from "./events";
 import { commit, drain, logStep, queueVoid, requestReconcile, type ExecDeps } from "./executor";
+import { sweepStuckHolds, sweepWakes } from "./hold-runner";
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
@@ -349,12 +350,28 @@ export class CampaignService {
       if (due.run !== null) await this.runPaceCheck(due.run);
     }
     await drain(this.exec(), RUNNERS, MAX_JOBS_PER_TURN, false);
+    // Held pledges nothing is working on any more must not block the payout forever (spec 8), and a finished real show releases leftover holds.
+    await sweepStuckHolds(this.exec());
+    this.queueLeftoverVoids(this.project());
     // After the drain, so fans seated this turn get their re-hold job now, not on some later wake-up.
     this.planReholds(this.project());
     p = this.applyDeadline();
     this.flagUnconfirmedPayouts(p);
     if (this.notesDue(p)) await this.writeNotes(p);
     return { expired: demo ? this.checkExpiry() : false };
+  }
+
+  /** A capture_failed pledge's hold may still be open at PayPal. Once a real show is over, release it (a demo copy does this at its expiry). */
+  private leftoverVoids(p: Projection): string[] {
+    if (this.kind() === "demo") return [];
+    const s = p.campaign.state;
+    if (s !== "missed" && s !== "cancelled" && s !== "settled") return [];
+    return [...p.pledges.values()].filter((x) => x.status === "capture_failed" && !x.holdClosed && !this.deps.store.job(`void:${x.authorizationId}`)).map((x) => x.authorizationId);
+  }
+
+  private queueLeftoverVoids(p: Projection): void {
+    const now = this.now();
+    for (const auth of this.leftoverVoids(p)) queueVoid(this.deps.store, auth, now);
   }
 
   /** Logs each recovered payout with no batch id after the wait, once (the log itself is the marker). */
@@ -768,6 +785,8 @@ export class CampaignService {
     if (job !== undefined) times.push(job);
     if (this.notesDue(p)) times.push(now);
     times.push(...this.unflaggedPayoutWakes(p));
+    times.push(...sweepWakes(this.deps.store, p, now));
+    if (this.leftoverVoids(p).length > 0) times.push(now);
     const lapse = this.expiresAt();
     // Expiry is stored in REAL time; `times` are campaign time (the final subtraction undoes the offset).
     if (lapse !== null && (!p.mandate || this.kind() === "demo")) times.push(lapse + this.clockOffset());

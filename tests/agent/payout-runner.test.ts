@@ -6,7 +6,7 @@ import { retryLines } from "../../src/agent/payout-runner";
 import { RUNNERS } from "../../src/agent/runners";
 import { Store } from "../../src/agent/store";
 import { PayPalError } from "../../src/paypal/errors";
-import { payoutItemId } from "../../src/paypal/payouts";
+import { payoutBatchId, payoutItemId } from "../../src/paypal/payouts";
 import { FakePayPal } from "./fake-paypal";
 import { DEADLINE, held, LAUNCH, signedEvent, SHOW, TestClock, testMandate } from "./fixtures";
 import { memoryDb } from "./sqlite";
@@ -102,6 +102,21 @@ describe("payout", () => {
     expect(p.payouts[0].lines).toEqual(splitPayout(3 * 1412, parties).lines.filter((l) => l.amount > 0));
     expect(h.paypal.count("sendPayouts")).toBe(1);
     expect(h.store.jobs().some((j) => j.kind === "payout_poll")).toBe(false);
+  });
+
+  it("when a second run (lease expired) recorded ALREADY_SENT first, the first run's real batch id is still recorded so polling works", async () => {
+    const h = await readyToPay();
+    const lines = splitPayout(3 * 1412, parties).lines.filter((l) => l.amount > 0);
+    h.paypal.script("sendPayouts", () => {
+      commit(h.store, h.clock.now(), { type: "payout_sent", senderBatchId: payoutBatchId(SHOW), batchId: null, status: "ALREADY_SENT", lines, retry: false, recovered: true });
+      return { batchId: "B-9", senderBatchId: payoutBatchId(SHOW), status: "PENDING", sentLines: lines };
+    });
+    await drain(h.d, RUNNERS);
+    expect(h.store.projection().payouts[0]).toMatchObject({ batchId: "B-9", recovered: true });
+    expect(h.store.job("poll:B-9:1")?.status).toBe("pending");
+    await settle(h);
+    expect(h.store.logs().some((l) => l.did.includes("isn't part") || l.did.includes("Needs attention: this payout check"))).toBe(false);
+    expect(h.store.job("poll:B-9:1")?.status).toBe("done");
   });
 
   it("retries a maybe-sent error with the same batch id", async () => {
