@@ -26,7 +26,14 @@ function errDetail(e: unknown): string {
 type Auth = { id: string; status: string; create_time?: string; expiration_time?: string };
 type Order = { id: string; status: string; purchase_units?: { payments?: { authorizations?: Auth[] } }[] };
 
-const CARDS = ["4111111111111111", "4032039317984658"];
+type Amt = { currency_code?: string; value?: string };
+type Breakdown = { gross_amount?: Amt; paypal_fee?: Amt; net_amount?: Amt; total_refunded_amount?: Amt; exchange_rate?: Record<string, unknown> };
+type CaptureBody = { id: string; status: string; seller_receivable_breakdown?: Breakdown };
+type RefundBody = { id: string; status: string; seller_payable_breakdown?: Breakdown; seller_receivable_breakdown?: Breakdown };
+/** Amount plus currency code only; nothing personal. */
+const money = (a?: Amt) => (a ? `${a.value} ${a.currency_code}` : "absent");
+
+const CARDS =["4111111111111111", "4032039317984658"];
 let cardIdx = 0;
 
 /** Spike 3, option 1: a server-side card authorization (no buyer login). */
@@ -34,7 +41,7 @@ async function cardHold(tag: string): Promise<Auth> {
   const order = (await http.request<Order>({
     method: "POST",
     path: "/v2/checkout/orders",
-    requestId: `${run}-order-${tag}`,
+    requestId: `${run}-order-${tag}-c${cardIdx}`,
     prefer: "return=representation",
     body: {
       intent: "AUTHORIZE",
@@ -46,7 +53,7 @@ async function cardHold(tag: string): Promise<Auth> {
   let auth = order.purchase_units?.[0]?.payments?.authorizations?.[0];
   if (!auth) {
     // The order was created but not authorized yet: authorize it explicitly.
-    const authorized = (await http.request<Order>({ method: "POST", path: `/v2/checkout/orders/${order.id}/authorize`, requestId: `${run}-authorize-${tag}`, prefer: "return=representation", body: {} }))!;
+    const authorized = (await http.request<Order>({ method: "POST", path: `/v2/checkout/orders/${order.id}/authorize`, requestId: `${run}-authorize-${tag}-c${cardIdx}`, prefer: "return=representation", body: {} }))!;
     if (tag === "a") save("authorize-order", authorized);
     auth = authorized.purchase_units?.[0]?.payments?.authorizations?.[0];
   }
@@ -58,7 +65,7 @@ async function main() {
   // 1. Token
   try {
     await http.token();
-    record("token", true, "sandbox OAuth token issued");
+    record("token", true, "issued");
   } catch (e) {
     record("token", false, errDetail(e));
     return;
@@ -76,11 +83,16 @@ async function main() {
       a = await cardHold("a");
     }
     record("card hold", true, `authorization ${a.id} status ${a.status} created ${a.create_time} expires ${a.expiration_time} (card ${cardIdx + 1})`);
-    const cap = await http.request<{ id: string; status: string }>({ method: "POST", path: `/v2/payments/authorizations/${a.id}/capture`, requestId: `capture:${a.id}`, prefer: "return=representation", body: { final_capture: true } });
+    const cap = await http.request<CaptureBody>({ method: "POST", path: `/v2/payments/authorizations/${a.id}/capture`, requestId: `capture:${a.id}`, prefer: "return=representation", body: { final_capture: true } });
     save("capture", cap);
     captureId = cap!.id;
-    record("capture", cap!.status === "COMPLETED", `capture ${cap!.id} status ${cap!.status}`);
-    const again = await http.request<{ id: string; status: string }>({ method: "POST", path: `/v2/payments/authorizations/${a.id}/capture`, requestId: `capture:${a.id}`, prefer: "return=representation", body: { final_capture: true } });
+    const sb = cap!.seller_receivable_breakdown;
+    record(
+      "capture",
+      cap!.status === "COMPLETED",
+      `capture ${cap!.id} status ${cap!.status}; gross ${money(sb?.gross_amount)}, fee ${money(sb?.paypal_fee)}, net ${money(sb?.net_amount)}, exchange_rate ${sb?.exchange_rate ? JSON.stringify(sb.exchange_rate) : "absent"}`,
+    );
+    const again = await http.request<CaptureBody>({ method: "POST", path: `/v2/payments/authorizations/${a.id}/capture`, requestId: `capture:${a.id}`, prefer: "return=representation", body: { final_capture: true } });
     save("capture-replay", again);
     record("capture replay is idempotent", again!.id === cap!.id, `replay returned ${again!.id}`);
   } catch (e) {
@@ -90,9 +102,10 @@ async function main() {
   // 3. Void
   try {
     const b = await cardHold("b");
-    const v = await http.request({ method: "POST", path: `/v2/payments/authorizations/${b.id}/void`, requestId: `void:${b.id}`, prefer: "return=representation" });
+    const v = await http.request<{ status?: string }>({ method: "POST", path: `/v2/payments/authorizations/${b.id}/void`, requestId: `void:${b.id}`, prefer: "return=representation" });
     save("void", v ?? { status: 204 });
-    record("void", true, `voided ${b.id}`);
+    const voided = v == null || v.status === "VOIDED";
+    record("void", voided, v == null ? `void ${b.id} returned no body (204)` : `void ${b.id} body status ${v.status ?? "absent"}`);
   } catch (e) {
     record("void", false, errDetail(e));
   }
@@ -102,7 +115,7 @@ async function main() {
     const c = await cardHold("c");
     const r = await http.request({ method: "POST", path: `/v2/payments/authorizations/${c.id}/reauthorize`, requestId: `reauth:${c.id}`, prefer: "return=representation", body: { amount: { currency_code: "USD", value: "15.00" } } });
     save("reauthorize-error", { unexpectedSuccess: r });
-    record("reauthorize on day 0", true, "UNEXPECTED: PayPal allowed it on day 0");
+    record("reauthorize on day 0", false, "UNEXPECTED: allowed on day 0");
     await http.request({ method: "POST", path: `/v2/payments/authorizations/${c.id}/void`, requestId: `void:${c.id}` }).catch(() => undefined);
   } catch (e) {
     if (e instanceof PayPalError) save("reauthorize-error", { status: e.status, name: e.paypalName, issues: e.issues });
@@ -112,9 +125,15 @@ async function main() {
   // 5. Refund
   if (captureId) {
     try {
-      const rf = await http.request<{ id: string; status: string }>({ method: "POST", path: `/v2/payments/captures/${captureId}/refund`, requestId: `refund:${captureId}`, prefer: "return=representation", body: {} });
+      const rf = await http.request<RefundBody>({ method: "POST", path: `/v2/payments/captures/${captureId}/refund`, requestId: `refund:${captureId}`, prefer: "return=representation", body: {} });
       save("refund", rf);
-      record("refund", true, `refund ${rf!.id} status ${rf!.status}`);
+      const shape = rf!.seller_payable_breakdown ? "seller_payable_breakdown" : rf!.seller_receivable_breakdown ? "seller_receivable_breakdown" : "neither breakdown";
+      const bd = rf!.seller_payable_breakdown ?? rf!.seller_receivable_breakdown;
+      record(
+        "refund",
+        true,
+        `refund ${rf!.id} status ${rf!.status}; body has ${shape} (payable ${rf!.seller_payable_breakdown ? "yes" : "no"}, receivable ${rf!.seller_receivable_breakdown ? "yes" : "no"}); gross ${money(bd?.gross_amount)}, fee ${money(bd?.paypal_fee)}, net ${money(bd?.net_amount)}, total_refunded ${money(bd?.total_refunded_amount)}`,
+      );
     } catch (e) {
       record("refund", false, errDetail(e));
     }
@@ -138,12 +157,17 @@ async function main() {
       if (e instanceof PayPalError) save("payout-duplicate", { status: e.status, name: e.paypalName, issues: e.issues });
       record("duplicate sender_batch_id refused", e instanceof PayPalError, errDetail(e));
     }
-    await new Promise((r) => setTimeout(r, 5000));
-    const g = await http.request({ method: "GET", path: `/v1/payments/payouts/${p!.batch_header.payout_batch_id}` });
-    save("payout-get", g);
-    record("payout batch readable", true, "fetched batch status");
+    try {
+      await new Promise((r) => setTimeout(r, 5000));
+      const g = await http.request({ method: "GET", path: `/v1/payments/payouts/${p!.batch_header.payout_batch_id}` });
+      save("payout-get", g);
+      record("payout batch readable", true, "fetched batch status");
+    } catch (e) {
+      record("payout batch readable", false, errDetail(e));
+    }
   } catch (e) {
-    record("payouts enabled", false, `${errDetail(e)}  → owner may need to tick "Payouts" in the sandbox app's features`);
+    const perm = e instanceof PayPalError && (e.status === 401 || e.status === 403 || /PERMISSION|AUTHORIZ|NOT_AUTHORIZED/i.test(e.paypalName));
+    record("payouts enabled", false, perm ? `${errDetail(e)}  → owner may need to tick "Payouts" in the sandbox app's features` : errDetail(e));
   }
 
   writeFileSync("docs/superpowers/spikes/.spike-results.json", JSON.stringify({ run, results }, null, 2) + "\n");
