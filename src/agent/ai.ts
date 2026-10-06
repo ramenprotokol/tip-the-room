@@ -1,12 +1,13 @@
 import type { AiSource } from "./events";
 
 /**
- * Checked against https://developers.cloudflare.com/workers-ai/models/ on 2026-10-06. The plain
- * `@cf/meta/llama-3.1-8b-instruct` was on Cloudflare's May 2026 deprecation list, so `small` is its FP8 build.
+ * Checked against the live catalogue (GET /ai/models/search) and real calls on 2026-10-06. `small` must accept
+ * `response_format: json_schema`: `@cf/meta/llama-3.1-8b-instruct-fp8` rejects it with error 5025 ("This model
+ * doesn't support JSON Schema"), which sent every draft to the template. `@cf/meta/llama-3.2-3b-instruct` accepts it.
  */
 export const MODELS = {
   big: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-  small: "@cf/meta/llama-3.1-8b-instruct-fp8",
+  small: "@cf/meta/llama-3.2-3b-instruct",
 } as const;
 export type ModelId = (typeof MODELS)[keyof typeof MODELS];
 

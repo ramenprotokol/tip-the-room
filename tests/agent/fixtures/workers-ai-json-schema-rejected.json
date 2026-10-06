@@ -1,0 +1,11 @@
+{
+  "errors": [
+    {
+      "message": "AiError: Ai: This model doesn't support JSON Schema. (redacted-request-id)",
+      "code": 5025
+    }
+  ],
+  "success": false,
+  "result": {},
+  "messages": []
+}

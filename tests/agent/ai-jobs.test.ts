@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MODELS, NEURON_ESTIMATE } from "../../src/agent/ai";
 import { draftFromSentence, numbersOk, paceNote, parseDraft, settlementNote, templateDraft, templateNote, templatePaceNote, type NoteFacts, type PaceFacts } from "../../src/agent/ai-jobs";
+import { readFileSync } from "node:fs";
 import { FakeAi, fakeBudget, json } from "./fake-ai";
 
 const NOW = Date.parse("2026-10-05T12:00:00Z");
@@ -22,10 +23,31 @@ const facts: PaceFacts = {
 const note: NoteFacts = { role: "room", label: "Lucky's Café", showName: "Acoustic Set", outcome: "paid", amountCents: 10000, fans: 21, ticketPriceCents: 1500 };
 
 describe("models and budget estimates", () => {
-  it("uses the 70B model for proposals and notes and the 8B model for extraction, with positive estimates", () => {
-    expect(MODELS).toEqual({ big: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", small: "@cf/meta/llama-3.1-8b-instruct-fp8" });
+  it("uses the 70B model for proposals and notes and the 3B model for extraction, with positive estimates", () => {
+    expect(MODELS).toEqual({ big: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", small: "@cf/meta/llama-3.2-3b-instruct" });
     expect(NEURON_ESTIMATE[MODELS.big]).toBeGreaterThan(0);
     expect(NEURON_ESTIMATE[MODELS.small]).toBeGreaterThan(0);
+  });
+});
+
+/** Real Workers AI output (redacted), recorded 2026-10-06 against the live service. */
+const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
+
+describe("real Workers AI output", () => {
+  it("turns the recorded small-model answer (response is already an object) into a model draft", async () => {
+    const real = fixture("workers-ai-draft-3b.json");
+    expect(typeof real.response).toBe("object");
+    const sentence = "Jazz night at Blue Door Cafe on Nov 14, tickets $15, the cafe wants $200, opener wants $100, I need $300";
+    const r = await draftFromSentence({ ai: new FakeAi([real]), budget: fakeBudget().port }, sentence, Date.UTC(2026, 9, 6));
+    expect(r).toEqual({ source: "model", value: { showName: "Jazz night", roomName: "Blue Door Cafe", showDate: "2026-11-14", ticketPrice: 1500, room: 20000, opener: 10000, host: 0, artistMinimum: 30000 } });
+  });
+  it("the draft call asks for json_schema, which the old small model (llama-3.1-8b-instruct-fp8) rejected with code 5025", async () => {
+    const rejected = fixture("workers-ai-json-schema-rejected.json");
+    expect(rejected.errors[0].code).toBe(5025);
+    const ai = new FakeAi([json({})]);
+    await draftFromSentence({ ai, budget: fakeBudget().port }, "x", 0);
+    expect(ai.calls[0].input.response_format?.type).toBe("json_schema");
+    expect(ai.calls[0].model).not.toBe("@cf/meta/llama-3.1-8b-instruct-fp8");
   });
 });
 

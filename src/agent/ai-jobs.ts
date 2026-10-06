@@ -62,7 +62,7 @@ const DRAFT_SCHEMA = {
 const DRAFT_SYSTEM =
   "You turn one sentence about a small live show into JSON. Use only facts in the sentence. " +
   "Money is in US dollars as plain numbers. Use 0 for a missing amount, and null for a missing showDate or ticketPriceDollars. " +
-  "showDate is YYYY-MM-DD. roomName is the venue. artistMinimumDollars is what the artist says they need. Answer with JSON only.";
+  "showDate is YYYY-MM-DD. roomName is the venue. roomDollars is what the venue (cafe, bar, room) wants, openerDollars what the opener wants, hostDollars what a host wants. ticketPriceDollars is the price of one ticket, never a payout. artistMinimumDollars is what the artist says they need. Answer with JSON only.";
 
 /** Longest sentence any draft path looks at. Slicing first keeps every regex input small. */
 export const MAX_SENTENCE = 500;

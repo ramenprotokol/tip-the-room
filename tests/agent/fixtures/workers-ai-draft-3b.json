@@ -1,0 +1,47 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "annotations": null,
+        "audio": null,
+        "content": "{\n  \"artistMinimumDollars\": 300,\n  \"hostDollars\": 0,\n  \"openerDollars\": 100,\n  \"roomDollars\": 200,\n  \"roomName\": \"Blue Door Cafe\",\n  \"showDate\": \"2026-11-14\",\n  \"showName\": \"Jazz night\",\n  \"ticketPriceDollars\": 15\n}",
+        "function_call": null,
+        "reasoning": null,
+        "refusal": null,
+        "role": "assistant"
+      },
+      "routed_experts": null,
+      "stop_reason": null
+    }
+  ],
+  "created": 1791316874,
+  "ec_transfer_params": null,
+  "kv_transfer_params": null,
+  "metrics": null,
+  "model": "@cf/meta/llama-3.2-3b-instruct-v2",
+  "object": "chat.completion",
+  "response": {
+    "artistMinimumDollars": 300,
+    "hostDollars": 0,
+    "openerDollars": 100,
+    "roomDollars": 200,
+    "roomName": "Blue Door Cafe",
+    "showDate": "2026-11-14",
+    "showName": "Jazz night",
+    "ticketPriceDollars": 15
+  },
+  "service_tier": null,
+  "tool_calls": [],
+  "usage": {
+    "prompt_tokens": 210,
+    "completion_tokens": 89,
+    "total_tokens": 299,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "neurons": 3.6834166049957275
+  }
+}
