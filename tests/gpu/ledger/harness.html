@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledger harness</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+</head>
+<body>
+<main>
+  <section class="block" aria-labelledby="h-ledger">
+    <h2 class="section-title" id="h-ledger">Every money move</h2>
+    <div class="ledger-grid" id="ledger"></div>
+    <p class="grid-note">Newest first. Sort or filter any column. <button class="linkish" type="button" id="csv">Download as CSV</button></p>
+  </section>
+</main>
+<script type="module" src="/tests/gpu/ledger/harness.ts"></script>
+</body>
+</html>

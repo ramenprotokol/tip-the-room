@@ -157,7 +157,7 @@ export function logRows(entries: LoggedEntry[]): AgentLogDto[] {
 
 export function proposalRows(p: Projection): ProposalDto[] {
   return [...p.proposals.values()]
-    .map((x) => ({ proposalId: x.proposalId, explanation: x.explanation, recommend: x.recommend, source: x.source, options: x.options.map((o) => ({ id: o.id, label: o.label })), approved: x.approved?.option ?? null, madeAt: x.madeAt }))
+    .map((x) => ({ proposalId: x.proposalId, explanation: x.explanation, recommend: x.recommend, source: x.source, options: x.options.map((o) => ({ id: o.id, label: o.label, newDeadline: o.newDeadline !== undefined ? new Date(o.newDeadline).toISOString() : null, newThreshold: o.newThreshold ?? null })), approved: x.approved?.option ?? null, madeAt: x.madeAt }))
     .reverse();
 }
 

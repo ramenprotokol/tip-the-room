@@ -320,3 +320,40 @@ main{padding:0 var(--gutter) 28px}
   .page-title{font-size:38px}
   .sentence{font-size:23px}
 }
+
+/* ---------- Plan 5 (app-only): live PayPal button, pledge messages, page notices */
+.pp-slot.is-rendered{border:0;background:none;min-height:0;padding:0;display:block}
+.pledge-msg{margin:0;font:500 16px/1.4 var(--f-ui);color:#8A1A12}
+.notice{margin:0 0 22px}
+.notice p{margin:0;font:500 18px/1.45 var(--f-ui)}
+.problems{margin:0 0 12px;padding-left:20px;font:500 16px/1.4 var(--f-ui);color:#8A1A12}
+
+/* ---------- Plan 5: the real AG Grid ledger (theme params in ledger.ts = GRID_THEME). Height = header + 8 rows, like the reference table */
+.ledger-grid{height:432px;width:100%}
+.ledger-grid .ag-header-cell-text{text-transform:uppercase;letter-spacing:.1em;line-height:12px}
+.ledger-grid .ag-cell{display:flex;align-items:center;border:0;padding:0 14px;font:400 16px/1.2 var(--f-ui);color:var(--ink);-webkit-font-smoothing:antialiased;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ledger-grid .ag-cell-first-right-pinned{border-left:1.5px solid var(--ink)}
+.ledger-grid .ag-cell.when{font:500 14px/1.2 var(--f-mono);color:var(--ink-2)}
+.ledger-grid .ag-cell.num{font:600 15px/1.2 var(--f-mono);justify-content:flex-end}
+.ledger-grid .ag-cell.ref{font:400 13px/1.2 var(--f-mono);color:var(--ink-3)}
+.pill.refunded{background:var(--lilac-soft);color:var(--ink)}.pill.refunded i{background:var(--lilac-ink)}
+.pill.failed{background:#F6D6D3;color:#5A1410}.pill.failed i{background:#C8221B}
+.pill.pending{background:#EFE9DE;color:var(--ink)}.pill.pending i{background:var(--ink-3)}
+.pill.info{background:transparent;color:var(--ink-2)}.pill.info i{background:var(--ink-3)}
+/* Reference match: exact row/pinned colours, no sort or filter icons at rest (they appear on hover or keyboard focus) */
+.ledger-grid .ag-row{background:var(--paper)}
+.ledger-grid .ag-row-odd{background:#EFE9DE}
+.ledger-grid .ag-cell-first-right-pinned{background:#F7F3EB}
+.ledger-grid .ag-header-cell-first-right-pinned{border-left:1.5px solid #4A423B}
+.ledger-grid .ag-header-icon,.ledger-grid .ag-sort-indicator-container{opacity:0}
+/* Icons stay visible whenever a column's state differs from the default (newest first = descending by When stays hidden, so parity at rest is unaffected) */
+.ledger-grid .ag-header-cell-filtered .ag-header-icon,.ledger-grid .ag-header-cell:not([col-id="when"]) .ag-header-cell-sorted-asc .ag-sort-indicator-container,.ledger-grid .ag-header-cell:not([col-id="when"]) .ag-header-cell-sorted-desc .ag-sort-indicator-container,.ledger-grid .ag-header-cell[col-id="when"] .ag-header-cell-sorted-asc .ag-sort-indicator-container{opacity:1}
+.ledger-grid .ag-header-cell:hover .ag-header-icon,.ledger-grid .ag-header-cell:hover .ag-sort-indicator-container,.ledger-grid .ag-header-cell:focus-within .ag-header-icon,.ledger-grid .ag-header-cell:focus-within .ag-sort-indicator-container{opacity:1}
+
+.ledger-grid .ag-header-cell{-webkit-font-smoothing:antialiased}/* -0.3px: the reference pill sits in a table cell, the grid pill in a flex cell centred on a 1.2 line box; this lifts it by the sub-pixel difference (measured against the reference at 0.5%) */
+.ledger-grid .pill{position:relative;top:-0.3px}
+.attention{margin:0;padding:12px 16px 12px 34px;border:2px solid #C8221B;border-radius:14px;background:#FBE9E6;font:500 17px/1.4 var(--f-ui)}
+.calloff{display:grid;gap:10px;padding-top:6px;border-top:1px solid var(--rule)}
+.calloff .why{margin:0;font:400 16px/1.45 var(--f-ui);color:var(--ink-2)}
+.judge{margin-top:28px;display:grid;gap:12px}
+.judge p{margin:0;font:400 17px/1.45 var(--f-ui)}

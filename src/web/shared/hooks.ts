@@ -6,6 +6,8 @@ export interface MarqueeHooks {
   ready: boolean;
   views: SignView[];
   host?: SignHost | null;
+  /** API calls and page actions in flight (parity tests wait for 0). */
+  readonly pending?: number;
 }
 
 declare global {

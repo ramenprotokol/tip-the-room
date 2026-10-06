@@ -32,6 +32,7 @@
 </ol>
 
 <main>
+  <section class="card notice" id="notice" data-app-only hidden aria-live="polite"><p data-notice-text></p></section>
   <div class="pledge-grid">
     <section class="show" id="show" aria-labelledby="show-title">
       <div class="stage" data-stage role="img" aria-label="Marquee sign for Acoustic Set">
@@ -47,7 +48,7 @@
         <p class="bill">Maya, playing acoustic · the back room at Lucky’s Café</p>
         <dl class="stats">
           <div class="stat clock"><dt>Fans needed by · Thu Nov 12, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
-          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>12</span><span>of 21 fans</span></span><span class="sub" data-fans-sub>9 more to make it happen</span></dd></div>
+          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>12</span><span data-of>of 21 fans</span></span><span class="sub" data-fans-sub>9 more to make it happen</span></dd></div>
           <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>180</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
         </dl>
       </div>
@@ -56,9 +57,10 @@
     <div class="side">
       <section class="card pledge-card" id="pledge-card" aria-labelledby="h-pledge">
         <h2 class="title" id="h-pledge">Hold my spot · $15</h2>
-        <p style="margin:0;font-size:17px">PayPal holds $15 on your account. You’re only charged if 21 fans join by Thu 6pm. If not, the hold is cancelled automatically.</p>
+        <p style="margin:0;font-size:17px" data-pledge-text>PayPal holds $15 on your account. You’re only charged if 21 fans join by Thu 6pm. If not, the hold is cancelled automatically.</p>
         <div class="field"><label for="initials">Your initials on the bulb (optional)</label><input id="initials" class="input" maxlength="3" autocomplete="off" autocapitalize="characters" placeholder="e.g. MR"></div>
         <div class="pp-slot" id="pp-slot" role="region" aria-label="PayPal checkout">PayPal checkout button renders here</div>
+        <p class="pledge-msg" data-pledge-msg data-app-only hidden aria-live="polite"></p>
         <button class="linkish" type="button" id="simulate" data-ref-only>Simulate PayPal approval (reference only)</button>
       </section>
       <section class="confirm" id="confirm" hidden aria-live="polite">
@@ -69,8 +71,8 @@
       <section aria-labelledby="h-faq">
         <h2 class="section-title" id="h-faq">Questions</h2>
         <div class="faq">
-          <details><summary>What does “on hold” mean?</summary><p>PayPal sets $15 aside on your account, like a hotel deposit. It isn’t charged unless the show happens.</p></details>
-          <details><summary>When am I charged?</summary><p>Only once 21 fans have joined, and only if that happens by Thu Nov 12, 6pm. Then everyone is charged at once, and the room and the artist are paid at the deadline.</p></details>
+          <details><summary>What does “on hold” mean?</summary><p data-faq-hold>PayPal sets $15 aside on your account, like a hotel deposit. It isn’t charged unless the show happens.</p></details>
+          <details><summary>When am I charged?</summary><p data-faq-when>Only once 21 fans have joined, and only if that happens by Thu Nov 12, 6pm. Then everyone is charged at once, and the room and the artist are paid at the deadline.</p></details>
           <details><summary>What if not enough fans join?</summary><p>Every hold is cancelled automatically at the deadline. Nobody pays anything, and you don’t need to do a thing.</p></details>
         </div>
       </section>

@@ -15,7 +15,10 @@
 # Node / Python / build
 node_modules/
 dist/
+dist-nohooks/
+dist-e2e/
 build/
+!src/web/build/
 __pycache__/
 *.pyc
 .coverage
