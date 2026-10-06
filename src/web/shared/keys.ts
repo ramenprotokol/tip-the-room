@@ -45,6 +45,14 @@ export function recallKey(store: KeyStore | null, showId: string): string | null
   }
 }
 
+export function forgetKey(store: KeyStore | null, showId: string): void {
+  try {
+    store?.removeItem(MANAGE + showId);
+  } catch {
+    // Nothing more to do: the page stops using the key either way.
+  }
+}
+
 export interface SavedDemo {
   demoId: string;
   demoKey: string;

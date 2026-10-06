@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dismiss, isDismissed, loadDemo, recallKey, rememberKey, saveDemo, showIdFromPath, takeKeyFromHash, type KeyStore } from "../../src/web/shared/keys";
+import { dismiss, forgetKey, isDismissed, loadDemo, recallKey, rememberKey, saveDemo, showIdFromPath, takeKeyFromHash, type KeyStore } from "../../src/web/shared/keys";
 
 function memory(): KeyStore & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -29,6 +29,14 @@ describe("keys and ids", () => {
     expect(() => rememberKey(broken, "s1", "key-123456")).not.toThrow();
     expect(recallKey(broken, "s1")).toBeNull();
     expect(recallKey(null, "s1")).toBeNull();
+  });
+  it("forgets a key, and never throws on a broken store", () => {
+    const s = memory();
+    rememberKey(s, "s1", "key-123456");
+    forgetKey(s, "s1");
+    expect(recallKey(s, "s1")).toBeNull();
+    expect(() => forgetKey(broken, "s1")).not.toThrow();
+    expect(() => forgetKey(null, "s1")).not.toThrow();
   });
   it("saves the demo copy and rejects junk", () => {
     const s = memory();
