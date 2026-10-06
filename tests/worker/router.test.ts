@@ -71,7 +71,7 @@ describe("router", () => {
     expect((await w.call("POST", `/api/shows/${c.showId}/proposals/pace1/approve`, { option: "extend" })).status).toBe(403);
   });
 
-  it("carries the show's clock, a change marker, the share path and the sign-link flag", async () => {
+  it("carries the show's clock, a change marker, the share path", async () => {
     const w = workerHarness();
     const { c, s } = await createAndSign(w);
     const key = { "x-manage-key": s.manageKey };
@@ -80,7 +80,6 @@ describe("router", () => {
     expect(before.now).toBe(w.clock.now());
     expect(before.show.now).toBe(w.clock.now());
     expect(before.sharePath).toBe(`/s/${c.showId}`);
-    expect(before.signLinkExpired).toBe(false);
     expect(before.version).toMatch(/^e\d+\.l\d+$/);
     expect(before.version).toBe(before.show.version);
     const pub = async () => ((await (await w.call("GET", `/api/shows/${c.showId}`)).json()) as PublicShow).version;

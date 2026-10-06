@@ -316,7 +316,6 @@ export class CampaignService {
       now: this.now(),
       version: this.version(),
       sharePath: `/s/${showId}`,
-      signLinkExpired: !p.mandate && this.pastExpiry(),
     };
   }
 

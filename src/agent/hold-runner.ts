@@ -4,7 +4,7 @@ import { PayPalError } from "../paypal/errors";
 import { requestIds, type Charge, type OrderPayments, type Refund } from "../paypal/payments";
 import { eventKey } from "./events";
 import { commit, decide, done, fail, logStep, queueVoid, requestReconcile, retryLater, skip, type ExecDeps, type Runner, type Runners } from "./executor";
-import { backoffMs, MAX_JOB_ATTEMPTS, RECHECK_MS, SWEEP_BACKOFF_MS, SWEEP_MAX, SWEEP_PER_TURN, TURN_CALL_BUDGET } from "./policy";
+import { backoffMs, MAX_JOB_ATTEMPTS, RECHECK_MS, SWEEP_BACKOFF_MS, SWEEP_FINAL_LOOKS, SWEEP_MAX, SWEEP_PER_TURN, TURN_CALL_BUDGET } from "./policy";
 import type { PledgeView, Projection } from "./project";
 import type { Job, Store } from "./store";
 import { errText, fanName, sawCounts } from "./words";
@@ -323,8 +323,11 @@ export const HOLD_RUNNERS: Runners = { capture: runCapture, void: runVoid, refun
 function stuckHolds(store: Store, p: Projection): PledgeView[] {
   if (p.campaign.state !== "tipped" && p.campaign.state !== "paying_out") return [];
   const open = (key: string) => store.job(key)?.status === "pending";
-  return [...p.pledges.values()].filter((x) => x.status === "held" && !open(`capture:${x.authorizationId}`) && !open(`reconcile:${x.authorizationId}`));
+  return [...p.pledges.values()].filter((x) => x.status === "held" && !open(`capture:${x.authorizationId}`) && !open(`reconcile:${x.authorizationId}`) && !sweepExhausted(store, x.authorizationId));
 }
+
+/** After this many settle looks that could not decide, the sweep stops (the attention line stays). */
+const sweepExhausted = (store: Store, auth: string) => (sweepState(store, auth)?.n ?? 0) >= SWEEP_MAX - 1 + SWEEP_FINAL_LOOKS;
 
 function sweepState(store: Store, auth: string): { n: number; at: number } | null {
   const raw = store.getMeta(`sweep:${auth}`);
@@ -340,23 +343,42 @@ export function sweepWakes(store: Store, p: Projection, now: number): number[] {
   return stuckHolds(store, p).map((x) => sweepState(store, x.authorizationId)?.at ?? now);
 }
 
+/** Authorization states in which no capture can exist (or ever happen) for this hold. */
+const NO_CAPTURE_POSSIBLE = new Set(["CREATED", "VOIDED", "EXPIRED", "DENIED"]);
+
 /**
- * The final sweep: PayPal's own order record decides. A live capture is recorded (never failed); with no live capture the
- * pledge becomes capture_failed and its hold is voided, so the payout can go ahead on what was actually captured.
- * Returns false when the capture is still in progress, so the caller looks again later.
+ * The final sweep: PayPal's own order record decides. A live capture is recorded (never failed). The pledge becomes
+ * capture_failed (and its hold is voided) ONLY when the authorization status says no capture is possible. A CAPTURED or
+ * PARTIALLY_CAPTURED authorization with no readable live capture, or a capture still in progress, is never failed:
+ * one plain attention line is logged and the caller keeps sweeping (bounded).
  */
-async function settleOnCaptured(d: ExecDeps, p: Projection, pledge: PledgeView): Promise<boolean> {
+async function settleOnCaptured(d: ExecDeps, p: Projection, pledge: PledgeView): Promise<"done" | "waiting"> {
+  const auth = pledge.authorizationId;
   const order = await d.paypal.getOrderPayments(pledge.orderId);
   const live = order.captures.find((c) => !FAILED_CAPTURE.has(c.status));
   if (live) {
-    const charge = await d.paypal.getCapture(live.id, pledge.authorizationId);
-    return recordCharge(d, p, pledge, charge);
+    const charge = await d.paypal.getCapture(live.id, auth);
+    if (recordCharge(d, p, pledge, charge)) return "done";
+    return attentionOnce(d, p, pledge, `${fanName(pledge)}'s charge is still in progress at PayPal, so payouts are waiting for it.`);
   }
-  const auth = pledge.authorizationId;
+  const status = order.authorizations.find((a) => a.id === auth)?.status ?? "UNKNOWN";
+  if (!NO_CAPTURE_POSSIBLE.has(status)) {
+    return attentionOnce(d, p, pledge, `PayPal shows ${fanName(pledge)}'s payment as taken, but the charge can't be read yet. Payouts are waiting; this needs a look.`);
+  }
   d.store.setMeta(`swept:${auth}`, "1");
   writeCaptureFailed(d, p, pledge, "No charge came through before payouts", sawCounts(p), `${fanName(pledge)}'s charge never went through, so payouts go ahead on what was collected. Their hold is being released; nobody is charged.`, auth);
   queueVoid(d.store, auth, d.clock.now());
-  return true;
+  return "done";
+}
+
+/** One needs-attention log line per stuck pledge, however many sweeps look at it. */
+function attentionOnce(d: ExecDeps, p: Projection, pledge: PledgeView, text: string): "waiting" {
+  const key = `sweep_note:${pledge.authorizationId}`;
+  if (d.store.getMeta(key) === undefined) {
+    d.store.setMeta(key, "1");
+    logStep(d, { saw: sawCounts(p), did: `Needs attention: ${text}`, rule: null, resultId: pledge.authorizationId });
+  }
+  return "waiting";
 }
 
 /**
@@ -381,7 +403,7 @@ export async function sweepStuckHolds(d: ExecDeps): Promise<void> {
       continue;
     }
     if (TURN_CALL_BUDGET - d.paypal.meter.used < 2) continue;
-    const settled = await settleOnCaptured(d, d.store.projection(), pledge).catch(() => false);
-    if (!settled) setSweep(d.store, auth, st.n, now + SWEEP_BACKOFF_MS[SWEEP_MAX - 1]);
+    const result = await settleOnCaptured(d, d.store.projection(), pledge).catch(() => "waiting" as const);
+    if (result === "waiting") setSweep(d.store, auth, st.n + 1, now + SWEEP_BACKOFF_MS[SWEEP_MAX - 1]);
   }
 }

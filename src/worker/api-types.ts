@@ -194,8 +194,6 @@ export interface ManageView {
   version: string;
   /** "/s/<showId>" */
   sharePath: string;
-  /** True when this show was never signed and its sign link has lapsed (a signed show always reports false). */
-  signLinkExpired: boolean;
 }
 
 export interface ApproveRequest {

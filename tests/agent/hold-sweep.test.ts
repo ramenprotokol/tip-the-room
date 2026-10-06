@@ -45,22 +45,62 @@ async function run(h: Awaited<ReturnType<typeof stuck>>, hours: number) {
   }
 }
 
+/** PayPal can't be reached while a reconcile job is working, then shows `auth` with no capture at the final sweep. */
+function unreachableUntilFinalLook(h: Awaited<ReturnType<typeof stuck>>, auth: string) {
+  const original = h.paypal.getOrderPayments.bind(h.paypal);
+  h.paypal.getOrderPayments = async (orderId: string) => {
+    await original(orderId);
+    if (h.store.job("reconcile:A1")?.status === "pending" || h.store.job("capture:A1")?.status === "pending") throw busy();
+    return orderOf([], auth)();
+  };
+}
+
 describe("stuck held pledges (sweep)", () => {
-  it("settles on what was captured after the cap: payouts proceed and the stuck hold is voided", async () => {
+  for (const status of ["CREATED", "EXPIRED"]) {
+    it(`settles on what was captured when the authorization is ${status}: payouts proceed and the stuck hold is voided`, async () => {
+      const h = await stuck();
+      unreachableUntilFinalLook(h, status);
+      h.clock.t = DEADLINE;
+      commit(h.store, DEADLINE, { type: "deadline_reached", now: DEADLINE, deadline: DEADLINE });
+      expect(h.store.projection().campaign.state).toBe("paying_out");
+      await run(h, 72);
+      const p = h.store.projection();
+      expect(p.pledges.get("p1")).toMatchObject({ status: "capture_failed", holdClosed: true });
+      expect(p.campaign.state).toBe("settled");
+      expect(p.payouts[0].lines.reduce((n, l) => n + l.amount, 0)).toBe(3 * 1412);
+      expect(h.paypal.count("sendPayouts")).toBe(1);
+      expect(h.paypal.effects.has("void:A1")).toBe(true);
+      expect(h.paypal.effects.has("capture:A1")).toBe(false);
+    });
+  }
+
+  for (const status of ["CAPTURED", "PARTIALLY_CAPTURED"]) {
+    it(`never fails or voids a hold whose authorization is ${status} with no readable capture; one attention line, bounded sweeping`, async () => {
+      const h = await stuck();
+      for (let i = 0; i < 400; i++) h.paypal.script("getOrderPayments", orderOf([], status));
+      h.clock.t = DEADLINE;
+      commit(h.store, DEADLINE, { type: "deadline_reached", now: DEADLINE, deadline: DEADLINE });
+      await run(h, 24 * 7);
+      expect(h.store.projection().pledges.get("p1")?.status).toBe("held");
+      expect(h.store.events().some((e) => e.event.type === "capture_failed")).toBe(false);
+      expect(h.paypal.count("voidHold")).toBe(0);
+      expect(h.store.logs().filter((l) => l.did.includes("Needs attention") && l.resultId === "A1" && l.did.includes("taken"))).toHaveLength(1);
+      // Bounded: the sweep stops asking PayPal after a fixed number of looks.
+      const calls = h.paypal.count("getOrderPayments");
+      await run(h, 24 * 7);
+      expect(h.paypal.count("getOrderPayments")).toBe(calls);
+    });
+  }
+
+  it("logs one attention line, not one per sweep, for a capture stuck PENDING", async () => {
     const h = await stuck();
-    // The order never shows a capture, and reconcile can't decide (the authorization reads CAPTURED).
-    for (let i = 0; i < 80; i++) h.paypal.script("getOrderPayments", orderOf([], "CAPTURED"));
+    for (let i = 0; i < 400; i++) h.paypal.script("getOrderPayments", orderOf([{ id: "C-A1", status: "PENDING" }], "CAPTURED"));
+    for (let i = 0; i < 400; i++) h.paypal.script("getCapture", (c: string, a: string) => ({ captureId: c, authorizationId: a, status: "PENDING" }));
     h.clock.t = DEADLINE;
     commit(h.store, DEADLINE, { type: "deadline_reached", now: DEADLINE, deadline: DEADLINE });
-    expect(h.store.projection().campaign.state).toBe("paying_out");
-    await run(h, 72);
-    const p = h.store.projection();
-    expect(p.pledges.get("p1")).toMatchObject({ status: "capture_failed", holdClosed: true });
-    expect(p.campaign.state).toBe("settled");
-    expect(p.payouts[0].lines.reduce((n, l) => n + l.amount, 0)).toBe(3 * 1412);
-    expect(h.paypal.count("sendPayouts")).toBe(1);
-    expect(h.paypal.effects.has("void:A1")).toBe(true);
-    expect(h.paypal.effects.has("capture:A1")).toBe(false);
+    await run(h, 24 * 7);
+    expect(h.store.projection().pledges.get("p1")?.status).toBe("held");
+    expect(h.store.logs().filter((l) => l.did.includes("Needs attention") && l.resultId === "A1" && l.did.includes("still in progress"))).toHaveLength(1);
   });
 
   it("waits for the backoff before settling; early sweeps only ask PayPal again", async () => {

@@ -102,3 +102,5 @@ export const SWEEP_BACKOFF_MS = [10 * 60_000, 30 * 60_000, 2 * HOUR_MS];
 export const SWEEP_MAX = SWEEP_BACKOFF_MS.length;
 /** Stuck holds handled per turn (each final settle costs up to 2 PayPal requests). */
 export const SWEEP_PER_TURN = 3;
+/** Settle looks (2 h apart) allowed after the reconcile sweeps when PayPal shows a capture it cannot read yet; then the sweep stops. */
+export const SWEEP_FINAL_LOOKS = 12;
