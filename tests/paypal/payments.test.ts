@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { SANDBOX_BASE } from "../../src/paypal/config";
 import { PayPalError } from "../../src/paypal/errors";
 import { PayPalHttp } from "../../src/paypal/http";
-import { authorizeOrder, captureHold, createCardHold, createPledgeOrder, getCapture, getOrderPayments, reauthorizeHold, refundCharge, requestIds, voidHold } from "../../src/paypal/payments";
+import { authorizeOrder, captureHold, createCardHold, createPledgeOrder, getAuthorization, getCapture, getOrderPayments, reauthorizeHold, refundCharge, requestIds, voidHold } from "../../src/paypal/payments";
 import { fakeFetch } from "./fake-fetch";
 
 const fixture = (name: string) => JSON.parse(readFileSync(`tests/paypal/fixtures/${name}.json`, "utf8"));
@@ -252,6 +252,44 @@ describe("getOrderPayments", () => {
   it("refuses an unsafe id before any call", async () => {
     const { f, http } = client([]);
     await expect(getOrderPayments(http, "../x")).rejects.toBeInstanceOf(RangeError);
+    expect(f.apiCalls()).toHaveLength(0);
+  });
+});
+
+describe("getAuthorization", () => {
+  const body = (over: Record<string, unknown> = {}) => ({
+    id: "AUTH1",
+    status: "CREATED",
+    amount: { currency_code: "USD", value: "15.00" },
+    create_time: "2026-11-01T00:00:00Z",
+    expiration_time: "2026-11-30T00:00:00Z",
+    custom_id: "sshow:p1",
+    supplementary_data: { related_ids: { order_id: "ORDER1" } },
+    ...over,
+  });
+  it("reads one authorization in full with a plain GET", async () => {
+    const { f, http } = client([{ status: 200, body: body() }]);
+    expect(await getAuthorization(http, "AUTH1", "ORDER1")).toMatchObject({ authorizationId: "AUTH1", orderId: "ORDER1", amountCents: 1500, status: "CREATED", customId: "sshow:p1" });
+    expect(f.apiCalls()[0]).toMatchObject({ method: "GET", url: `${SANDBOX_BASE}/v2/payments/authorizations/AUTH1` });
+    expect(f.apiCalls()[0].headers["paypal-request-id"]).toBeUndefined();
+  });
+  it("refuses an authorization that belongs to another order", async () => {
+    const { http } = client([{ status: 200, body: body({ supplementary_data: { related_ids: { order_id: "OTHER" } } }) }]);
+    await expect(getAuthorization(http, "AUTH1", "ORDER1")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY" });
+  });
+  it("refuses an answer for a different authorization", async () => {
+    const { http } = client([{ status: 200, body: body({ id: "AUTH2" }) }]);
+    await expect(getAuthorization(http, "AUTH1", "ORDER1")).rejects.toMatchObject({ paypalName: "BAD_RESPONSE_BODY" });
+  });
+  it("turns a body missing its times into a PayPalError", async () => {
+    const { http } = client([{ status: 200, body: body({ create_time: undefined }) }]);
+    const err = await getAuthorization(http, "AUTH1", "ORDER1").catch((e) => e);
+    expect(err).toBeInstanceOf(PayPalError);
+    expect(err).toMatchObject({ paypalName: "BAD_RESPONSE_BODY" });
+  });
+  it("refuses an unsafe id before any call", async () => {
+    const { f, http } = client([]);
+    await expect(getAuthorization(http, "../x", "ORDER1")).rejects.toBeInstanceOf(RangeError);
     expect(f.apiCalls()).toHaveLength(0);
   });
 });

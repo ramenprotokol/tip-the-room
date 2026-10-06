@@ -80,6 +80,7 @@ interface AuthBody {
   create_time?: string;
   expiration_time?: string;
   custom_id?: string;
+  supplementary_data?: { related_ids?: { order_id?: string } };
 }
 interface OrderBody {
   id: string;
@@ -201,6 +202,25 @@ export async function getOrderPayments(http: PayPalHttp, orderId: string): Promi
   };
   if (unit?.custom_id !== undefined) out.customId = unit.custom_id;
   return out;
+}
+
+/**
+ * Reads one authorization in full (amount, times, custom_id). Used when a hold exists that we never recorded (an
+ * unreadable or lost authorize answer), so the runtime can count it as the fan's pledge instead of cancelling it.
+ */
+export async function getAuthorization(http: PayPalHttp, authorizationId: string, orderId: string): Promise<Hold> {
+  assertPayPalId(authorizationId, "authorization id");
+  assertPayPalId(orderId, "order id");
+  const a = requireBody(await http.request<AuthBody>({ method: "GET", path: `/v2/payments/authorizations/${authorizationId}` }), "authorization");
+  if (a.id !== authorizationId) throw new PayPalError(502, "BAD_RESPONSE_BODY", `asked for authorization ${authorizationId} but PayPal answered with ${a.id === undefined ? "no id" : a.id}`);
+  const related = a.supplementary_data?.related_ids?.order_id;
+  if (related !== undefined && related !== orderId) throw new PayPalError(502, "BAD_RESPONSE_BODY", `authorization ${authorizationId} belongs to order ${related}, not ${orderId}`);
+  try {
+    return toHold(orderId, a);
+  } catch (e) {
+    if (e instanceof PayPalError) throw e;
+    throw new PayPalError(502, "BAD_RESPONSE_BODY", e instanceof Error ? e.message : "unreadable authorization");
+  }
 }
 
 export async function voidHold(http: PayPalHttp, authorizationId: string): Promise<void> {

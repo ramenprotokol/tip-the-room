@@ -303,9 +303,12 @@ describe("hardening", () => {
     expect(h.svc.project().campaign.pledges.held).toBe(0);
   });
 
-  it("when PayPal's answer was unreadable, looks the order up and queues any hold it finds to be cancelled", async () => {
+  it("when PayPal's answer was unreadable and the hold can't be read in full, queues it to be cancelled", async () => {
     const h = await signedService();
     const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("getAuthorization", () => {
+      throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "no body");
+    });
     h.paypal.script("authorizeOrder", () => {
       throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "PayPal returned no order");
     });
@@ -314,6 +317,46 @@ describe("hardening", () => {
     expect(h.svc.project().campaign.pledges.held).toBe(0);
     expect(h.store.job("void:A-ghost")?.status).toBe("pending");
     expect(h.svc.project().orders.get(o.orderId)?.resolved).toBe(true);
+  });
+
+  it("an unreadable authorize answer whose hold is the right one counts as the fan's pledge (no second hold needed)", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "PayPal returned no order");
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-found", status: "CREATED" }], captures: [] }));
+    const r = await h.svc.authorize(o.orderId);
+    expect(r.status).toBe("held");
+    expect(h.svc.project().campaign.pledges.held).toBe(1);
+    expect(h.store.job("void:A-found")).toBeUndefined();
+    // A retry of the same order now answers from our records.
+    expect((await h.svc.authorize(o.orderId)).pledgeId).toBe(r.pledgeId);
+    expect(h.paypal.count("authorizeOrder")).toBe(1);
+  });
+
+  it("ORDER_ALREADY_AUTHORIZED (our earlier answer was lost) records the existing hold instead of refusing", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(422, "UNPROCESSABLE_ENTITY", "already", undefined, [{ issue: "ORDER_ALREADY_AUTHORIZED" }]);
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-prior", status: "CREATED" }], captures: [] }));
+    expect((await h.svc.authorize(o.orderId)).status).toBe("held");
+    expect(h.svc.project().pledgeByAuth.get("A-prior")).toBe(o.pledgeId);
+  });
+
+  it("a recovered hold for the wrong amount is refused and cancelled", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(502, "BAD_RESPONSE_BODY", "odd");
+    });
+    h.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-odd", status: "CREATED" }], captures: [] }));
+    h.paypal.script("getAuthorization", (authorizationId: string, orderId: string) => ({ authorizationId, orderId, amountCents: 100, status: "CREATED", createdAt: 0, expiresAt: 1, customId: `${SHOW}:${o.pledgeId}` }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 502 });
+    expect(h.store.job("void:A-odd")?.status).toBe("pending");
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
   });
 
   it("leaves the order open when PayPal can't be reached, so the fan can try again", async () => {

@@ -84,6 +84,14 @@ export class FakePayPal implements PayPalPort {
     return this.answer("getOrderPayments", [orderId], () => ({ orderId, status: "COMPLETED", authorizations: [], captures: [] }));
   }
 
+  getAuthorization(authorizationId: string, orderId: string): Promise<Hold> {
+    return this.answer("getAuthorization", [authorizationId, orderId], () => {
+      const p = this.orders.get(orderId);
+      if (!p) throw new Error(`fake: unknown order ${orderId}`);
+      return { ...this.hold(p, orderId), authorizationId };
+    });
+  }
+
   getCapture(captureId: string, authorizationId: string): Promise<Charge> {
     return this.answer("getCapture", [captureId, authorizationId], () => ({ captureId, authorizationId, status: "COMPLETED", grossCents: 1500, feeCents: 88, netCents: 1412 }));
   }

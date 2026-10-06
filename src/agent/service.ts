@@ -235,8 +235,7 @@ export class CampaignService {
     } catch {
       throw new ServiceError(400, "bad_request", "That isn't a PayPal order id.");
     }
-    const store = this.deps.store;
-    let p = this.applyDeadline();
+    const p = this.applyDeadline();
     const m = this.requireMandate(p);
     const order = p.orders.get(orderId);
     if (!order) throw new ServiceError(404, "not_found", "We didn't create that order for this show.");
@@ -254,14 +253,21 @@ export class CampaignService {
     try {
       hold = await this.deps.paypal.authorizeOrder(orderId);
     } catch (e) {
-      if (e instanceof PayPalError && UNREADABLE.has(e.paypalName)) {
-        await this.recoverUnreadable(orderId, order);
+      if (e instanceof PayPalError && (UNREADABLE.has(e.paypalName) || e.hasIssue("ORDER_ALREADY_AUTHORIZED"))) {
+        const recovered = await this.recoverExisting(orderId, order, m);
+        if (recovered) return recovered;
         throw new ServiceError(502, "paypal_error", "PayPal's answer wasn't clear. Nothing was charged and any hold is being cancelled; please try again.");
       }
       if (e instanceof PayPalError && !e.retryable) throw new ServiceError(409, "conflict", "PayPal didn't place the hold. Nothing was charged.");
       throw new ServiceError(502, "paypal_error", "PayPal is having trouble. Nothing was charged; please try again.");
     }
-    p = this.applyDeadline(); // the deadline may have passed while PayPal answered
+    return this.recordHold(orderId, order, m, hold);
+  }
+
+  /** PayPal answered with a hold for this order: check it against the order and the mandate, then count it, or refuse it and queue it to be cancelled. */
+  private recordHold(orderId: string, order: OrderView, m: Mandate, hold: Hold): AuthorizeResponse {
+    const store = this.deps.store;
+    let p = this.applyDeadline(); // the deadline may have passed while PayPal answered
     const now = this.now();
     const problem = holdProblem(hold, orderId, order, m);
     if (problem) {
@@ -311,22 +317,32 @@ export class CampaignService {
   }
 
   /**
-   * PayPal answered, but not in a form we trust, so a hold may exist that we never recorded. Ask PayPal
-   * (GET) what the order holds; any live hold found is retired and queued to be cancelled, and the order
-   * is closed so it can't be counted later. If PayPal can't say, the order stays open and the fan can retry.
+   * PayPal may hold money on this order that we never recorded: its answer was unreadable, or our earlier answer was
+   * lost and PayPal now says ORDER_ALREADY_AUTHORIZED. Look the order up and read any live hold in full. If it is
+   * exactly this order's hold at the signed price, record it as the fan's pledge (so the fan is never pushed into a
+   * second hold). Otherwise refuse it and queue it to be cancelled. Null when nothing was recorded.
    */
-  private async recoverUnreadable(orderId: string, order: OrderView): Promise<void> {
+  private async recoverExisting(orderId: string, order: OrderView, m: Mandate): Promise<AuthorizeResponse | null> {
+    let liveId: string | undefined;
     try {
       const found = await this.deps.paypal.getOrderPayments(orderId);
-      const live = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && /^[A-Za-z0-9-]{1,64}$/.test(a.id));
-      if (!live) return;
-      const now = this.now();
-      commit(this.deps.store, now, { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: live.id, reason: "PayPal's answer could not be read" });
-      queueVoid(this.deps.store, live.id, now);
-      this.log({ saw: `PayPal's answer for order ${orderId} couldn't be read, but a hold exists.`, did: "Refused it and queued it to be cancelled. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: live.id });
+      liveId = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && SAFE_REF.test(a.id))?.id;
     } catch {
-      // Leave the order open: nothing was recorded, and the fan can try again.
+      return null; // PayPal can't say: the order stays open and the fan's retry asks again.
     }
+    if (!liveId) return null;
+    let hold: Hold | null;
+    try {
+      hold = await this.deps.paypal.getAuthorization(liveId, orderId);
+    } catch {
+      hold = null;
+    }
+    if (hold && hold.authorizationId === liveId && hold.status === "CREATED" && !holdProblem(hold, orderId, order, m)) return this.recordHold(orderId, order, m, hold);
+    const now = this.now();
+    commit(this.deps.store, now, { type: "pledge_rejected", pledgeId: order.pledgeId, orderId, authorizationId: liveId, reason: "PayPal's answer could not be read" });
+    queueVoid(this.deps.store, liveId, now);
+    this.log({ saw: `PayPal's answer for order ${orderId} couldn't be read, but a hold exists.`, did: "Refused it and queued it to be cancelled. Nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: liveId });
+    return null;
   }
 
   manageView(): ManageView {
