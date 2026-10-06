@@ -3,222 +3,371 @@ import "../shared/styles.css";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
+import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
+import type { RuleId } from "../../core/rules";
+import { API_BASE, HOOKS, PARITY, SANDBOX_BUYER, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
+import { andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, planSplit, remainSec, ROLE_WORD, rulesLine, ShowClock, when } from "../shared/format";
+import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
-interface SplitPart { label: string; who: string; fixed: number | null }
-interface ShowCfg {
-  key: string; name: string; crest: string; target: number; start: number; pledge: number; remain: number; deadline: string; yaw: number; seed: number;
-  split: SplitPart[];
-}
-type CtlPhase = "open" | "tipping" | "tipped" | "ff" | "paying" | "paid" | "missing" | "released";
-type StatusKey = "held" | "tipped" | "paying" | "paid" | "missing" | "released";
+removeRefOnly();
+const api = apiClient(API_BASE);
+const store = safeStorage();
 
-// fixed sample data · "now" is Mon Nov 16, 10:19am (2026 calendar)
-const SHOWS: ShowCfg[] = [
-  { key: 'a', name: 'Juniper Vale', crest: 'SPINDLE RECORDS', target: 34, start: 29, pledge: 15, remain: 200460, deadline: 'Wed 6:00pm', yaw: .2, seed: 7,
-    split: [{ label: 'Room', who: 'Spindle Records', fixed: 80 }, { label: 'Opener', who: 'The Low Tides', fixed: 100 }, { label: 'Artist', who: 'Juniper Vale', fixed: null }] },
-  { key: 'b', name: 'Marlow Finch', crest: 'ELM ST HOUSE SHOW', target: 28, start: 19, pledge: 12, remain: 373260, deadline: 'Fri 6:00pm', yaw: -.2, seed: 19,
-    split: [{ label: 'Room', who: 'Elm St house', fixed: 60 }, { label: 'Opener', who: 'The opener', fixed: 40 }, { label: 'Artist', who: 'Marlow Finch', fixed: null }] },
-];
-const splitOf = (cfg: ShowCfg, fans: number): number[] => { let rest = fans * cfg.pledge; return cfg.split.map(p => { const v = p.fixed == null ? rest : Math.min(p.fixed, rest); rest -= v; return v; }); };
+type Key = 'a' | 'b';
+interface Look { crest: string; yaw: number; seed: number; label: string }
+// The two demo shows are fixed fictional seeds (src/agent/demo.ts). Their sign styling and the bill lines in index.html
+// aren't in the API; everything else on the page comes from it.
+const LOOK: Record<Key, Look> = { a: { crest: 'SPINDLE RECORDS', yaw: .2, seed: 7, label: 'Show A' }, b: { crest: 'ELM ST HOUSE SHOW', yaw: -.2, seed: 19, label: 'Show B' } };
+type CtlPhase = 'open' | 'tipping' | 'tipped' | 'ff' | 'paying' | 'paid' | 'missing' | 'released';
+type StatusKey = 'held' | 'tipped' | 'paying' | 'paid' | 'sent' | 'missing' | 'released';
 const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6, done: 2.6 }, MISS: { release: .12, msg: 2.05, done: 3.1, wave: .9 }, R: { tip: .7, payout: .7, miss: 1.3 } };
 const log = new AgentLog($('#log'));
-let minute = 19; const stamp = () => `Mon 10:${pad2(++minute)}am`;
-const resetLog = () => { log.clear(); minute = 19; log.add({ time: 'Mon 10:19am', html: 'Watching 2 shows. <b>48 fans are on hold</b> and <span class="w-held">nobody has been charged</span>.', fine: '48 PayPal authorizations open · money rule 1', instant: true }); };
-const payout = new PayoutStrip($('#payout'), SHOWS[0].split.map(p => ({ label: p.label, who: p.who })));
-
-const STATUS: Record<StatusKey, () => [string, string, string]> = {
-  held: () => ['held', 'Waiting for fans', '· $0 charged'],
-  tipped: () => ['tipped', 'It’s on!', '· everyone’s charged'],
-  paying: () => ['paying', 'Paying everyone', '· one PayPal payout'],
-  paid: () => ['paid', 'Everyone’s paid', '· room, opener and artist'],
-  missing: () => ['missing', 'Deadline passed', '· cancelling every hold'],
-  released: () => ['released', 'Called off', '· nobody paid'],
-};
+let payout: PayoutStrip | null = null;
+let demo: SavedDemo | null = null;
+let inflight = false;
+const judgeMsg = (text: string) => { $('[data-judge-msg]').textContent = text; };
+const failed = (e: unknown) => judgeMsg(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.');
+const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned' } as const;
 
 class ShowCtl {
-  cfg: ShowCfg;
-  el: HTMLElement;
-  stage: HTMLElement;
-  tipEl: HTMLElement;
-  status: HTMLElement;
-  clock: HTMLElement;
-  fansSub: HTMLElement;
-  of: HTMLElement;
-  moneySub: HTMLElement;
-  odoFans: Odo;
-  odoHeld: Odo;
-  odoCharged: Odo;
-  bAdd: HTMLButtonElement;
-  bFF: HTMLButtonElement;
-  ph: Placeholder;
-  cues: Cues;
-  view: SignView | null;
-  phase!: CtlPhase;
-  tipped!: boolean;
-  fans!: number;
-  remain!: number;
-  busy!: boolean;
-  pendingFF!: boolean;
-  ffRaf?: number;
-  constructor(cfg: ShowCfg) {
-    this.cfg = cfg; const el = this.el = $('#show-' + cfg.key);
+  key: Key; look: Look; el: HTMLElement; stage: HTMLElement; tipEl: HTMLElement; status: HTMLElement; clockEl: HTMLElement; fansSub: HTMLElement; of: HTMLElement; moneySub: HTMLElement;
+  odoFans: Odo; odoHeld: Odo; odoCharged: Odo; bAdd: HTMLButtonElement; bFF: HTMLButtonElement; bReset: HTMLButtonElement;
+  ph: Placeholder | null = null; cues = new Cues(); view: SignView | null = null;
+  show: PublicShow | null = null; parties: ManageParty[] = []; openProposals = 0; clock: ShowClock | null = null; queue: AgentLogDto[] = []; lastSeq = 0; viewVersion: string | null = null; viewP: Promise<void> | null = null;
+  phase: CtlPhase = 'open'; tipped = false; fans = 0; remain = 0; busy = false; ffRaf = 0;
+  constructor(key: Key) {
+    this.key = key; this.look = LOOK[key]; const el = this.el = $('#show-' + key);
     this.stage = $('[data-stage]', el); this.tipEl = $('[data-tip]', el); this.status = $('[data-status]', el); Ticker.lamp(this.status);
-    this.clock = $('[data-clock]', el); this.fansSub = $('[data-fans-sub]', el); this.of = $('[data-of]', el); this.moneySub = $('[data-money-sub]', el);
+    this.clockEl = $('[data-clock]', el); this.fansSub = $('[data-fans-sub]', el); this.of = $('[data-of]', el); this.moneySub = $('[data-money-sub]', el);
     this.odoFans = new Odo($('[data-fans]', el)); this.odoHeld = new Odo($('[data-held]', el)); this.odoCharged = new Odo($('[data-charged]', el));
     this.bAdd = $<HTMLButtonElement>('[data-act=add]', el); this.bFF = $<HTMLButtonElement>('[data-act=ff]', el);
-    this.ph = new Placeholder($('[data-ph]', el), { name: cfg.name, target: cfg.target });
-    this.cues = new Cues(); this.view = null;
-    this.bAdd.addEventListener('click', () => this.addFans(5));
-    this.bFF.addEventListener('click', () => this.fastForward());
-    $('[data-act=reset]', el).addEventListener('click', () => { this.reset(); log.clear(cfg.key); });
-    this.reset(true);
+    this.bAdd.addEventListener('click', () => { void this.addClicked(); });
+    this.bFF.addEventListener('click', () => { void this.ffClicked(); });
+    this.bReset = $<HTMLButtonElement>('[data-act=reset]', el); this.bReset.addEventListener('click', () => { void resetDemo(); });
   }
+  get name() { return this.show?.showName ?? ''; }
+  get target() { return this.show?.threshold ?? 1; }
+  get cents() { return this.show?.ticketPriceCents ?? 0; }
+  get confirmed() { return payoutsConfirmed(this.parties); }
   visual(): { phase: Phase; fans: number } { const p = this.phase; return { phase: p === 'paying' || p === 'paid' ? 'paid' : p === 'missing' || p === 'released' ? 'released' : this.tipped ? 'tipped' : 'held', fans: this.fans }; }
-  model(): SignModel { const c = this.cfg; return { name: c.name, crest: c.crest, target: c.target, seed: c.seed, yaw: c.yaw, payees: this.payees() }; }
-  payees(): Payee[] { const c = this.cfg, amts = splitOf(c, Math.max(this.fans, c.target)); return c.split.map((p, i) => ({ label: p.label, amount: amts[i] })); }
+  splitOf(fans: number): number[] { return this.show ? planSplit(this.show.split, fans * this.cents).map(c => c / 100) : []; }
+  payees(): Payee[] { const a = this.splitOf(Math.max(this.fans, this.target)); return (this.show?.split ?? []).map((p, i) => ({ label: ROLE_WORD[p.role], amount: a[i] })); }
+  paidAmounts(): number[] { const ps = this.parties; return ps.length && ps.every(p => p.payoutCents !== null) ? ps.map(p => (p.payoutCents ?? 0) / 100) : this.splitOf(this.fans); }
+  model(): SignModel { return { name: this.name, crest: this.look.crest, target: this.target, seed: this.look.seed, yaw: this.look.yaw, payees: this.payees() }; }
   attach(host: SignHost) {
     this.view = host.add(this.stage, this.model(), { state: () => this.visual(), tipEl: this.tipEl, ph: $('[data-ph]', this.el), tip: slot => this.tipText(slot) });
   }
-  tipText(slot: number): string | null { if (slot >= Math.min(this.fans, this.cfg.target)) return null; const v = this.visual().phase; return `Fan ${pad2(slot + 1)} · $${this.cfg.pledge} ${v === 'held' ? 'on hold' : v === 'released' ? 'hold cancelled' : 'charged'}`; }
-  reset(first = false) {
-    this.cues.clear(); cancelAnimationFrame(this.ffRaf as number);
-    this.phase = 'open'; this.tipped = false; this.fans = this.cfg.start; this.remain = this.cfg.remain; this.busy = false; this.pendingFF = false;
-    this.renderMoney(true); this.odoFans.set(this.fans, true); this.clock.classList.remove('zero');
-    this.moneySub.textContent = 'Nobody pays unless it happens.';
-    this.setStatus('held', true); this.renderClock(); this.renderFans(); this.buttons();
-    this.ph.update('held', this.fans); this.label();
-    if (this.cfg.key === 'a' && !first) payout.reset();
-    if (this.view) { this.view.setPayouts(this.payees()); this.view.reset(); }
+  tipText(slot: number): string | null { if (slot >= Math.min(this.fans, this.target)) return null; const v = this.visual().phase; return `Fan ${pad2(slot + 1)} · ${dollars(this.cents)} ${v === 'held' ? 'on hold' : v === 'released' ? 'hold cancelled' : 'charged'}`; }
+
+  /** A new copy of the show (first load or Start over): texts from data, then the current state at once. */
+  load(s: PublicShow) {
+    this.cues.clear(); cancelAnimationFrame(this.ffRaf);
+    this.show = s; this.parties = []; this.openProposals = 0; this.queue = []; this.lastSeq = 0; this.viewVersion = null; this.clock = new ShowClock(s.now); this.busy = false;
+    this.texts(s);
+    if (this.ph) this.ph.setModel({ name: s.showName, target: s.threshold }); else this.ph = new Placeholder($('[data-ph]', this.el), { name: s.showName, target: s.threshold });
+    if (this.key === 'a') payout ??= new PayoutStrip($('#payout'), s.split.map(p => ({ label: ROLE_WORD[p.role], who: p.label })));
+    this.jumpTo(s);
+    if (this.view) { this.view.setModel(this.model()); this.view.setPayouts(this.payees()); this.view.reset(); }
   }
-  setStatus(k: StatusKey, instant?: boolean) { const [s, w, said] = STATUS[k](); setStatus(this.status, s, w, said, instant); }
-  renderMoney(instant?: boolean) { const total = this.fans * this.cfg.pledge; this.odoHeld.set(this.tipped || this.phase === 'released' || this.phase === 'missing' ? 0 : total, instant); this.odoCharged.set(this.tipped ? total : 0, instant); }
-  renderClock() { this.clock.innerHTML = countdownHTML(this.remain); }
+  /** Every sentence that comes from the show's own facts (name, day, deadline, price, split). */
+  texts(s: PublicShow) {
+    $('.row-top .eyebrow', this.el).textContent = `${this.look.label} · ${dayLabel(s.showDate)}`;
+    $('.title', this.el).textContent = s.showName;
+    $('.stat.clock dt', this.el).textContent = `Deadline · ${when(Date.parse(s.deadline), s.timeZone, 'long')}`;
+    const [spot, rules] = Array.from(this.el.querySelectorAll<HTMLElement>('.rules-line > span'));
+    const b = document.createElement('b'); b.textContent = dollars(s.ticketPriceCents); spot.textContent = ''; spot.append(b, ' a spot');
+    rules.textContent = rulesLine(s.split);
+    if (this.key === 'a') $('#payout .section-title').textContent = `Payout · ${s.showName}`;
+  }
+  jumpTo(s: PublicShow) {
+    const end = endOf(s.state);
+    this.fans = s.fans.committed; this.tipped = end === 'tipped' || end === 'paid' || end === 'cancelled';
+    this.phase = end === 'live' ? 'open' : end === 'tipped' ? 'tipped' : end === 'paid' ? 'paid' : 'released';
+    this.remain = remainSec(s.deadline, this.clock);
+    this.renderMoney(true); this.odoFans.set(this.fans, true);
+    const over = this.phase === 'paid' || this.phase === 'released';
+    this.clockEl.classList.toggle('zero', over);
+    this.moneySub.textContent = this.phase === 'paid' ? 'Paid out in one PayPal batch.' : this.phase === 'released' ? `${usd(this.fans * this.cents / 100)} released back to ${this.fans} fans · nobody paid` : this.tipped ? `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}` : 'Nobody pays unless it happens.';
+    this.setStatus(this.phase === 'open' ? 'held' : this.phase === 'tipped' ? 'tipped' : this.phase === 'paid' ? (this.confirmed ? 'paid' : 'sent') : 'released', true);
+    this.renderClock(); this.renderFans(); this.buttons(); this.ph?.update(this.visual().phase, this.fans); this.label();
+    if (this.key === 'a' && payout) payout.reset();
+  }
+  setStatus(k: StatusKey, instant?: boolean) {
+    const roles = andList((this.show?.split ?? []).map(p => ROLE_WORD[p.role].toLowerCase()));
+    const S: Record<StatusKey, [string, string, string]> = { held: ['held', 'Waiting for fans', '· $0 charged'], tipped: ['tipped', 'It’s on!', '· everyone’s charged'], paying: ['paying', 'Paying everyone', '· one PayPal payout'], paid: ['paid', 'Everyone’s paid', `· ${roles}`], sent: ['paid', 'Payouts sent', '· waiting for PayPal to confirm'], missing: ['missing', 'Deadline passed', '· cancelling every hold'], released: ['released', 'Called off', '· nobody paid'] };
+    const [s, w, said] = S[k]; setStatus(this.status, s, w, said, instant);
+  }
+  renderMoney(instant?: boolean) { const total = this.fans * this.cents / 100; this.odoHeld.set(this.tipped || this.phase === 'released' || this.phase === 'missing' ? 0 : total, instant); this.odoCharged.set(this.tipped ? total : 0, instant); }
+  renderClock() { this.clockEl.innerHTML = countdownHTML(this.remain); }
   renderFans() {
-    const { fans } = this, { target } = this.cfg, p = this.phase;
+    const { fans, target } = this, p = this.phase;
     this.of.textContent = fans <= target ? `of ${target} fans` : `fans · target was ${target}`;
-    this.fansSub.textContent = p === 'paid' || p === 'paying' ? 'Everyone’s paid'
+    this.fansSub.textContent = p === 'paid' || p === 'paying' ? (p === 'paid' && !this.confirmed ? 'Payouts sent' : 'Everyone’s paid')
       : p === 'released' || p === 'missing' ? `Called off · ${target - fans} short`
       : this.tipped ? (fans > target ? `It’s on! · ${fans - target} joined after it tipped` : 'It’s on! Everyone’s charged')
       : `${target - fans} more to make it happen`;
   }
   buttons() {
-    const canAdd = (this.phase === 'open' || this.phase === 'tipped') && !this.busy, left = this.cfg.target - this.fans;
-    this.bAdd.disabled = !canAdd; this.bAdd.textContent = !canAdd && !this.busy || this.tipped || left >= 5 || left <= 0 ? 'Add 5 fans' : `Add ${left} fan${left === 1 ? '' : 's'}`;
-    this.bFF.disabled = !(this.phase === 'open' || this.phase === 'tipped') || this.busy;
+    const open = this.phase === 'open' || this.phase === 'tipped', canAdd = open && !this.busy, left = this.target - this.fans;
+    this.bAdd.disabled = !canAdd || inflight; this.bAdd.textContent = !open || this.tipped || left >= 5 || left <= 0 ? 'Add 5 fans' : `Add ${left} fan${left === 1 ? '' : 's'}`;
+    this.bFF.disabled = !open || this.busy || inflight;
+    this.bReset.disabled = inflight;
   }
   label() {
-    const v = this.visual(), c = this.cfg;
+    const v = this.visual(), t = this.target;
     const txt = v.phase === 'paid' ? 'fully lit, with payout signs hanging below: everyone has been paid'
-      : v.phase === 'tipped' ? `fully lit: the show reached ${c.target} fans and everyone was charged`
+      : v.phase === 'tipped' ? `fully lit: the show reached ${t} fans and everyone was charged`
       : v.phase === 'released' ? 'dark: the show was called off, every hold was cancelled, the board reads CALLED OFF, $0 CHARGED'
-      : `${this.fans} of ${c.target} border bulbs screwed in and glowing dimly: fans on hold, nobody charged`;
-    this.stage.setAttribute('aria-label', `Marquee sign for ${c.name}, ${txt}.`);
+      : `${this.fans} of ${t} border bulbs screwed in and glowing dimly: fans on hold, nobody charged`;
+    this.stage.setAttribute('aria-label', `Marquee sign for ${this.name}, ${txt}.`);
   }
-  addFans(max = 5): number {
-    if (!(this.phase === 'open' || this.phase === 'tipped') || this.busy) return 0;
-    const c = this.cfg;
-    if (this.tipped) return this.addAfterTip(max);
-    const n = Math.min(max, c.target - this.fans); if (n <= 0) return 0;
+
+  /* ---- data in ---- */
+  apply(s: PublicShow) {
+    if (!this.show || s.showId !== this.show.showId) return;
+    const prev = this.show; this.show = s; this.clock?.sync(s.now);
+    // The artist changed the target or the deadline from the show page: refresh the words, the sign and the 3D view.
+    if (prev.threshold !== s.threshold || prev.deadline !== s.deadline || prev.ticketPriceCents !== s.ticketPriceCents) {
+      this.texts(s); this.ph?.setModel({ name: s.showName, target: s.threshold });
+      if (this.view) { this.view.setModel(this.model()); this.view.setPayouts(this.payees()); }
+      this.remain = remainSec(s.deadline, this.clock); this.renderClock(); this.renderFans(); this.renderMoney(true); this.label();
+    }
+    this.buttons(); this.step();
+  }
+  takeView(v: ManageView, instant = false) {
+    this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length;
+    for (const e of [...v.log].reverse()) if (e.seq > this.lastSeq) { this.queue.push(e); this.lastSeq = e.seq; }
+    if (instant) this.flush(null, true); else this.step();
+  }
+  flush(rule: RuleId | null, instant = false) {
+    let upto = -1; this.queue.forEach((e, i) => { if (rule === null || e.rule === rule) upto = i; });
+    const tz = this.show?.timeZone ?? 'UTC';
+    for (const e of this.queue.splice(0, upto + 1)) log.addSegs({ time: when(e.at, tz, 'log'), segs: emphasis(e.did), fine: fineLine(e), tag: this.key, instant });
+  }
+  /** One step toward the latest data, with the reference's beats; each beat calls step() again when it ends. */
+  step() {
+    const s = this.show; if (!s || this.busy || this.phase === 'ff' || this.phase === 'paying' || this.phase === 'missing' || this.phase === 'tipping') return;
+    const want = s.fans.committed, end = endOf(s.state), goesOn = end === 'tipped' || end === 'paid' || end === 'cancelled';
+    if (this.phase === 'open' && !this.tipped) {
+      const cap = goesOn ? Math.min(want, this.target) : want;
+      if (cap > this.fans) return this.addFans(cap - this.fans);
+      if (goesOn) return this.runTip();
+      if (end === 'missed') return this.fastForward();
+    } else if (this.phase === 'tipped') {
+      if (want > this.fans) return this.addAfterTip(want - this.fans);
+      if (end === 'paid' || end === 'cancelled') return this.fastForward();
+    }
+    this.flush(null);
+  }
+  tipsNext() { const e = this.show ? endOf(this.show.state) : 'live'; return (e === 'tipped' || e === 'paid' || e === 'cancelled') && this.fans >= this.target; }
+
+  /* ---- beats (timings from reference/v2/README.md) ---- */
+  addFans(n: number) {
     this.busy = true; this.buttons();
     const f0 = this.fans, step = REDUCED ? .06 : .24, land = REDUCED ? 0 : .38;
     if (this.view) this.view.play('pledge', { f0, f1: f0 + n });
-    for (let k = 0; k < n; k++) this.cues.at(k * step + land, () => { this.fans++; this.odoFans.set(this.fans); this.renderMoney(); this.renderFans(); this.ph.update('held', this.fans); Snd.screw(k); });
+    for (let k = 0; k < n; k++) this.cues.at(k * step + land, () => { this.fans++; this.odoFans.set(this.fans); this.renderMoney(); this.renderFans(); this.ph?.update('held', this.fans); Snd.screw(k); });
     const total = (n - 1) * step + land + (REDUCED ? .05 : .2);
     this.cues.at(total, () => {
-      log.add({ time: stamp(), html: `${n} more fan${n > 1 ? 's' : ''} joined ${c.name}. PayPal is holding their ${usd(n * c.pledge)}.`, fine: `${n} PayPal authorization${n > 1 ? 's' : ''} · money rule 1`, tag: c.key });
+      this.flush('rule-1-hold-only');
       this.busy = false; this.label();
-      if (this.fans >= c.target) this.runTip(); else { this.setStatus('held'); this.buttons(); if (this.pendingFF) { this.pendingFF = false; this.fastForward(); } }
+      if (!this.tipsNext()) { this.setStatus('held'); this.buttons(); }
+      this.step();
     });
-    return total;
   }
-  addAfterTip(n: number): number {
-    const c = this.cfg; this.busy = true; this.buttons();
+  addAfterTip(n: number) {
+    this.busy = true; this.buttons();
     const step = REDUCED ? .05 : .3;
     if (this.view) this.view.play(REDUCED ? 'reduced' : 'bonus', REDUCED ? { to: 'tipped' } : { count: n });
     for (let k = 0; k < n; k++) this.cues.at(k * step + .1, () => { this.fans++; this.odoFans.set(this.fans); this.renderMoney(); this.renderFans(); Snd.screw(k); });
-    const total = (n - 1) * step + .7;
-    this.cues.at(total, () => {
-      log.add({ time: stamp(), html: `${n} more fans joined after it tipped, and were <b>charged right away</b>: ${usd(n * c.pledge)}.`, fine: `captured on approval · money rule 2`, tag: c.key });
+    this.cues.at((n - 1) * step + .7, () => {
+      this.flush('rule-2-capture-at-tip');
       this.busy = false; this.buttons(); this.label(); if (this.view) this.view.setPayouts(this.payees());
-      if (this.pendingFF) { this.pendingFF = false; this.fastForward(); }
+      this.step();
     });
-    return total;
   }
   runTip() {
-    const c = this.cfg, C = REDUCED ? { flare: .05, done: T.R.tip } : T.TIP;
+    const C = REDUCED ? { flare: .05, done: T.R.tip } : T.TIP;
     this.phase = 'tipping'; this.busy = true; this.buttons();
     if (this.view) this.view.play(REDUCED ? 'reduced' : 'tip', REDUCED ? { to: 'tipped' } : {});
-    if (!REDUCED) { Snd.chase(c.target, T.TIP.flare); this.cues.at(T.TIP.pop, () => Snd.sparks()); this.cues.at(T.TIP.itson, () => Snd.chord()); }
+    if (!REDUCED) { Snd.chase(this.target, T.TIP.flare); this.cues.at(T.TIP.pop, () => Snd.sparks()); this.cues.at(T.TIP.itson, () => Snd.chord()); }
     this.cues.at(C.flare, () => {
       Snd.flare(); this.tipped = true; this.setStatus('tipped'); this.renderFans(); this.renderMoney();
-      this.moneySub.textContent = `Charged the moment it tipped · ${this.fans} × $${c.pledge}`;
-      this.ph.update('tipped', this.fans); this.label();
-      log.add({ time: stamp(), html: `<b>${c.name} reached ${this.fans} fans. It’s on!</b> Everyone was charged at once: ${usd(this.fans * c.pledge)}.`, fine: `captured ${this.fans} PayPal authorizations at tipping · money rule 2`, tag: c.key });
+      this.moneySub.textContent = `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}`;
+      this.ph?.update('tipped', this.fans); this.label();
+      this.flush('rule-2-capture-at-tip');
     });
-    this.cues.at(C.done, () => { this.phase = 'tipped'; this.busy = false; this.buttons(); if (this.pendingFF) { this.pendingFF = false; this.fastForward(); } });
+    this.cues.at(C.done, () => { this.phase = 'tipped'; this.busy = false; this.buttons(); this.step(); });
   }
   fastForward() {
-    if (!(this.phase === 'open' || this.phase === 'tipped')) { if (this.phase === 'tipping') this.pendingFF = true; return; }
-    if (this.busy) { this.pendingFF = true; return; }
+    // Like the reference, the countdown run doesn't set busy (the button labels depend on it); step() waits on the phase instead.
     const wasTipped = this.tipped; this.phase = 'ff'; this.buttons();
     const from = this.remain, dur = REDUCED ? .2 : 1.15, t0 = performance.now();
     if (this.view) this.view.tension(true);
-    const step = (now: number) => {
+    const tick = (now: number) => {
       const k = clamp((now - t0) / 1000 / dur), e = k * k * (2.2 - 1.2 * k);
       this.remain = Math.round(from * (1 - e)); this.renderClock();
-      if (k < 1) this.ffRaf = requestAnimationFrame(step); else { this.clock.classList.add('zero'); if (this.view) this.view.tension(false); if (wasTipped) this.runPayout(); else this.runMiss(); }
+      if (k < 1) { this.ffRaf = requestAnimationFrame(tick); return; }
+      this.clockEl.classList.add('zero'); if (this.view) this.view.tension(false);
+      if (wasTipped && this.show && endOf(this.show.state) === 'paid') this.runPayout(); else this.runMiss();
     };
-    this.ffRaf = requestAnimationFrame(step);
+    this.ffRaf = requestAnimationFrame(tick);
   }
   runPayout() {
-    const c = this.cfg, C = REDUCED ? { paid: .3, done: T.R.payout } : T.PAYOUT, amts = splitOf(c, this.fans);
+    const C = REDUCED ? { paid: .3, done: T.R.payout } : T.PAYOUT, amts = this.paidAmounts(), split = this.show?.split ?? [];
     this.phase = 'paying'; this.setStatus('paying'); this.buttons();
     if (this.view) { this.view.setPayouts(this.payees()); this.view.play(REDUCED ? 'reduced' : 'payout', REDUCED ? { to: 'paid' } : {}); }
     if (!REDUCED) Snd.drop();
     this.cues.at(C.paid, () => {
-      Snd.paid(); this.phase = 'paid'; this.setStatus('paid'); this.renderFans(); this.label(); this.ph.update('paid', this.fans);
-      this.moneySub.textContent = 'Paid out in one PayPal batch.';
-      if (c.key === 'a') payout.fill(amts, this.cues, `One PayPal payout, in money-rule order: ${c.split.map((p, i) => `${p.who} ${usd(amts[i])}`).join(' · ')}.`);
-      log.add({ time: c.deadline, html: `Deadline reached. <span class="w-paid">Paid ${c.split.map((p, i) => `${p.who} ${usd(amts[i])}`).join(', then ')}.</span>`, fine: `1 PayPal payout batch · ${amts.length} items · money rule 3`, tag: c.key });
+      Snd.paid(); this.phase = 'paid'; this.setStatus(this.confirmed ? 'paid' : 'sent'); this.renderFans(); this.label(); this.ph?.update('paid', this.fans);
+      this.moneySub.textContent = this.confirmed ? 'Paid out in one PayPal batch.' : 'Sent in one PayPal batch. PayPal is confirming it.';
+      if (this.key === 'a' && payout) payout.fill(amts, this.cues, `One PayPal payout, in money-rule order: ${split.map((p, i) => `${p.label} ${usd(amts[i])}`).join(' · ')}.`, this.confirmed ? undefined : this.parties.map(p => TAG[p.payoutStatus]));
+      this.flush('rule-4-pay-the-split');
+      this.buttons(); this.step();
     });
   }
   runMiss() {
-    const c = this.cfg, C = REDUCED ? { release: .05, msg: .8 } : T.MISS, held = this.fans * c.pledge;
+    const C = REDUCED ? { release: .05, msg: .8 } : T.MISS, held = this.fans * this.cents / 100;
     this.phase = 'missing'; this.buttons();
     if (this.view) this.view.play(REDUCED ? 'reduced' : 'miss', REDUCED ? { to: 'released' } : {});
     if (!REDUCED) { Snd.relays(12, T.MISS.wave); Snd.release(this.fans); }
     this.cues.at(C.release, () => {
       this.setStatus('missing'); this.renderFans(); this.renderMoney();
       this.moneySub.textContent = `${usd(held)} released back to ${this.fans} fans · nobody paid`;
-      this.ph.update('released', this.fans);
-      log.add({ time: c.deadline, html: `${c.name} ended at ${this.fans} of ${c.target}. <span class="w-rel">Every hold was cancelled. Nobody paid.</span>`, fine: `voided ${this.fans} PayPal authorizations · money rule 4`, tag: c.key });
+      this.ph?.update('released', this.fans);
+      this.flush('rule-3-void-on-miss');
     });
-    this.cues.at(C.msg, () => { Snd.msg(); this.phase = 'released'; this.setStatus('released'); this.label(); });
+    this.cues.at(C.msg, () => { Snd.msg(); this.phase = 'released'; this.setStatus('released'); this.label(); this.buttons(); this.step(); });
   }
-  demoTip() { if (this.tipped || this.phase !== 'open' || this.busy) { this.reset(); log.clear(this.cfg.key); } this.addFans(this.cfg.target - this.fans); }
-  demoPay() { if (this.phase === 'tipped' && !this.busy) this.fastForward(); else if (this.tipped || this.phase === 'tipping') this.pendingFF = true; else { this.demoTip(); this.pendingFF = true; } }
-  demoMiss() { if (this.phase !== 'open' || this.busy || this.tipped) { this.reset(); log.clear(this.cfg.key); } this.fastForward(); }
+
+  /* ---- the controls (real API calls, one at a time across the whole page) ---- */
+  addCount(): number { return this.tipped ? 5 : Math.max(1, Math.min(5, this.target - this.fans)); }
+  async addClicked(count = this.addCount()) {
+    if (!demo || !(this.phase === 'open' || this.phase === 'tipped') || this.busy) return;
+    const d = demo;
+    await solo(async () => { const r = await api.demoFans(d.demoId, d.demoKey, { show: this.key, count }); await applyShow(this, r.show); });
+  }
+  async ffClicked() {
+    if (!demo || !(this.phase === 'open' || this.phase === 'tipped') || this.busy) return;
+    const d = demo;
+    await solo(async () => { const r = await api.demoFastForward(d.demoId, d.demoKey, this.key); await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]); });
+  }
+}
+
+/** Every demo button (both shows, Start over, Check pace now) runs one at a time; the rest stay disabled until it ends. Errors show as a plain line. */
+async function solo(fn: () => Promise<void>) {
+  if (inflight) return;
+  inflight = true; lock();
+  try { await act(fn); }
+  catch (e) { failed(e); }
+  finally { inflight = false; lock(); }
+}
+function lock() { ctls.forEach(c => c.buttons()); $<HTMLButtonElement>('#pace').disabled = inflight; }
+
+function pullView(c: ShowCtl, instant = false): Promise<void> {
+  if (!demo || !c.show) return Promise.resolve();
+  if (c.show.version === c.viewVersion) return c.viewP ?? Promise.resolve();
+  const k = demo.demoKey, id = c.show.showId, v = c.show.version;
+  c.viewVersion = v;
+  const p = (async () => {
+    try { c.takeView(await api.manage(id, k), instant); } catch { if (c.viewVersion === v) c.viewVersion = null; }
+  })();
+  c.viewP = p; void p.then(() => { if (c.viewP === p) c.viewP = null; });
+  return p;
+}
+async function applyShow(c: ShowCtl, s: PublicShow) { c.apply(s); await pullView(c); }
+
+function summary() {
+  const shows = [A.show, B.show].filter((s): s is PublicShow => s !== null);
+  const held = shows.reduce((n, s) => n + s.fans.held, 0), charged = shows.reduce((n, s) => n + s.fans.charged, 0);
+  const time = A.show && A.clock ? when(A.clock.now(), A.show.timeZone, 'log') : '';
+  log.addSegs({ time, segs: emphasis(`Watching ${shows.length} shows. ${held} fans are on hold and ${charged ? `${charged} have been charged` : 'nobody has been charged'}.`), fine: `${held} PayPal authorizations open · money rule 1`, instant: true });
+}
+function links() {
+  if (!demo || !A.show || !B.show) return;
+  const set = (id: string, href: string, text: string) => { const x = $<HTMLAnchorElement>(id); x.href = href; x.textContent = text; };
+  set('#pledge-a', `/s/${A.show.showId}`, `Hold a spot on ${A.show.showName}`);
+  set('#manage-a', `/s/${A.show.showId}/manage#${demo.demoKey}`, `${A.show.showName}’s show page`);
+  set('#manage-b', `/s/${B.show.showId}/manage#${demo.demoKey}`, `${B.show.showName}’s show page`);
+}
+function start(r: DemoResponse) {
+  demo = { demoId: r.demoId, demoKey: r.demoKey, expiresAt: r.expiresAt }; saveDemo(store, demo);
+  log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links();
+}
+/** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
+async function begin(r: DemoResponse) { start(r); await Promise.all([pullView(A, true), pullView(B, true)]); }
+async function freshCopy(msg: string) { await begin(await api.createDemo()); judgeMsg(msg); }
+async function resetDemo() {
+  const d = demo; if (!d) return;
+  await solo(async () => {
+    try { await begin(await api.demoReset(d.demoId, d.demoKey)); judgeMsg('A fresh pair of sample shows is ready.'); }
+    catch (e) { if (e instanceof ApiFailure && (e.status === 404 || e.status === 403)) { await freshCopy('That demo copy had ended, so here is a fresh pair of sample shows.'); return; } throw e; }
+  });
+}
+async function checkPace() {
+  const d = demo; if (!d) return;
+  await solo(async () => {
+    const r = await api.demoPace(d.demoId, d.demoKey);
+    await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]);
+    const behind = [A, B].filter(c => c.openProposals > 0).map(c => c.name);
+    judgeMsg(behind.length ? `The agent checked the pace. ${andList(behind)} ${behind.length === 1 ? 'is' : 'are'} behind, so it asked the artist first. Open the show page to answer.` : 'The agent checked the pace. Both shows are on track, so nothing changes.');
+  });
+}
+async function boot() {
+  const saved = loadDemo(store);
+  await act(async () => {
+    try {
+      // A saved copy is reused only while it has more than 10 minutes left and the server still knows both shows.
+      let reused = false;
+      if (saved && saved.expiresAt - Date.now() > 10 * 60_000) {
+        try {
+          const a = await api.getShow(`${saved.demoId}a`), b = await api.getShow(`${saved.demoId}b`);
+          demo = saved; log.clear(); A.load(a); B.load(b); summary(); links(); reused = true;
+          await Promise.all([pullView(A, true), pullView(B, true)]);
+        } catch (e) { if (!(e instanceof ApiFailure && e.status === 404)) throw e; }
+      }
+      if (!reused) await begin(await api.createDemo());
+    } catch (e) { failed(e); }
+  });
+  $('[data-judge-creds]').textContent = SANDBOX_BUYER.email
+    ? `To try the real PayPal checkout, log in with the sandbox buyer ${SANDBOX_BUYER.email}${SANDBOX_BUYER.password ? `, password ${SANDBOX_BUYER.password}` : ''}. It’s play money: nothing real is charged.`
+    : 'To try the real PayPal checkout, log in with any PayPal sandbox personal account. It’s play money: nothing real is charged.';
+  $('#judge').hidden = false;
+}
+async function poll() {
+  if (!demo || document.hidden || inflight) return;
+  for (const c of [A, B]) {
+    if (!c.show) continue;
+    try { const s = await api.getShow(c.show.showId); if (s.version !== c.show.version) await applyShow(c, s); }
+    catch (e) {
+      if (e instanceof ApiFailure && e.status === 404) { await solo(() => freshCopy('That demo copy has ended, so here is a fresh pair of sample shows.')); return; }
+    }
+  }
 }
 
 interface DemoHooks extends MarqueeHooks { ctls: ShowCtl[]; host: SignHost | null }
-
-resetLog();
-const ctls = SHOWS.map(cfg => new ShowCtl(cfg)); const [A, B] = ctls;
-setInterval(() => ctls.forEach(c => { if ((c.phase === 'open' || c.phase === 'tipped' || c.phase === 'tipping') && c.remain > 0) { c.remain--; c.renderClock(); } }), 1000);
+const A = new ShowCtl('a'), B = new ShowCtl('b'), ctls = [A, B];
+setInterval(() => ctls.forEach(c => { if ((c.phase === 'open' || c.phase === 'tipped' || c.phase === 'tipping') && c.show) { c.remain = remainSec(c.show.deadline, c.clock); c.renderClock(); } }), 1000);
+if (!PARITY) setInterval(() => { void poll(); }, 4000);
 soundToggle($('#sound'));
+$('#pace').addEventListener('click', () => { void checkPace(); });
 addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
   const t = e.target as HTMLElement | null; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
   const k = e.key.toLowerCase();
-  if (k === 't') { A.demoTip(); e.preventDefault(); }
-  else if (k === 'p') { A.demoPay(); e.preventDefault(); }
-  else if (k === 'm') { B.demoMiss(); e.preventDefault(); }
-  else if (k === 'r') { ctls.forEach(c => c.reset()); resetLog(); e.preventDefault(); }
+  if (k === 't') { if (A.show && A.phase === 'open' && !A.tipped) void A.addClicked(Math.max(1, Math.min(20, A.show.fans.more))); e.preventDefault(); }
+  else if (k === 'p') { void A.ffClicked(); e.preventDefault(); }
+  else if (k === 'm') { void B.ffClicked(); e.preventDefault(); }
+  else if (k === 'r') { void resetDemo(); e.preventDefault(); }
 });
-window.__marquee = { page: 'demo', ctls, views: [], host: null, ready: false } as DemoHooks;
+const hooks: DemoHooks = { page: 'demo', ctls, views: [], host: null, ready: false, get pending() { return pendingCount(); } };
+if (HOOKS) window.__marquee = hooks;
 
+await boot();
 // 3D layer (optional): one shared WebGL renderer for both signs
 let host: SignHost | null = null;
-try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { /* 3D is optional: host stays null, the flat SVG signs remain */ }
-if (host) { ctls.forEach(c => c.attach(host)); Ticker.add(now => host.tick(now)); window.__marquee.views = host.views; window.__marquee.host = host; }
-window.__marquee.ready = true;
+if (A.show && B.show) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { /* 3D is optional: host stays null, the flat SVG signs remain */ } }
+if (host) { const h = host; ctls.forEach(c => c.attach(h)); Ticker.add(now => h.tick(now)); hooks.views = host.views; hooks.host = host; }
+hooks.ready = true;
+markReady();

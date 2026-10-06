@@ -291,7 +291,7 @@ export function demoApi(): FakeApi {
     s.show = showOf(s.base, { ...st, version: s.version });
   };
   const side = (k: unknown) => (k === "b" ? b : a);
-  const response = (): DemoResponse => ({ demoId: DEMO_ID, demoKey: DEMO_KEY, shows: [a.show, b.show], expiresAt: T(11, 17, 10, 19) });
+  const response = (): DemoResponse => ({ demoId: DEMO_ID, demoKey: DEMO_KEY, shows: [a.show, b.show], expiresAt: Date.now() + 86_400_000 });
   const view = (s: DemoSide): ManageView => ({ show: s.show, ledger: [], log: [...s.log].reverse(), proposals: s.proposals, parties: s.parties, notes: [], attention: [], collectedNetCents: 0, now: s.show.now, version: s.show.version, sharePath: `/s/${s.show.showId}` });
 
   function addFans(s: DemoSide, n: number) {
