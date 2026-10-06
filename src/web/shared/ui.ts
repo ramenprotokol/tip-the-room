@@ -163,6 +163,18 @@ export class AgentLog {
     li.innerHTML = `<time>${time}</time><span class="msg">${html}${fine ? `<small class="fine">${fine}</small>` : ''}</span>`;
     this.el.appendChild(li); if (!instant) enter(li); return li;
   }
+  /** Same markup as add(), built from plain-text segments: backend text never goes through innerHTML. */
+  addSegs({ time, segs, fine = '', tag = '', instant = false }: { time: string; segs: { text: string; cls: string }[]; fine?: string; tag?: string; instant?: boolean }) {
+    const li = document.createElement('li'); if (tag) li.dataset.tag = tag;
+    const t = document.createElement('time'); t.textContent = time;
+    const msg = document.createElement('span'); msg.className = 'msg';
+    for (const s of segs) {
+      if (!s.cls) { msg.append(document.createTextNode(s.text)); continue; }
+      const e = document.createElement(s.cls === 'b' ? 'b' : 'span'); if (s.cls !== 'b') e.className = s.cls; e.textContent = s.text; msg.append(e);
+    }
+    if (fine) { const sm = document.createElement('small'); sm.className = 'fine'; sm.textContent = fine; msg.append(sm); }
+    li.append(t, msg); this.el.appendChild(li); if (!instant) enter(li); return li;
+  }
   clear(tag?: string) { if (!tag) this.el.textContent = ''; else $$(`li[data-tag="${tag}"]`, this.el).forEach(li => li.remove()); }
 }
 
@@ -174,18 +186,32 @@ export class PayoutStrip {
   note: HTMLElement | null;
   constructor(el: HTMLElement, payees: { label: string; who: string }[]) {
     this.el = el; const strip = $('.strip', el); strip.style.setProperty('--n', String(payees.length));
-    strip.innerHTML = payees.map(p => `<div class="cell" data-state="waiting"><span class="lbl">${p.label}</span><span class="who">${p.who}</span><span class="amt">$<span data-amt>0</span></span><span class="tag" data-tag>Waiting</span></div>`).join('');
+    strip.textContent = '';
+    for (const p of payees) {
+      const cell = document.createElement('div'); cell.className = 'cell'; cell.dataset.state = 'waiting';
+      const span = (cls: string, text: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = text; return s; };
+      const amt = span('amt', '$'); const n = document.createElement('span'); n.dataset.amt = ''; n.textContent = '0'; amt.append(n);
+      const tag = span('tag', 'Waiting'); tag.dataset.tag = '';
+      cell.append(span('lbl', p.label), span('who', p.who), amt, tag); strip.append(cell);
+    }
     this.cells = $$('.cell', strip); this.odos = this.cells.map(c => new Odo($('[data-amt]', c))); this.note = $('[data-pay-note]', el); this.reset();
   }
   reset() { this.cells.forEach((c, i) => { c.dataset.state = 'waiting'; $('[data-tag]', c).textContent = 'Waiting'; this.odos[i].set(0, true); }); if (this.note) this.note.textContent = this.note.dataset.idle || ''; }
   plan(amounts: number[], labels?: string[]) { amounts.forEach((v, i) => { this.odos[i].set(v, true); this.cells[i].dataset.state = 'waiting'; $('[data-tag]', this.cells[i]).textContent = labels ? labels[i] : 'Planned'; }); }
-  fill(amounts: number[], cues: Cues, noteText?: string) {
+  fill(amounts: number[], cues: Cues, noteText?: string, tags?: string[]) {
     amounts.forEach((v, i) => cues.at(i * .14, () => {
       this.odos[i].set(v);
-      cues.at(.45, () => { const c = this.cells[i]; c.dataset.state = 'paid'; $('[data-tag]', c).textContent = 'Paid'; pop(c); });
+      cues.at(.45, () => { const c = this.cells[i]; c.dataset.state = 'paid'; $('[data-tag]', c).textContent = tags?.[i] ?? 'Paid'; pop(c); });
     }));
     if (this.note && noteText) cues.at(.9, () => { this.note!.textContent = noteText; });
   }
+  /** Final amounts at once (a page opened after the payout). */
+  set(amounts: number[], tags: string[], states: string[], noteText?: string) {
+    amounts.forEach((v, i) => { if (!this.cells[i]) return; this.odos[i].set(v, true); this.cells[i].dataset.state = states[i] ?? 'waiting'; $('[data-tag]', this.cells[i]).textContent = tags[i] ?? ''; });
+    if (this.note && noteText) this.note.textContent = noteText;
+  }
+  /** The waiting sentence, from data. */
+  idle(text: string) { if (this.note) { this.note.dataset.idle = text; this.note.textContent = text; } }
 }
 
 /* ---------------- border track + flat SVG sign (instant paint, no-WebGL fallback) ---------------- */
