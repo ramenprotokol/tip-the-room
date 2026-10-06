@@ -100,7 +100,7 @@ test("submission video: the judge flow with captions", async ({ browser }) => {
     const popup = await popupWait;
     const popupStart = at();
     popupVideo = popup.video();
-    const auto = creds?.[2] ? await payPalLogin(popup, { email: creds[1]!, password: creds[2] }) : false;
+    const auto = creds?.[2] && !process.env.VIDEO_MANUAL_POPUP ? await payPalLogin(popup, { email: creds[1]!, password: creds[2] }) : false;
     if (!auto) console.log("Finish the PayPal popup by hand (run with --headed).");
     await expect(page.locator("#confirm")).toBeVisible({ timeout: 300_000 });
     popupSpan = { start: popupStart, end: at() };
