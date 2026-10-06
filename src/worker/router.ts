@@ -5,6 +5,7 @@ import { draftFields, previewDraft } from "../agent/draft";
 import { ServiceError } from "../agent/errors";
 import { demoSeeds, type Receivers } from "../agent/demo";
 import { demoShowIds, isDemoId, isShowId, newId, newSecret, sha256Hex, showIdFromRef, type Clock, type Random } from "../agent/ids";
+import { DEMO_COPIES_PER_DAY } from "../agent/policy";
 import type { QuotaPort } from "../agent/quota";
 import { isKnownEventType, mapWebhookEvent, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
 import { MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoResponse, type ErrorCode, type PublicShow } from "./api-types";
@@ -42,7 +43,7 @@ export const LIMITS = {
   demo: { limit: 5, windowMs: HOUR },
   demoFans: { limit: 12, windowMs: HOUR },
   demoFastForward: { limit: 30, windowMs: HOUR },
-  demoGlobal: { limit: 300, windowMs: 24 * HOUR },
+  demoGlobal: { limit: DEMO_COPIES_PER_DAY, windowMs: 24 * HOUR },
   /** Webhook signature checks cost a PayPal call each, so they are capped per visitor and overall. PayPal retries a 429. */
   webhookVisitor: { limit: 300, windowMs: HOUR },
   webhookGlobal: { limit: 2000, windowMs: HOUR },
@@ -265,9 +266,21 @@ async function newDemoCopy(c: Ctx): Promise<DemoResponse> {
   const shows: PublicShow[] = [];
   for (const seed of demoSeeds(c.deps.config.receivers)) {
     const showId = `${demoId}${seed.key}`;
-    const reply = await c.deps.campaigns.call(showId, { op: "demo_init", showId, seed, demoKeyHash });
-    if (!reply.ok) throw new HttpError(reply.status, reply.error.code, reply.error.message);
-    shows.push(reply.data as PublicShow);
+    try {
+      const reply = await c.deps.campaigns.call(showId, { op: "demo_init", showId, seed, demoKeyHash });
+      if (!reply.ok) throw new HttpError(reply.status, reply.error.code, reply.error.message);
+      shows.push(reply.data as PublicShow);
+    } catch (e) {
+      // The visitor never gets this copy's key, so a half-made copy would run its holds for nobody: retire what was made.
+      for (const made of shows) {
+        try {
+          await c.deps.campaigns.call(made.showId, { op: "demo_retire", manageKey: demoKey });
+        } catch {
+          // Best effort: the copy still expires by itself within its 24 h.
+        }
+      }
+      throw e;
+    }
   }
   return { demoId, demoKey, shows: [shows[0], shows[1]] };
 }

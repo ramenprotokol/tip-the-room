@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DAY_MS } from "../../src/core/holds";
 import { commit, drain, type ExecDeps } from "../../src/agent/executor";
 import { SIM_CARD } from "../../src/agent/paypal-port";
+import { MAX_JOB_ATTEMPTS } from "../../src/agent/policy";
 import { RUNNERS } from "../../src/agent/runners";
 import { Store } from "../../src/agent/store";
 import { PayPalError } from "../../src/paypal/errors";
@@ -166,6 +167,52 @@ describe("a simulated fan's hold", () => {
     await drain(h.d, RUNNERS);
     expect(h.store.job("sim:s1")?.status).toBe("pending");
     expect(h.store.projection().rejected).toBe(0);
+  });
+
+  describe("out of tries on unreadable answers", () => {
+    async function lastTry(withOrder = true) {
+      const h = await base();
+      simJob(h);
+      h.store.updateJob("sim:s1", { attempts: MAX_JOB_ATTEMPTS - 1 });
+      h.paypal.script("createCardHold", () => {
+        const e = new PayPalError(502, "BAD_RESPONSE_BODY", "unreadable");
+        if (withOrder) e.orderId = "O-s1";
+        throw e;
+      });
+      return h;
+    }
+
+    it("a live hold found by the final check is recorded as refused and queued to be cancelled", async () => {
+      const h = await lastTry();
+      h.paypal.script("getOrderPayments", () => ({ orderId: "O-s1", status: "APPROVED", authorizations: [{ id: "A-s1", status: "CREATED" }], captures: [] }));
+      await drain(h.d, RUNNERS);
+      expect(h.paypal.calls.filter((c) => c.op === "getOrderPayments").map((c) => c.args[0])).toEqual(["O-s1"]);
+      expect(h.store.job("sim:s1")?.status).toBe("done");
+      expect(h.store.projection().retired.get("A-s1")).toMatchObject({ why: "rejected", voided: true });
+      expect(h.paypal.calls.filter((c) => c.op === "voidHold").map((c) => c.args[0])).toEqual(["A-s1"]);
+    });
+
+    it("no live hold: the job fails with a plain needs-attention line", async () => {
+      const h = await lastTry();
+      await drain(h.d, RUNNERS);
+      expect(h.store.job("sim:s1")?.status).toBe("failed");
+      expect(h.store.logs().some((l) => l.did.startsWith("Needs attention"))).toBe(true);
+      expect(h.paypal.count("voidHold")).toBe(0);
+    });
+
+    it("the check itself fails, or there is no order id: needs attention, never silent", async () => {
+      const h = await lastTry();
+      h.paypal.script("getOrderPayments", () => {
+        throw new PayPalError(503, "SERVICE_UNAVAILABLE", "busy");
+      });
+      await drain(h.d, RUNNERS);
+      expect(h.store.job("sim:s1")).toMatchObject({ status: "failed" });
+      expect(h.store.job("sim:s1")?.note).toMatch(/hold may exist/);
+      const g = await lastTry(false);
+      await drain(g.d, RUNNERS);
+      expect(g.store.job("sim:s1")?.note).toMatch(/hold may exist/);
+      expect(g.paypal.count("getOrderPayments")).toBe(0);
+    });
   });
 
   it("cancels a hold that lands after pledging closed", async () => {

@@ -90,14 +90,29 @@ describe("demo routes", () => {
     expect((await w.call("POST", "/api/demo/dabcdefghjk/fast-forward", undefined, { "x-manage-key": "x".repeat(43) })).status).toBe(404);
   });
 
-  it("caps new demo copies across all visitors (300 a day)", async () => {
+  it("retires copy a when copy b cannot be made, so no orphan runs holds", async () => {
+    const w = workerHarness();
+    const real = w.deps.campaigns.call.bind(w.deps.campaigns);
+    w.deps.campaigns.call = async (showId, op) => {
+      if (op.op === "demo_init" && showId.endsWith("b")) throw new Error("boom");
+      return real(showId, op);
+    };
+    expect((await w.call("POST", "/api/demo")).status).toBe(500);
+    const [id] = [...w.shows.keys()];
+    expect(id.endsWith("a")).toBe(true);
+    const a = w.shows.get(id)!;
+    expect(a.svc.project().campaign.state).toBe("missed");
+    expect(Number(a.store.getMeta("expires_at"))).toBeLessThanOrEqual(w.clock.now() + HOUR);
+  });
+
+  it("caps new demo copies across all visitors (50 a day)", async () => {
     const w = workerHarness();
     let status = 201;
-    for (let i = 0; i < 301 && status === 201; i++) {
+    for (let i = 0; i < 51 && status === 201; i++) {
       // A different visitor each time (the per-visitor limit is 5 an hour).
       const res = await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": `10.0.${Math.floor(i / 250)}.${i % 250}` });
       status = res.status;
-      if (i < 300) expect(status).toBe(201);
+      if (i < 50) expect(status).toBe(201);
     }
     expect(status).toBe(429);
   });

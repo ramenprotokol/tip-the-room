@@ -19,7 +19,7 @@ import { commit, drain, logStep, queueVoid, requestReconcile, type ExecDeps } fr
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { DEMO_GRACE_MS, DEMO_MAX_GRACES, DEMO_TOP_UP_EXTRA, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
+import { DEMO_GRACE_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
 import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
 import { SIM_INITIALS } from "./sim-runner";
@@ -699,18 +699,43 @@ export class CampaignService {
     }
   }
 
-  /** True when a demo copy is past its expiry and has no money step left (the adapter then deletes the storage). */
+  /**
+   * True when a demo copy is past its expiry AND no live sandbox hold is left (the adapter then deletes the storage).
+   * A hold counts as live while it is still held (or its charge failed) and not past its own expiresAt, or while a retired
+   * or replaced hold has no confirmed void. Until then the alarm is re-armed with a doubling wait (1 h up to 24 h) and the
+   * void jobs are re-opened every time, so a failed void is never forgotten.
+   */
   private checkExpiry(): boolean {
     const store = this.deps.store;
     if (!this.pastExpiry()) return false;
     this.jumpToDeadline();
-    const graces = Number(store.getMeta("expiry_graces") ?? "0");
-    if (store.hasPending(MONEY_JOBS) && graces < DEMO_MAX_GRACES) {
-      store.setMeta("expires_at", String(this.deps.clock.now() + DEMO_GRACE_MS));
-      store.setMeta("expiry_graces", String(graces + 1));
-      return false;
+    const live = this.liveHolds(this.project());
+    if (live.length === 0) return true;
+    const now = this.deps.clock.now();
+    for (const { auth, voidable } of live) {
+      if (!voidable) continue;
+      const key = `void:${auth}`;
+      const j = store.job(key);
+      if (!j) queueVoid(store, auth, now);
+      else if (j.status === "failed") store.updateJob(key, { status: "pending", attempts: 0, nextAt: now });
     }
-    return true;
+    const graces = Number(store.getMeta("expiry_graces") ?? "0");
+    store.setMeta("expires_at", String(now + demoGraceMs(graces)));
+    store.setMeta("expiry_graces", String(graces + 1));
+    return false;
+  }
+
+  /** Holds that may still be open at PayPal and that nothing has closed yet. `voidable` holds are safe to release now. */
+  private liveHolds(p: Projection): { auth: string; voidable: boolean }[] {
+    const now = this.deps.clock.now();
+    // Only a show that is ending may release a held pledge; a charge still in progress is left to its own jobs.
+    const ending = p.campaign.state === "missed" || p.campaign.state === "cancelled";
+    const out: { auth: string; voidable: boolean }[] = [];
+    for (const x of p.pledges.values()) {
+      if ((x.status === "held" || x.status === "capture_failed") && x.expiresAt > now) out.push({ auth: x.authorizationId, voidable: ending && x.status === "held" });
+    }
+    for (const r of p.retired.values()) if (!r.voided) out.push({ auth: r.authorizationId, voidable: true });
+    return out;
   }
 
   /** When the Durable Object alarm should next fire, in REAL time; null when nothing is left to do. */

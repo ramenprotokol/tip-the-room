@@ -72,8 +72,16 @@ export const DEMO_TTL_MS = 24 * HOUR_MS;
 export const UNSIGNED_TTL_MS = 24 * HOUR_MS;
 /** Demo fast-forward tops show A up to its target plus this many simulated fans, so the sandbox fee cannot leave it short. */
 export const DEMO_TOP_UP_EXTRA = 2;
+/** A demo copy past its expiry waits this long before looking again for live holds; the wait doubles each time (see demoGraceMs). */
 export const DEMO_GRACE_MS = HOUR_MS;
-export const DEMO_MAX_GRACES = 3;
+/** The wait between expiry checks never grows past this. */
+export const DEMO_GRACE_MAX_MS = 24 * HOUR_MS;
+/** Wait before expiry check number `graces` (0-based): 1 h, 2 h, 4 h, ... capped at 24 h. */
+export function demoGraceMs(graces: number): number {
+  return Math.min(DEMO_GRACE_MS * 2 ** Math.min(Math.max(graces, 0), 10), DEMO_GRACE_MAX_MS);
+}
+/** New demo copies allowed per day across all visitors. Each copy seats about 48 real sandbox holds. */
+export const DEMO_COPIES_PER_DAY = 50;
 export const SIM_CAP_PER_SHOW = 60;
 export const SIM_ADD_MAX = 20;
 export const MAX_ORDERS_PER_SHOW = 500;

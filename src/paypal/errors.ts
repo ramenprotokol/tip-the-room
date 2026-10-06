@@ -12,6 +12,8 @@ export class PayPalError extends Error {
   readonly paypalName: string;
   readonly debugId?: string;
   readonly issues: PayPalIssue[];
+  /** Set when the order already existed at PayPal but its answer was unreadable, so callers can look it up (GET). */
+  orderId?: string;
 
   constructor(status: number, paypalName: string, message: string, debugId?: string, issues: PayPalIssue[] = []) {
     super(`PayPal ${status} ${paypalName}: ${message}${debugId ? ` (debug_id ${debugId})` : ""}`);

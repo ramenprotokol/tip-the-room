@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DAY_MS } from "../../src/core/holds";
 import { splitPayout } from "../../src/core/split";
 import { demoSeeds, receiversFrom } from "../../src/agent/demo";
+import { commit } from "../../src/agent/executor";
 import { sha256Hex } from "../../src/agent/ids";
 import { SIM_CARD } from "../../src/agent/paypal-port";
 import { PayPalError } from "../../src/paypal/errors";
@@ -207,19 +208,64 @@ describe("expiry", () => {
     expect(await h.svc.tick()).toEqual({ expired: true });
   });
 
-  it("waits at most three extra hours for stuck money steps, then expires", async () => {
+  const failVoids = (h: Demo) =>
+    h.paypal.script("voidHold", ...Array.from({ length: 400 }, () => () => {
+      throw new PayPalError(503, "SERVICE_UNAVAILABLE", "busy");
+    }));
+
+  it("a failed void keeps the copy: not deleted, re-armed with a doubling wait capped at 24 h", async () => {
     const h = await demoShow("b");
     await run(h);
     h.clock.t = LAUNCH + DAY_MS;
-    h.paypal.script("voidHold", ...Array.from({ length: 200 }, () => () => {
-      throw new PayPalError(503, "SERVICE_UNAVAILABLE", "busy");
-    }));
-    const results: boolean[] = [];
-    for (let i = 0; i < 4; i++) {
-      results.push((await h.svc.tick()).expired);
-      h.clock.t = Number(h.store.getMeta("expires_at"));
+    failVoids(h);
+    const waits: number[] = [];
+    for (let i = 0; i < 9; i++) {
+      expect((await h.svc.tick()).expired).toBe(false);
+      const at = Number(h.store.getMeta("expires_at"));
+      waits.push(at - h.clock.t);
+      h.clock.t = at;
     }
-    expect(results).toEqual([false, false, false, true]);
+    expect(waits.slice(0, 5)).toEqual([HOUR, 2 * HOUR, 4 * HOUR, 8 * HOUR, 16 * HOUR]);
+    expect(waits.slice(5)).toEqual([24 * HOUR, 24 * HOUR, 24 * HOUR, 24 * HOUR]);
+    expect(h.svc.project().campaign.pledges.held).toBeGreaterThan(0);
+  });
+
+  it("re-opens a void job that ran out of tries, and deletes once the holds are released", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    h.clock.t = LAUNCH + DAY_MS;
+    await h.svc.tick();
+    for (const j of h.store.jobs().filter((x) => x.kind === "void")) h.store.updateJob(j.key, { status: "failed" });
+    expect(h.store.jobs().filter((x) => x.kind === "void" && x.status === "failed").length).toBeGreaterThan(0);
+    h.clock.t = Number(h.store.getMeta("expires_at"));
+    expect((await h.svc.tick()).expired).toBe(false);
+    expect(h.store.jobs().filter((x) => x.kind === "void" && x.status === "failed")).toHaveLength(0);
+    await run(h);
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
+    h.clock.t = Number(h.store.getMeta("expires_at"));
+    expect((await h.svc.tick()).expired).toBe(true);
+  });
+
+  it("deletes once every remaining hold is past its own expiry, even if voids keep failing", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    h.clock.t = LAUNCH + DAY_MS;
+    failVoids(h);
+    expect((await h.svc.tick()).expired).toBe(false);
+    h.clock.t = LAUNCH + 40 * DAY_MS;
+    expect((await h.svc.tick()).expired).toBe(true);
+  });
+
+  it("keeps a copy while a replaced hold has no confirmed void", async () => {
+    const h = await demoShow("b");
+    await run(h);
+    const p = h.svc.project();
+    const x = [...p.pledges.values()][0];
+    commit(h.store, h.clock.now(), { type: "hold_replaced", pledgeId: x.pledgeId, newPaypalPledgeId: `${x.pledgeId}-h1`, orderId: "O-new", authorizationId: "A-new", oldOrderId: x.orderId, oldAuthorizationId: x.authorizationId, authorizedAt: LAUNCH, expiresAt: LAUNCH + 29 * DAY_MS });
+    h.clock.t = LAUNCH + 40 * DAY_MS;
+    failVoids(h);
+    expect((await h.svc.tick()).expired).toBe(false);
+    expect(h.svc.project().retired.get(x.authorizationId)?.voided).toBe(false);
   });
 
   it("refuses demo controls on a real show", async () => {

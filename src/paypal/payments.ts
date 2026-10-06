@@ -158,9 +158,16 @@ export async function createCardHold(http: PayPalHttp, p: PledgeRef, card: TestC
     }),
     "order",
   );
-  const a = firstAuth(o);
-  if (a) return toHold(o.id, a, p.amountCents, firstUnit(o)?.custom_id);
-  return authorizeOrder(http, o.id);
+  try {
+    const a = firstAuth(o);
+    if (a) return toHold(o.id, a, p.amountCents, firstUnit(o)?.custom_id);
+    return await authorizeOrder(http, o.id);
+  } catch (e) {
+    // The order exists now. Whatever went wrong, tell the caller which order to look up.
+    const err = e instanceof PayPalError ? e : new PayPalError(502, "BAD_RESPONSE_BODY", e instanceof Error ? e.message : "unreadable answer");
+    if (typeof o.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(o.id)) err.orderId = o.id;
+    throw err;
+  }
 }
 
 export async function captureHold(http: PayPalHttp, authorizationId: string): Promise<Charge> {

@@ -3,7 +3,7 @@ import { assertPayPalId } from "../paypal/amount";
 import { PayPalError } from "../paypal/errors";
 import { requestIds, type Hold } from "../paypal/payments";
 import { commit, done, fail, logStep, queueVoid, retryLater, type ExecDeps, type Runner, type Runners } from "./executor";
-import { REHOLD_MARGIN_MS } from "./policy";
+import { MAX_JOB_ATTEMPTS, REHOLD_MARGIN_MS } from "./policy";
 import type { Job } from "./store";
 import { errText, fanName, holdDescription, sawCounts } from "./words";
 
@@ -42,6 +42,32 @@ function declined(d: ExecDeps, job: Job, pledgeId: string, orderId: string | nul
   done(d, job, `Refused: ${reason}`);
 }
 
+/**
+ * Out of tries on answers we couldn't read. The order may hold a live sandbox hold we never recorded, so look once more
+ * (GET). A live hold is recorded as refused and queued to be cancelled; otherwise the job fails loudly so it shows as
+ * needing attention. It never ends failed with an untracked hold.
+ */
+async function finalCheck(d: ExecDeps, job: Job, pledgeId: string, e: PayPalError): Promise<void> {
+  const note = errText(e);
+  if (e.orderId) {
+    try {
+      const found = await d.paypal.getOrderPayments(e.orderId);
+      const live = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && /^[A-Za-z0-9-]{1,64}$/.test(a.id));
+      if (live) {
+        const now = d.clock.now();
+        commit(d.store, now, { type: "pledge_rejected", pledgeId, orderId: e.orderId, authorizationId: live.id, reason: "PayPal's answer could not be read" });
+        queueVoid(d.store, live.id, now);
+        logStep(d, { saw: sawCounts(d.store.projection()), did: "A simulated fan's hold came back unreadable. Cancelling it; nobody is charged.", rule: "rule-1-hold-only", requestId: requestIds.hold(d.showId, pledgeId), resultId: live.id });
+        return done(d, job, "Unreadable answer; found a live hold and queued it to be cancelled.");
+      }
+      return fail(d, job, `Gave up after ${MAX_JOB_ATTEMPTS} tries; the order shows no live hold. Last answer: ${note}`, "a simulated fan's hold couldn't be placed. Nothing is held for them.");
+    } catch {
+      // Fall through: we could not look.
+    }
+  }
+  fail(d, job, `Gave up after ${MAX_JOB_ATTEMPTS} tries and could not check the order. A hold may exist. Last answer: ${note}`, "a simulated fan's hold may have been placed but couldn't be checked, so it needs a look. It lapses on its own; nobody is charged.");
+}
+
 const runSimHold: Runner = async (d, job, attempt) => {
   const p = d.store.projection();
   const m = p.mandate;
@@ -53,7 +79,10 @@ const runSimHold: Runner = async (d, job, attempt) => {
   try {
     hold = await d.paypal.createCardHold({ showId: d.showId, pledgeId, amountCents: m.ticketPrice, description: holdDescription(m) }, d.card);
   } catch (e) {
-    if (e instanceof PayPalError && (e.retryable || UNREADABLE.has(e.paypalName))) return retryLater(d, job, attempt, errText(e));
+    if (e instanceof PayPalError && (e.retryable || UNREADABLE.has(e.paypalName))) {
+      if (attempt >= MAX_JOB_ATTEMPTS) return finalCheck(d, job, pledgeId, e);
+      return retryLater(d, job, attempt, errText(e));
+    }
     return declined(d, job, pledgeId, null, null, errText(e), false);
   }
   // Only a CREATED hold for exactly the ticket price counts. DENIED (or anything else) is never recorded as held.
