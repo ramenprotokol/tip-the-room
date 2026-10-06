@@ -12,7 +12,13 @@ export class QuotaAgent {
       this.quota = new Quota(cfDb(this.ctx.storage));
       this.quota.migrate();
     }
-    const op = (await request.json()) as QuotaOp;
+    let op: QuotaOp;
+    try {
+      op = (await request.json()) as QuotaOp;
+    } catch {
+      // Fails closed: callers treat any non-2xx answer as "no".
+      return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
+    }
     return Response.json(quotaDispatch(this.quota, op, Date.now()));
   }
 }
