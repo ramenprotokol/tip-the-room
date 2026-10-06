@@ -38,7 +38,7 @@ function holdProblem(h: Hold, orderId: string, order: OrderView, m: Mandate): st
   if (h.orderId !== orderId) return "PayPal answered for a different order";
   if (h.status !== "CREATED") return "PayPal did not place the hold";
   if (h.amountCents !== order.amountCents || h.amountCents !== m.ticketPrice) return `PayPal held ${formatUSD(h.amountCents)} instead of ${formatUSD(m.ticketPrice)}`;
-  if (h.customId !== undefined && h.customId !== customIdFor(m.showId, order.pledgeId)) return "PayPal's hold belongs to a different pledge";
+  if (h.customId !== customIdFor(m.showId, order.pledgeId)) return "PayPal's hold belongs to a different pledge";
   return null;
 }
 
@@ -127,11 +127,12 @@ export class CampaignService {
     if (this.project().mandate) throw new ServiceError(409, "conflict", "This show is already signed.");
     const stored = store.getMeta("sign_token_hash");
     if (!stored || !sameHex(tokenHash, stored)) throw new ServiceError(403, "forbidden", "This sign link isn't valid.");
-    store.transaction(() => {
+    // One transaction: if the signing event can't be written, the sign token survives and the artist can try again.
+    const { projection } = store.transaction(() => {
       store.setMeta("manage_key_hash", keyHash);
       store.deleteMeta("sign_token_hash");
+      return commit(store, now, { type: "mandate_signed", mandate: signed.mandate, hash: signed.hash, signedAt: signed.signedAt });
     });
-    const { projection } = commit(store, now, { type: "mandate_signed", mandate: signed.mandate, hash: signed.hash, signedAt: signed.signedAt });
     this.log({ saw: "The artist read the money rules and held to sign.", did: `Opened pledging: ${mandate.threshold} fans by ${new Date(Date.parse(mandate.deadline)).toUTCString()}.`, rule: null, resultId: signed.hash.slice(0, 12) });
     return { showId, manageKey, mandateHash: signed.hash, threshold: mandate.threshold, deadline: mandate.deadline, sharePath: `/s/${showId}`, managePath: `/s/${showId}/manage`, show: this.publicView(projection) };
   }
@@ -212,7 +213,7 @@ export class CampaignService {
     } catch (e) {
       if (e instanceof PayPalError && UNREADABLE.has(e.paypalName)) {
         await this.recoverUnreadable(orderId, order);
-        throw new ServiceError(502, "paypal_error", "PayPal's answer wasn't clear. Nothing was charged; any hold is being cancelled.");
+        throw new ServiceError(502, "paypal_error", "PayPal's answer wasn't clear. Nothing was charged and any hold is being cancelled; please try again.");
       }
       if (e instanceof PayPalError && !e.retryable) throw new ServiceError(409, "conflict", "PayPal didn't place the hold. Nothing was charged.");
       throw new ServiceError(502, "paypal_error", "PayPal is having trouble. Nothing was charged; please try again.");
@@ -227,8 +228,10 @@ export class CampaignService {
       throw new ServiceError(422, "invalid", "PayPal didn't hold the right amount, so that hold is being cancelled. Nothing was charged.");
     }
     const wasLive = p.campaign.state === "live";
+    let held: ReturnType<typeof commit>;
     try {
-      p = commit(store, now, { type: "pledge_held", pledgeId: order.pledgeId, orderId, authorizationId: hold.authorizationId, amountCents: hold.amountCents, authorizedAt: hold.createdAt, expiresAt: hold.expiresAt, initials: order.initials, simulated: false }).projection;
+      held = commit(store, now, { type: "pledge_held", pledgeId: order.pledgeId, orderId, authorizationId: hold.authorizationId, amountCents: hold.amountCents, authorizedAt: hold.createdAt, expiresAt: hold.expiresAt, initials: order.initials, simulated: false });
+      p = held.projection;
     } catch (e) {
       if (!(e instanceof IllegalTransition)) throw e;
       commit(store, now, { type: "late_hold", pledgeId: order.pledgeId, orderId, authorizationId: hold.authorizationId, amountCents: hold.amountCents });
@@ -237,8 +240,9 @@ export class CampaignService {
       throw new ServiceError(409, "conflict", "Pledging closed before your hold arrived, so it is being cancelled. Nothing was charged.");
     }
     const pledge = p.pledges.get(order.pledgeId)!;
-    this.log({ saw: sawCounts(p), did: `${fanName(pledge)} held a spot. PayPal is holding ${formatUSD(hold.amountCents)}; nobody is charged yet.`, rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: hold.authorizationId });
-    if (wasLive && p.campaign.state === "tipped") this.log({ saw: sawCounts(p), did: "The show reached its target. Charging every hold now.", rule: "rule-2-capture-at-tip" });
+    // A racing duplicate call finds the event already written: it must not log the same hold twice.
+    if (held.appended) this.log({ saw: sawCounts(p), did: `${fanName(pledge)} held a spot. PayPal is holding ${formatUSD(hold.amountCents)}; nobody is charged yet.`, rule: "rule-1-hold-only", requestId: requestIds.authorize(orderId), resultId: hold.authorizationId });
+    if (held.appended && wasLive && p.campaign.state === "tipped") this.log({ saw: sawCounts(p), did: "The show reached its target. Charging every hold now.", rule: "rule-2-capture-at-tip" });
     return { pledgeId: pledge.pledgeId, status: "held", tipped: p.campaign.state !== "live", show: this.publicView(p) };
   }
 

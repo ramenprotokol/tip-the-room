@@ -93,7 +93,7 @@ export function ledgerRows(events: StoredEvent[], p: Projection, showId: string)
       }
       case "capture_failed": {
         const pl = byAuth(e.authorizationId);
-        rows.push({ ...base, what: "Charge didn't go through · money never taken", who: pl ? fanName(pl) : "A fan", amountCents: null, ref: e.authorizationId, status: "Failed" });
+        rows.push({ ...base, what: "Charge didn't go through · PayPal shows no payment", who: pl ? fanName(pl) : "A fan", amountCents: null, ref: e.authorizationId, status: "Failed" });
         break;
       }
       case "void_ok": {

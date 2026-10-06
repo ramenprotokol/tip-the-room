@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RULES } from "../../src/core/rules";
 import { dispatch } from "../../src/agent/dispatch";
+import { commit } from "../../src/agent/executor";
 import { sha256Hex } from "../../src/agent/ids";
 import { PayPalError } from "../../src/paypal/errors";
 import { DRAFT, makeService, pledge, SIGN_TOKEN, signedService } from "./harness";
@@ -289,5 +290,65 @@ describe("hardening", () => {
     await expect(h.svc.createOrder({ initials: "AB" })).rejects.toMatchObject({ status: 409 });
     expect(h.paypal.calls).toHaveLength(0);
     expect(h.svc.publicView().status).toBe("Called off · nobody paid");
+  });
+});
+
+describe("task 6 review fixes", () => {
+  it("signs atomically: if the signing event can't be written the sign token survives and a retry works", async () => {
+    const h = makeService();
+    h.svc.ensureSchema();
+    h.svc.init({ showId: SHOW, signTokenHash: await sha256Hex(SIGN_TOKEN) });
+    const spy = vi.spyOn(h.store, "appendEvent").mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    await expect(h.svc.sign({ signToken: SIGN_TOKEN, draft: DRAFT })).rejects.toThrow("disk full");
+    spy.mockRestore();
+    expect(h.store.getMeta("sign_token_hash")).toBe(await sha256Hex(SIGN_TOKEN));
+    expect(h.store.getMeta("manage_key_hash")).toBeUndefined();
+    expect(h.svc.project().mandate).toBeNull();
+    const r = await h.svc.sign({ signToken: SIGN_TOKEN, draft: DRAFT });
+    expect(r.show.state).toBe("live");
+  });
+
+  it("rejects a hold that carries no custom id", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", (orderId: string) => ({ authorizationId: "A-nocustom", orderId, amountCents: 1500, status: "CREATED", createdAt: 0, expiresAt: 1 }));
+    await expect(h.svc.authorize(o.orderId)).rejects.toMatchObject({ status: 422 });
+    expect(h.svc.project().campaign.pledges.held).toBe(0);
+    expect(h.store.job("void:A-nocustom")?.status).toBe("pending");
+  });
+
+  it("logs 'held a spot' only when this call wrote the event (a racing duplicate stays quiet)", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", (orderId: string) => {
+      const hold = { authorizationId: `A-${o.pledgeId}`, orderId, amountCents: 1500, status: "CREATED" as const, createdAt: 0, expiresAt: 1, customId: `${SHOW}:${o.pledgeId}` };
+      // The other call wins the race and records the hold first.
+      commit(h.store, h.clock.now(), { type: "pledge_held", pledgeId: o.pledgeId, orderId, authorizationId: hold.authorizationId, amountCents: 1500, authorizedAt: 0, expiresAt: 1, initials: "AB", simulated: false });
+      return hold;
+    });
+    const r = await h.svc.authorize(o.orderId);
+    expect(r.status).toBe("held");
+    expect(h.svc.project().campaign.pledges.held).toBe(1);
+    expect(h.store.logs().filter((l) => l.did.includes("held a spot"))).toHaveLength(0);
+  });
+
+  it("ends the unreadable-answer recovery message with a plain 'please try again'", async () => {
+    const h = await signedService();
+    const o = await h.svc.createOrder({ initials: "AB" });
+    h.paypal.script("authorizeOrder", () => {
+      throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "none");
+    });
+    const err = await h.svc.authorize(o.orderId).catch((e) => e);
+    expect(err.message).toMatch(/please try again\.$/);
+  });
+
+  it("words a failed charge softly in the ledger", async () => {
+    const h = await signedService();
+    const ids: string[] = [];
+    for (const who of ["AA", "BB", "CC"]) ids.push((await pledge(h.svc, who)).pledgeId);
+    commit(h.store, h.clock.now(), { type: "capture_failed", authorizationId: `A-${ids[0]}`, reason: "declined" });
+    expect(h.svc.manageView().ledger.some((r) => r.what === "Charge didn't go through · PayPal shows no payment")).toBe(true);
   });
 });
