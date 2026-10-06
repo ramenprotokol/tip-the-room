@@ -5,7 +5,7 @@ import { draftFields, previewDraft } from "../agent/draft";
 import { ServiceError } from "../agent/errors";
 import { demoSeeds, type Receivers } from "../agent/demo";
 import { demoShowIds, isDemoId, isShowId, newId, newSecret, sha256Hex, showIdFromRef, type Clock, type Random } from "../agent/ids";
-import { DEMO_COPIES_PER_DAY } from "../agent/policy";
+import { DEMO_COPIES_PER_DAY, DEMO_TTL_MS } from "../agent/policy";
 import type { QuotaPort } from "../agent/quota";
 import { isKnownEventType, mapWebhookEvent, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
 import { MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoResponse, type ErrorCode, type PublicShow } from "./api-types";
@@ -39,7 +39,7 @@ export const LIMITS = {
   createShow: { limit: 10, windowMs: HOUR },
   sign: { limit: 20, windowMs: HOUR },
   order: { limit: 30, windowMs: HOUR },
-  manage: { limit: 240, windowMs: HOUR },
+  manage: { limit: 1500, windowMs: HOUR },
   demo: { limit: 5, windowMs: HOUR },
   demoFans: { limit: 12, windowMs: HOUR },
   demoFastForward: { limit: 30, windowMs: HOUR },
@@ -282,7 +282,7 @@ async function newDemoCopy(c: Ctx): Promise<DemoResponse> {
       throw e;
     }
   }
-  return { demoId, demoKey, shows: [shows[0], shows[1]] };
+  return { demoId, demoKey, shows: [shows[0], shows[1]], expiresAt: c.deps.clock.now() + DEMO_TTL_MS };
 }
 
 const createDemo: Handler = async (c) => {
@@ -316,7 +316,8 @@ const demoReset: Handler = async (c) => {
   await limit(c, "demoGlobal", "all");
   for (const id of demoShowIds(demoParam(c))) {
     const r = await c.deps.campaigns.call(id, { op: "demo_retire", manageKey: manageKey(c) });
-    if (!r.ok) return fromReply(r);
+    // 404 means that show is already gone (a copy older than 24 h is deleted): carry on to a fresh copy.
+    if (!r.ok && r.status !== 404) return fromReply(r);
   }
   return json(201, await newDemoCopy(c));
 };

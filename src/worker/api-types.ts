@@ -105,6 +105,10 @@ export interface PublicShow {
   mandateHash: string;
   /** For the PayPal JS SDK script tag (public value). */
   paypalClientId: string;
+  /** The show's own clock in ms (a demo copy's clock runs ahead after fast-forward). Show times relative to this, not to the browser clock. */
+  now: number;
+  /** Change marker "e<last ledger seq>.l<last log seq>". Poll GET /api/shows/:id and refetch /manage only when it changes. */
+  version: string;
 }
 
 export interface CreateOrderRequest {
@@ -185,6 +189,13 @@ export interface ManageView {
   /** Plain-English problems that need the artist (failed or blocked steps). */
   attention: string[];
   collectedNetCents: Cents;
+  /** Same as show.now and show.version, repeated so the manage page needs only this body. */
+  now: number;
+  version: string;
+  /** "/s/<showId>" */
+  sharePath: string;
+  /** True when this show was never signed and its sign link has lapsed (a signed show always reports false). */
+  signLinkExpired: boolean;
 }
 
 export interface ApproveRequest {
@@ -208,6 +219,8 @@ export interface DemoResponse {
   demoKey: string;
   /** [the show that tips, the show that misses]. */
   shows: [PublicShow, PublicShow];
+  /** When this demo copy is deleted (real time, ms since epoch): 24 hours after it was made. */
+  expiresAt: number;
 }
 
 export interface DemoFansRequest {

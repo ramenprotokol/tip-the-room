@@ -74,6 +74,31 @@ describe("demo routes", () => {
     expect(old.svc.project().campaign.state).toBe("missed");
   });
 
+  it("reset carries on when one or both old shows are already gone (404)", async () => {
+    const w = workerHarness();
+    for (const gone of [["a"], ["a", "b"]]) {
+      const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+      for (const k of gone) w.shows.delete(`${d.demoId}${k}`);
+      const res = await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": d.demoKey });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as DemoResponse).demoId).not.toBe(d.demoId);
+    }
+  });
+
+  it("reset still refuses a wrong key (403) rather than treating it as gone", async () => {
+    const w = workerHarness();
+    const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+    expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": "k".repeat(43) })).status).toBe(403);
+  });
+
+  it("tells the page when the copy expires, and gives each show its own clock and change marker", async () => {
+    const w = workerHarness();
+    const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+    expect(d.expiresAt).toBe(w.clock.now() + 24 * HOUR);
+    expect(d.shows[0].now).toBe(w.clock.now());
+    expect(d.shows[0].version).toMatch(/^e\d+\.l\d+$/);
+  });
+
   it("a refused reset (rate limit) leaves the old copy alone", async () => {
     const w = workerHarness();
     const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;

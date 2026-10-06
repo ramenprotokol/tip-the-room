@@ -268,6 +268,15 @@ export class Store {
     );
   }
 
+  /** Highest seq in the ledger (0 when empty). Part of the public change marker. */
+  lastEventSeq(): number {
+    return this.db.sql.exec<{ s: number | null }>("SELECT MAX(seq) AS s FROM events").toArray()[0]?.s ?? 0;
+  }
+
+  lastLogSeq(): number {
+    return this.db.sql.exec<{ s: number | null }>("SELECT MAX(seq) AS s FROM agent_log").toArray()[0]?.s ?? 0;
+  }
+
   logs(): LoggedEntry[] {
     return this.db.sql
       .exec<{ seq: number; at: number; saw: string; did: string; rule: string | null; request_id: string | null; result_id: string | null; source: string }>(

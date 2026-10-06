@@ -168,9 +168,14 @@ export class CampaignService {
     return { showId, manageKey, mandateHash: signed.hash, threshold: mandate.threshold, deadline: mandate.deadline, sharePath: `/s/${showId}`, managePath: `/s/${showId}/manage`, show: this.publicView(projection) };
   }
 
+  /** A cheap change marker: the last ledger seq and the last agent-log seq, e.g. "e123.l45". It changes whenever either grows. */
+  version(): string {
+    return `e${this.deps.store.lastEventSeq()}.l${this.deps.store.lastLogSeq()}`;
+  }
+
   publicView(p: Projection = this.project()): PublicShow {
     if (!p.mandate || !p.mandateHash) throw new ServiceError(404, "not_found", "This show isn't live yet.");
-    return publicShow(p, p.mandate, p.mandateHash, { demo: this.kind() === "demo", paypalClientId: this.deps.paypalClientId });
+    return publicShow(p, p.mandate, p.mandateHash, { demo: this.kind() === "demo", paypalClientId: this.deps.paypalClientId, now: this.now(), version: this.version() });
   }
 
   async checkKey(key: string | null): Promise<void> {
@@ -308,6 +313,10 @@ export class CampaignService {
       notes: (p.notes ?? []).map((n) => ({ role: n.role, label: n.label, text: n.text, source: n.source })),
       attention: [...attentionLines(this.deps.store.jobs()), ...reversalLines(this.deps.store.events()), ...unconfirmedPayoutLines(p, this.now())],
       collectedNetCents: p.collectedNet,
+      now: this.now(),
+      version: this.version(),
+      sharePath: `/s/${showId}`,
+      signLinkExpired: !p.mandate && this.pastExpiry(),
     };
   }
 

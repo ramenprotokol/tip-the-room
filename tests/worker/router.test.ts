@@ -71,6 +71,29 @@ describe("router", () => {
     expect((await w.call("POST", `/api/shows/${c.showId}/proposals/pace1/approve`, { option: "extend" })).status).toBe(403);
   });
 
+  it("carries the show's clock, a change marker, the share path and the sign-link flag", async () => {
+    const w = workerHarness();
+    const { c, s } = await createAndSign(w);
+    const key = { "x-manage-key": s.manageKey };
+    const read = async () => (await (await w.call("GET", `/api/shows/${c.showId}/manage`, undefined, key)).json()) as ManageView;
+    const before = await read();
+    expect(before.now).toBe(w.clock.now());
+    expect(before.show.now).toBe(w.clock.now());
+    expect(before.sharePath).toBe(`/s/${c.showId}`);
+    expect(before.signLinkExpired).toBe(false);
+    expect(before.version).toMatch(/^e\d+\.l\d+$/);
+    expect(before.version).toBe(before.show.version);
+    const pub = async () => ((await (await w.call("GET", `/api/shows/${c.showId}`)).json()) as PublicShow).version;
+    expect(await pub()).toBe(before.version);
+    const order = (await (await w.call("POST", `/api/shows/${c.showId}/orders`, { initials: "AB" })).json()) as CreateOrderResponse;
+    await w.call("POST", `/api/shows/${c.showId}/orders/${order.orderId}/authorize`);
+    expect(await pub()).not.toBe(before.version);
+  });
+
+  it("allows 1,500 manage reads an hour per visitor", () => {
+    expect(LIMITS.manage).toEqual({ limit: 1500, windowMs: 60 * 60 * 1000 });
+  });
+
   it("rate-limits each visitor and says when to retry", async () => {
     const w = workerHarness();
     for (let i = 0; i < 10; i++) expect((await w.call("POST", "/api/shows", { sentence: SENTENCE })).status).toBe(201);

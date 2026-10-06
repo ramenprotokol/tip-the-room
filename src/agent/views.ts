@@ -33,7 +33,7 @@ export function statusWords(s: CampaignState): StatusWords {
 const BULB: Record<PledgeStatus, BulbStatus> = { held: "held", charged: "charged", capture_failed: "failed", released: "released", refunded: "refunded" };
 const HOLD_ROW: Record<PledgeStatus, LedgerStatus> = { held: "On hold", charged: "Charged", capture_failed: "Failed", released: "Cancelled", refunded: "Refunded" };
 
-export function publicShow(p: Projection, m: Mandate, mandateHash: string, o: { demo: boolean; paypalClientId: string }): PublicShow {
+export function publicShow(p: Projection, m: Mandate, mandateHash: string, o: { demo: boolean; paypalClientId: string; now: number; version: string }): PublicShow {
   const c = p.campaign;
   const committed = fansCommitted(c);
   const pledges = [...p.pledges.values()];
@@ -59,6 +59,8 @@ export function publicShow(p: Projection, m: Mandate, mandateHash: string, o: { 
     split: m.parties.map((x) => ({ role: x.role, label: x.label, fixedCents: x.fixed ?? null, minimumCents: x.minimum ?? null })),
     mandateHash,
     paypalClientId: o.paypalClientId,
+    now: o.now,
+    version: o.version,
   };
 }
 
