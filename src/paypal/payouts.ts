@@ -1,6 +1,6 @@
 import type { Cents } from "../core/money";
 import type { PayoutLine } from "../core/split";
-import { centsToValue, valueToCents } from "./amount";
+import { assertPayPalId, centsToValue, valueToCents } from "./amount";
 import { PayPalError } from "./errors";
 import type { PayPalHttp } from "./http";
 
@@ -73,7 +73,8 @@ function usdCents(a: { value: string; currency: string } | undefined, field: str
 }
 
 export async function getPayoutBatch(http: PayPalHttp, batchId: string): Promise<PayoutBatch> {
-  const b = (await http.request<BatchBody>({ method: "GET", path: `/v1/payments/payouts/${encodeURIComponent(batchId)}` }))!;
+  assertPayPalId(batchId, "batch id");
+  const b = (await http.request<BatchBody>({ method: "GET", path: `/v1/payments/payouts/${batchId}` }))!;
   return {
     batchId: b.batch_header.payout_batch_id,
     senderBatchId: b.batch_header.sender_batch_header?.sender_batch_id ?? "",

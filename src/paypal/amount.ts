@@ -14,3 +14,9 @@ export function valueToCents(v: string): Cents {
   if (!Number.isSafeInteger(cents)) throw new RangeError(`amount too large: "${v}"`);
   return cents;
 }
+
+/** PayPal ids go straight into URL paths, so only letters, digits and dashes (1-64) are allowed. Never echoes the id. */
+export function assertPayPalId(id: string, what: string): string {
+  if (typeof id !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(id)) throw new RangeError(`${what} is not a valid PayPal id`);
+  return id;
+}

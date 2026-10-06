@@ -1,5 +1,5 @@
 import type { Cents } from "../core/money";
-import { centsToValue, valueToCents } from "./amount";
+import { assertPayPalId, centsToValue, valueToCents } from "./amount";
 import { PayPalError } from "./errors";
 import type { PayPalHttp } from "./http";
 
@@ -110,6 +110,7 @@ export async function createPledgeOrder(http: PayPalHttp, p: PledgeRef): Promise
 }
 
 export async function authorizeOrder(http: PayPalHttp, orderId: string): Promise<Hold> {
+  assertPayPalId(orderId, "order id");
   const o = await http.request<OrderBody>({ method: "POST", path: `/v2/checkout/orders/${orderId}/authorize`, requestId: requestIds.authorize(orderId), prefer: "return=representation", body: {} });
   const a = firstAuth(o);
   if (!a) throw new Error(`order ${orderId} (${o?.status}) was not authorized`);
@@ -131,6 +132,7 @@ export async function createCardHold(http: PayPalHttp, p: PledgeRef, card: TestC
 }
 
 export async function captureHold(http: PayPalHttp, authorizationId: string): Promise<Charge> {
+  assertPayPalId(authorizationId, "authorization id");
   const c = (await http.request<CaptureBody>({ method: "POST", path: `/v2/payments/authorizations/${authorizationId}/capture`, requestId: requestIds.capture(authorizationId), prefer: "return=representation", body: { final_capture: true } }))!;
   const b = c.seller_receivable_breakdown;
   const grossCents = b ? usdCents(b.gross_amount, "gross_amount") : undefined;
@@ -141,6 +143,7 @@ export async function captureHold(http: PayPalHttp, authorizationId: string): Pr
 }
 
 export async function voidHold(http: PayPalHttp, authorizationId: string): Promise<void> {
+  assertPayPalId(authorizationId, "authorization id");
   await http.request({ method: "POST", path: `/v2/payments/authorizations/${authorizationId}/void`, requestId: requestIds.void(authorizationId) });
 }
 
@@ -149,11 +152,13 @@ export async function voidHold(http: PayPalHttp, authorizationId: string): Promi
  * the caller (Plan 4) copies it over from the old hold. PayPal allows this only after the 3-day honor period (see spike findings).
  */
 export async function reauthorizeHold(http: PayPalHttp, authorizationId: string, amountCents: Cents): Promise<Hold> {
+  assertPayPalId(authorizationId, "authorization id");
   const a = (await http.request<AuthBody>({ method: "POST", path: `/v2/payments/authorizations/${authorizationId}/reauthorize`, requestId: requestIds.reauthorize(authorizationId), prefer: "return=representation", body: { amount: { currency_code: "USD", value: centsToValue(amountCents) } } }))!;
   return toHold("", a, amountCents);
 }
 
 export async function refundCharge(http: PayPalHttp, captureId: string): Promise<Refund> {
+  assertPayPalId(captureId, "capture id");
   const r = (await http.request<{ id: string; status: string }>({ method: "POST", path: `/v2/payments/captures/${captureId}/refund`, requestId: requestIds.refund(captureId), prefer: "return=representation", body: {} }))!;
   return { refundId: r.id, captureId, status: r.status };
 }
