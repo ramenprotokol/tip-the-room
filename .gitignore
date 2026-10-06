@@ -36,3 +36,4 @@ playwright-report/
 
 # Spike scratch output
 docs/superpowers/spikes/.spike-results.json
+spikes/agent-toolkit/wrangler.log
