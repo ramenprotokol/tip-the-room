@@ -19,10 +19,11 @@ export interface AppPage {
 }
 
 // Later tasks extend `appOnly` with their own new controls (judge panel, error/attention lines, call-off, second option).
-// The manage ledger stays compared (no skip) until Task 6 adds its separate 0.5% ledger parity spec.
+// The manage ledger section is skipped on both pages: the real AG Grid replaces the hand-made table, and tests/gpu/ledger-parity.spec.ts
+// compares the grid region against the reference table separately at the same 0.5%.
 export const PAGES: Record<AppPage["name"], AppPage> = {
   demo: { name: "demo", refPath: "demo.html", appPath: "?e2e=parity", prodPath: "?e2e=parity", signs: 2, api: demoApi, dataFields: [], skip: [], appOnly: [] },
   start: { name: "start", refPath: "start.html", appPath: "start?e2e=parity", prodPath: "start?e2e=parity", signs: 1, api: () => startApi(), dataFields: [".mode", ".field:has(#f-deadline) .hint"], skip: [], appOnly: ["[data-start-msg]", "#problems"] },
   pledge: { name: "pledge", refPath: "pledge.html", appPath: `s/${MAYA_ID}?e2e=parity`, prodPath: `s/${MAYA_ID}?e2e=parity`, signs: 1, api: () => pledgeApi(), dataFields: [".row-top .eyebrow", ".bill"], skip: [], appOnly: ["[data-pledge-msg]", "#notice"] },
-  manage: { name: "manage", refPath: "manage.html", appPath: `s/${MAYA_ID}/manage?e2e=parity#${MAYA_KEY}`, prodPath: `s/${MAYA_ID}/manage?e2e=parity#${MAYA_KEY}`, signs: 1, api: () => manageApi(MANAGE_SCRIPTS.tipped), dataFields: [".row-top .eyebrow"], skip: [], appOnly: [] },
+  manage: { name: "manage", refPath: "manage.html", appPath: `s/${MAYA_ID}/manage?e2e=parity#${MAYA_KEY}`, prodPath: `s/${MAYA_ID}/manage?e2e=parity#${MAYA_KEY}`, signs: 1, api: () => manageApi(MANAGE_SCRIPTS.tipped), dataFields: [".row-top .eyebrow"], skip: ['section[aria-labelledby="h-ledger"]'], appOnly: [] },
 };

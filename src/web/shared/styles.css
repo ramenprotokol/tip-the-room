@@ -327,3 +327,25 @@ main{padding:0 var(--gutter) 28px}
 .notice{margin:0 0 22px}
 .notice p{margin:0;font:500 18px/1.45 var(--f-ui)}
 .problems{margin:0 0 12px;padding-left:20px;font:500 16px/1.4 var(--f-ui);color:#8A1A12}
+
+/* ---------- Plan 5: the real AG Grid ledger (theme params in ledger.ts = GRID_THEME). Height = header + 8 rows, like the reference table */
+.ledger-grid{height:432px;width:100%}
+.ledger-grid .ag-header-cell-text{text-transform:uppercase;letter-spacing:.1em;line-height:12px}
+.ledger-grid .ag-cell{display:flex;align-items:center;border:0;padding:0 14px;font:400 16px/1.2 var(--f-ui);color:var(--ink);-webkit-font-smoothing:antialiased;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ledger-grid .ag-cell-first-right-pinned{border-left:1.5px solid var(--ink)}
+.ledger-grid .ag-cell.when{font:500 14px/1.2 var(--f-mono);color:var(--ink-2)}
+.ledger-grid .ag-cell.num{font:600 15px/1.2 var(--f-mono);justify-content:flex-end}
+.ledger-grid .ag-cell.ref{font:400 13px/1.2 var(--f-mono);color:var(--ink-3)}
+.pill.refunded{background:var(--lilac-soft);color:var(--ink)}.pill.refunded i{background:var(--lilac-ink)}
+.pill.failed{background:#F6D6D3;color:#5A1410}.pill.failed i{background:#C8221B}
+.pill.pending{background:#EFE9DE;color:var(--ink)}.pill.pending i{background:var(--ink-3)}
+.pill.info{background:transparent;color:var(--ink-2)}.pill.info i{background:var(--ink-3)}
+/* Reference match: exact row/pinned colours, no sort or filter icons at rest (they appear on hover or keyboard focus) */
+.ledger-grid .ag-row{background:var(--paper)}
+.ledger-grid .ag-row-odd{background:#EFE9DE}
+.ledger-grid .ag-cell-first-right-pinned{background:#F7F3EB}
+.ledger-grid .ag-header-cell-first-right-pinned{border-left:1.5px solid #4A423B}
+.ledger-grid .ag-header-icon,.ledger-grid .ag-sort-indicator-container{opacity:0}
+.ledger-grid .ag-header-cell:hover .ag-header-icon,.ledger-grid .ag-header-cell:hover .ag-sort-indicator-container,.ledger-grid .ag-header-cell:focus-within .ag-header-icon,.ledger-grid .ag-header-cell:focus-within .ag-sort-indicator-container{opacity:1}
+
+.ledger-grid .ag-header-cell{-webkit-font-smoothing:antialiased}.ledger-grid .pill{position:relative;top:-0.3px}
