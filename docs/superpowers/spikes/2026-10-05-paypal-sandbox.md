@@ -40,3 +40,20 @@ The first run used a sandbox merchant account in CAD. There `net_amount` was `(g
 - `payout-duplicate` fixture has no stable error code to match on; match the `SENDER_BATCH_ID` field or the issue text.
 - The US/Platform account's authorization `links` no longer include `rel: "reauthorize"` (the CAD merchant run had it). Do not rely on a day-4 reauthorize; plan for void + fresh hold.
 - The capture body on this account also carries `disbursement_mode: "INSTANT"`, `processor_response` and a (redacted) `payee` block. Parsers should tolerate extra fields.
+
+## Spike 6 · Agent Toolkit on Workers
+
+**Verdict: NO-GO.** `@paypal/agent-toolkit@1.11.0` bundles and loads in workerd (`wrangler dev --local`, wrangler 4.147.0, `nodejs_compat`), and lists its tools, but the first real call fails inside the toolkit before any order is made.
+
+**What I tried (2 attempts, local only, no deploy, no login):**
+1. `@paypal/agent-toolkit/ai-sdk` (the README's documented entry): `new PayPalAgentToolkit({ clientId, clientSecret, configuration: { actions: { orders: { create: true, get: true } }, context: { sandbox: true } } })`, then `getTools()`, then `create_order`.
+2. `@paypal/agent-toolkit/openai` (alternative entry): same constructor, `handleToolCall` for `create_order`.
+
+**Evidence (identical for both entries):**
+- Bundle: OK, no missing Node API at build or load time.
+- Tools exposed: `["create_order","get_order"]`.
+- Call result: `Failed to fetch access token: Unsupported cache mode: default`. That is workerd rejecting a fetch `cache` option the toolkit's OAuth step passes, so the call never reaches PayPal. No order id was returned.
+
+**Decision:** Plan 4 uses the REST client in `src/paypal/` only (spec 6.1 allows this). Not worth patching the toolkit.
+
+**Notes:** `npm audit` shows advisories in the spike's dependency tree. It is a local-only folder (`spikes/agent-toolkit`), so no `audit fix` was run. `spikes/` is excluded from root eslint. The committed `src/index.ts` is attempt 1 (ai-sdk).

@@ -1,0 +1,14 @@
+{
+  "name": "agent-toolkit-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8799"
+  },
+  "devDependencies": {
+    "wrangler": "^4.147.0"
+  },
+  "dependencies": {
+    "@paypal/agent-toolkit": "1.11.0"
+  }
+}
