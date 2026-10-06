@@ -346,6 +346,47 @@ describe("hardening", () => {
     expect(h.svc.project().pledgeByAuth.get("A-prior")).toBe(o.pledgeId);
   });
 
+  it("a concurrent call that recorded the hold while this one waited on PayPal wins: success, not a rejection", async () => {
+    const already = () => new PayPalError(422, "UNPROCESSABLE_ENTITY", "already", undefined, [{ issue: "ORDER_ALREADY_AUTHORIZED" }]);
+    const record = (h: Awaited<ReturnType<typeof signedService>>, o: { orderId: string; pledgeId: string }) =>
+      commit(h.store, h.clock.now(), { type: "pledge_held", pledgeId: o.pledgeId, orderId: o.orderId, authorizationId: "A-race", amountCents: 1500, authorizedAt: 0, expiresAt: 1, initials: "AB", simulated: false });
+    // Recorded while authorizeOrder was in flight.
+    const a = await signedService();
+    const oa = await a.svc.createOrder({ initials: "AB" });
+    a.paypal.script("authorizeOrder", () => {
+      record(a, oa);
+      throw already();
+    });
+    expect((await a.svc.authorize(oa.orderId)).status).toBe("held");
+    expect(a.paypal.count("getOrderPayments")).toBe(0);
+    // Recorded while getOrderPayments was in flight, which shows no live hold.
+    const b = await signedService();
+    const ob = await b.svc.createOrder({ initials: "AB" });
+    b.paypal.script("authorizeOrder", () => {
+      throw already();
+    });
+    b.paypal.script("getOrderPayments", (orderId: string) => {
+      record(b, ob);
+      return { orderId, status: "COMPLETED", authorizations: [], captures: [] };
+    });
+    expect((await b.svc.authorize(ob.orderId)).status).toBe("held");
+    expect(b.svc.project().campaign.pledges.held).toBe(1);
+    // Recorded while getAuthorization was in flight.
+    const c = await signedService();
+    const oc = await c.svc.createOrder({ initials: "AB" });
+    c.paypal.script("authorizeOrder", () => {
+      throw already();
+    });
+    c.paypal.script("getOrderPayments", (orderId: string) => ({ orderId, status: "COMPLETED", authorizations: [{ id: "A-race", status: "CREATED" }], captures: [] }));
+    c.paypal.script("getAuthorization", () => {
+      record(c, oc);
+      throw new PayPalError(502, "EMPTY_RESPONSE_BODY", "no body");
+    });
+    expect((await c.svc.authorize(oc.orderId)).status).toBe("held");
+    expect(c.store.job("void:A-race")).toBeUndefined();
+    expect(c.svc.project().campaign.pledges.held).toBe(1);
+  });
+
   it("a recovered hold for the wrong amount is refused and cancelled", async () => {
     const h = await signedService();
     const o = await h.svc.createOrder({ initials: "AB" });

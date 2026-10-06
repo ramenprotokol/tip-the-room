@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AuthorizeResponse, CreateOrderResponse, CreateShowResponse, ManageView, PublicShow, SignResponse } from "../../src/worker/api-types";
-import { LIMITS, READ_LIMIT, route } from "../../src/worker/router";
+import { LIMITS, PUBLIC_SHOW_CACHE_SECONDS, READ_LIMIT, route, type EdgeCache } from "../../src/worker/router";
 import { workerHarness } from "./harness";
 
 const SENTENCE = "Acoustic set at Lucky's Café, Nov 20, $15 tickets, café wants $100, I need $200";
@@ -26,6 +26,67 @@ describe("router", () => {
     expect(text).not.toContain("judge-code-123");
     expect(text).not.toContain("WH-SECRET-1");
     expect(text).not.toContain("test-salt");
+  });
+
+  it("health reports judgeCode false when the code is set but the page would never send it", async () => {
+    for (const bad of ["short", "has space in it!", "x".repeat(65)]) {
+      const w = workerHarness({ judgeCode: bad });
+      expect(((await (await w.call("GET", "/api/health")).json()) as { setup: { judgeCode: boolean } }).setup.judgeCode).toBe(false);
+    }
+    const ok = workerHarness({ judgeCode: "abcd_EFGH-12" });
+    expect(((await (await ok.call("GET", "/api/health")).json()) as { setup: { judgeCode: boolean } }).setup.judgeCode).toBe(true);
+  });
+
+  describe("public show cache", () => {
+    function fakeCache() {
+      const store = new Map<string, Response>();
+      const puts: { key: string; cc: string | null }[] = [];
+      const cache: EdgeCache = {
+        match: async (k) => store.get(k)?.clone(),
+        put: async (k, r) => {
+          puts.push({ key: k, cc: r.headers.get("cache-control") });
+          store.set(k, r);
+        },
+      };
+      return { cache, store, puts };
+    }
+
+    it("serves the second read from the cache for 3 seconds, keyed by show id", async () => {
+      const fc = fakeCache();
+      const w = workerHarness({ cache: fc.cache });
+      const { c } = await createAndSign(w);
+      const calls = vi.spyOn(w.deps.campaigns, "call");
+      const first = await w.call("GET", `/api/shows/${c.showId}`);
+      const second = await w.call("GET", `/api/shows/${c.showId}`);
+      expect(first.status).toBe(200);
+      expect(await second.json()).toEqual(await first.json());
+      expect(calls).toHaveBeenCalledTimes(1);
+      expect(fc.puts).toHaveLength(1);
+      expect(fc.puts[0]?.key).toContain(c.showId);
+      expect(fc.puts[0]?.cc).toBe(`public, max-age=${PUBLIC_SHOW_CACHE_SECONDS}`);
+      expect(PUBLIC_SHOW_CACHE_SECONDS).toBe(3);
+      expect(second.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("never caches errors, manage replies or other shows", async () => {
+      const fc = fakeCache();
+      const w = workerHarness({ cache: fc.cache });
+      const { c, s } = await createAndSign(w);
+      expect((await w.call("GET", "/api/shows/s0000000000000000000000")).status).toBe(404);
+      expect(fc.puts).toHaveLength(0);
+      expect((await w.call("GET", `/api/shows/${c.showId}/manage`, undefined, { "x-manage-key": s.manageKey })).status).toBe(200);
+      expect((await w.call("GET", `/api/shows/${c.showId}/manage`, undefined, { "x-manage-key": "wrong" })).status).not.toBe(200);
+      expect(fc.puts).toHaveLength(0);
+      await w.call("GET", `/api/shows/${c.showId}`);
+      expect(fc.puts).toHaveLength(1);
+    });
+
+    it("a cache that throws never fails the read", async () => {
+      const broken: EdgeCache = { match: async () => Promise.reject(new Error("x")), put: async () => Promise.reject(new Error("x")) };
+      const w = workerHarness({ cache: broken });
+      const { c } = await createAndSign(w);
+      expect((await w.call("GET", `/api/shows/${c.showId}`)).status).toBe(200);
+    });
   });
 
   it("limits public show reads per visitor without touching a Durable Object", async () => {

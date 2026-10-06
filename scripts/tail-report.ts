@@ -66,7 +66,7 @@ type TailEvent = { eventTimestamp?: number; event?: { request?: { url?: string }
 const events = objects(text) as TailEvent[];
 const times = events.map((e) => e.eventTimestamp).filter((t): t is number => typeof t === "number");
 if (times.length > 1) {
-  const hours = (Math.max(...times) - Math.min(...times)) / 3_600_000;
+  const hours = (times.reduce((a, b) => Math.max(a, b)) - times.reduce((a, b) => Math.min(a, b))) / 3_600_000;
   if (hours > 0) console.log(`Span ${hours.toFixed(2)} h -> ${(calls / hours).toFixed(0)} DO invocations/h, ${(rows / hours).toFixed(0)} rows/h`);
 }
 const hooks = new Map<number, number>();

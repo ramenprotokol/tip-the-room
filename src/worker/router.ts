@@ -35,7 +35,20 @@ export interface RouterDeps {
   clock: Clock;
   config: RouterConfig;
   verifyWebhook(headers: Headers, rawBody: string, webhookId: string): Promise<boolean>;
+  /** Edge cache for the public show reply (the Workers Cache API in production). Absent: no caching. */
+  cache?: EdgeCache;
 }
+
+/** The two Cache API calls we use. Keys are absolute URLs. */
+export interface EdgeCache {
+  match(key: string): Promise<Response | undefined>;
+  put(key: string, res: Response): Promise<void>;
+}
+
+/** The public show reply is shared by every poller for this long (seconds), so a crowd of open pages costs one Durable Object call per show. */
+export const PUBLIC_SHOW_CACHE_SECONDS = 3;
+/** The page only sends a judge code of this shape, so health only reports one as set when it matches. */
+const JUDGE_CODE_FORMAT = /^[A-Za-z0-9_-]{8,64}$/;
 
 const HOUR = 60 * 60 * 1000;
 /** Spec 8: per-visitor limits (fixed windows) plus a global cap on new demo copies. */
@@ -212,9 +225,22 @@ const sign: Handler = async (c) => {
   return fromReply(await c.deps.campaigns.call(id, { op: "sign", body: await readJson(c.req) }));
 };
 
+/** Only the public read is cached, and only a 200: errors and every manage or other authenticated reply always go to the show. */
 const getShow: Handler = async (c) => {
   await readLimit(c);
-  return fromReply(await c.deps.campaigns.call(showParam(c), { op: "public" }));
+  const id = showParam(c);
+  const cache = c.deps.cache;
+  const key = `https://cache.tip-the-room.invalid/public-show/${id}`;
+  if (cache) {
+    const hit = await cache.match(key).catch(() => undefined);
+    if (hit) return json(200, await hit.json());
+  }
+  const res = fromReply(await c.deps.campaigns.call(id, { op: "public" }));
+  if (cache && res.status === 200) {
+    const stored = new Response(res.clone().body, { status: 200, headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${PUBLIC_SHOW_CACHE_SECONDS}` } });
+    await cache.put(key, stored).catch(() => undefined);
+  }
+  return res;
 };
 
 const createOrder: Handler = async (c) => {
@@ -390,7 +416,7 @@ const demoReset: Handler = async (c) => {
 
 const health: Handler = async (c) => {
   const s = c.deps.config;
-  const body: HealthResponse = { ok: true, setup: { ...s.setup, webhook: s.webhookId !== null, judgeCode: s.judgeCode !== null } };
+  const body: HealthResponse = { ok: true, setup: { ...s.setup, webhook: s.webhookId !== null, judgeCode: s.judgeCode !== null && JUDGE_CODE_FORMAT.test(s.judgeCode) } };
   return json(200, body);
 };
 

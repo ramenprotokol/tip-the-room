@@ -3,7 +3,7 @@ import { receiversFrom } from "../../src/agent/demo";
 import { Quota } from "../../src/agent/quota";
 import type { CampaignService } from "../../src/agent/service";
 import type { Store } from "../../src/agent/store";
-import { resetReadLimits, route, type RouterDeps } from "../../src/worker/router";
+import { resetReadLimits, route, type EdgeCache, type RouterDeps } from "../../src/worker/router";
 import { FakePayPal } from "../agent/fake-paypal";
 import { LAUNCH, seqRandom, TestClock } from "../agent/fixtures";
 import { makeService } from "../agent/harness";
@@ -12,6 +12,7 @@ import { memoryDb } from "../agent/sqlite";
 export interface WorkerHarnessOptions {
   webhookId?: string | null;
   judgeCode?: string | null;
+  cache?: EdgeCache;
   verify?: (headers: Headers, rawBody: string, webhookId: string) => Promise<boolean>;
 }
 
@@ -40,6 +41,7 @@ export function workerHarness(opts: WorkerHarnessOptions = {}) {
     random: seqRandom(),
     clock,
     config: { allowedOrigins: ["http://localhost:5173"], webhookId: opts.webhookId ?? null, rateSalt: "test-salt", receivers: receiversFrom({}), judgeCode: opts.judgeCode ?? null, setup: { rateSalt: true, receivers: false, paypalClientId: "test-client-id" } },
+    cache: opts.cache,
     verifyWebhook: opts.verify ?? (async () => false),
   };
   const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>

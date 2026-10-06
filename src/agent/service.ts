@@ -254,6 +254,8 @@ export class CampaignService {
       hold = await this.deps.paypal.authorizeOrder(orderId);
     } catch (e) {
       if (e instanceof PayPalError && (UNREADABLE.has(e.paypalName) || e.hasIssue("ORDER_ALREADY_AUTHORIZED"))) {
+        const raced = this.recordedHold(orderId); // a concurrent call may have recorded the hold while PayPal answered
+        if (raced) return raced;
         const recovered = await this.recoverExisting(orderId, order, m, !UNREADABLE.has(e.paypalName));
         if (recovered) return recovered;
         throw new ServiceError(502, "paypal_error", "PayPal's answer wasn't clear. Nothing was charged and any hold is being cancelled; please try again.");
@@ -262,6 +264,14 @@ export class CampaignService {
       throw new ServiceError(502, "paypal_error", "PayPal is having trouble. Nothing was charged; please try again.");
     }
     return this.recordHold(orderId, order, m, hold);
+  }
+
+  /** The success for an order a concurrent call already turned into a held pledge (re-read after every await), else null. */
+  private recordedHold(orderId: string): AuthorizeResponse | null {
+    const p = this.project();
+    const order = p.orders.get(orderId);
+    const pledge = order?.resolved ? p.pledges.get(order.pledgeId) : undefined;
+    return pledge ? { pledgeId: pledge.pledgeId, status: "held", tipped: p.campaign.state !== "live", show: this.publicView(p) } : null;
   }
 
   /** PayPal answered with a hold for this order: check it against the order and the mandate, then count it, or refuse it and queue it to be cancelled. */
@@ -330,8 +340,10 @@ export class CampaignService {
       liveId = found.authorizations.find((a) => (a.status === "CREATED" || a.status === "PENDING") && SAFE_REF.test(a.id))?.id;
       orderCustomId = found.customId;
     } catch {
-      return null; // PayPal can't say: the order stays open and the fan's retry asks again.
+      return this.recordedHold(orderId); // PayPal can't say: the order stays open and the fan's retry asks again.
     }
+    const raced = this.recordedHold(orderId);
+    if (raced) return raced;
     if (!liveId) {
       // PayPal says the order was authorized, yet nothing live is on it (voided or expired): end the order for good, so a retry can't loop.
       if (alreadyAuthorized) {
@@ -347,6 +359,8 @@ export class CampaignService {
     } catch {
       hold = null;
     }
+    const racedAfterRead = this.recordedHold(orderId);
+    if (racedAfterRead) return racedAfterRead;
     const wantCustomId = customIdFor(m.showId, order.pledgeId);
     const mismatch = orderCustomId !== undefined && orderCustomId !== wantCustomId ? "PayPal's hold belongs to a different pledge" : hold && hold.authorizationId === liveId ? holdProblem(hold, orderId, order, m) : null;
     if (hold && hold.authorizationId === liveId && !mismatch) return this.recordHold(orderId, order, m, hold);

@@ -6,7 +6,7 @@ import { PayPalHttp } from "../paypal/http";
 import { verifyWebhook } from "../paypal/webhooks";
 import type { Env } from "./env";
 import { budgetPort, quotaPort } from "./quota-client";
-import { route, type CampaignsPort, type RouterDeps } from "./router";
+import { route, type CampaignsPort, type EdgeCache, type RouterDeps } from "./router";
 
 export { CampaignAgent } from "./do/campaign-agent";
 export { QuotaAgent } from "./do/quota-agent";
@@ -19,6 +19,13 @@ function campaigns(env: Env): CampaignsPort {
       return (await res.json()) as CampaignReply;
     },
   };
+}
+
+/** The Workers Cache API, or null where it doesn't exist. Cache trouble never fails a request (the router swallows it). */
+function edgeCache(): EdgeCache | undefined {
+  const store = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  if (!store) return undefined;
+  return { match: async (key) => store.match(key), put: (key, res) => store.put(key, res) };
 }
 
 function routerDeps(env: Env): RouterDeps {
@@ -44,6 +51,7 @@ function routerDeps(env: Env): RouterDeps {
         paypalClientId: env.PAYPAL_CLIENT_ID?.trim() || null,
       },
     },
+    cache: edgeCache(),
     verifyWebhook: (headers, rawBody, webhookId) => verifyWebhook(new PayPalHttp(loadConfig(env)), headers, rawBody, webhookId),
   };
 }

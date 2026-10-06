@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../../src/agent/ids";
 import { TURN_CALL_BUDGET } from "../../src/agent/policy";
 import type { CampaignOp, CampaignReply } from "../../src/agent/dispatch";
@@ -8,6 +8,7 @@ import { SANDBOX_BASE } from "../../src/paypal/config";
 import { TokenHolder } from "../../src/paypal/http";
 import { fakeFetch } from "../paypal/fake-fetch";
 import { ALARM_BACKOFF_MAX_MS, ALARM_BACKOFF_MIN_MS, CampaignAgent } from "../../src/worker/do/campaign-agent";
+import { CampaignService } from "../../src/agent/service";
 import { QuotaAgent } from "../../src/worker/do/quota-agent";
 import type { StorageLike } from "../../src/worker/do/sql-adapter";
 import type { Env } from "../../src/worker/env";
@@ -227,6 +228,74 @@ describe("CampaignAgent alarm", () => {
     h.state.alarm = null;
     await h.agent.alarm();
     expect(h.state.alarm).not.toBeNull();
+  });
+});
+
+describe("CampaignAgent alarm writes", () => {
+  function counted() {
+    const h = setup();
+    let sets = 0;
+    let deletes = 0;
+    const storage = (h.agent as unknown as { ctx: { storage: { setAlarm(t: number): Promise<void>; deleteAlarm(): Promise<void> } } }).ctx.storage;
+    const set = storage.setAlarm;
+    const del = storage.deleteAlarm;
+    storage.setAlarm = async (t) => (sets++, set(t));
+    storage.deleteAlarm = async () => (deletes++, del());
+    return { h, sets: () => sets, deletes: () => deletes };
+  }
+
+  it("sets the alarm once for repeated polls, and again when the wake time changes", async () => {
+    const wake = vi.spyOn(CampaignService.prototype, "nextWakeAt").mockReturnValue(LAUNCH + 1000);
+    try {
+      const c = counted();
+      await signed(c.h);
+      expect(c.sets()).toBe(1);
+      for (let i = 0; i < 5; i++) await c.h.send({ op: "public" });
+      expect(c.sets()).toBe(1);
+      wake.mockReturnValue(LAUNCH + 2000);
+      await c.h.send({ op: "public" });
+      await c.h.send({ op: "public" });
+      expect(c.sets()).toBe(2);
+      expect(c.h.state.alarm).toBe(LAUNCH + 2000);
+      wake.mockReturnValue(null);
+      await c.h.send({ op: "public" });
+      await c.h.send({ op: "public" });
+      expect(c.deletes()).toBe(1);
+      expect(c.h.state.alarm).toBeNull();
+    } finally {
+      wake.mockRestore();
+    }
+  });
+
+  it("the first fetch after a new instance sets the alarm, then polls are free", async () => {
+    const c = counted();
+    await c.h.send({ op: "init", showId: SHOW, signTokenHash: await sha256Hex(SIGN_TOKEN) });
+    await c.h.send({ op: "sign", body: { signToken: SIGN_TOKEN, draft: DRAFT } });
+    expect(c.sets()).toBeGreaterThan(0);
+    const after = c.sets();
+    await c.h.send({ op: "public" });
+    await c.h.send({ op: "public" });
+    expect(c.sets()).toBe(after);
+    c.h.state.alarm = null; // the platform fired it
+    await c.h.agent.alarm();
+    expect(c.h.state.alarm).not.toBeNull();
+  });
+
+  it("logs a rows=0 line for bad JSON and for an alarm with nothing stored", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const h = setup();
+      await h.agent.fetch(new Request("https://do/op", { method: "POST", body: "{nope" }));
+      await h.agent.alarm();
+      const noKeys = new CampaignAgent(fakeCtx().ctx, {} as unknown as Env);
+      await noKeys.fetch(new Request("https://do/op", { method: "POST", body: JSON.stringify({ op: "public" }) }));
+      const lines = spy.mock.calls.map((a) => String(a[0]));
+      expect(lines).toContain("do_rows do=campaign kind=fetch op=other rows=0");
+      expect(lines).toContain("do_rows do=campaign kind=alarm op=tick rows=0");
+      expect(lines).toContain("do_rows do=campaign kind=fetch op=public rows=0");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

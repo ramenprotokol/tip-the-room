@@ -39,6 +39,11 @@ export class CampaignAgent {
   private readonly makePort: (config: PayPalConfig) => PayPalPort;
   /** The OAuth token lives as long as this object, shared by every invocation. Each invocation still meters its own fetches. */
   private readonly tokens = new TokenHolder();
+  /**
+   * The alarm time this object last set (null = deleted), or undefined when unknown (fresh instance, or an alarm just fired).
+   * reschedule() runs on every fetch, including polls, and skips the storage write when the wake time hasn't changed.
+   */
+  private alarmAt: number | null | undefined;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -71,7 +76,7 @@ export class CampaignAgent {
     });
   }
 
-  /** One line per invocation for the free-tier budget (scripts/tail-report.ts sums them). Lower bound: storage.put and setAlarm aren't counted. */
+  /** One line per invocation for the free-tier budget (scripts/tail-report.ts sums them). Lower bound: storage.put isn't counted (setAlarm is skipped when unchanged). */
   private logRows(kind: "fetch" | "alarm", op: string, before: number): void {
     const name = /^[a-z_]{1,32}$/.test(op) ? op : "other";
     console.log(`do_rows do=campaign kind=${kind} op=${name} rows=${(this.db?.rowsWritten() ?? 0) - before}`);
@@ -82,6 +87,7 @@ export class CampaignAgent {
     try {
       op = (await request.json()) as CampaignOp;
     } catch {
+      this.logRows("fetch", "other", this.db?.rowsWritten() ?? 0);
       return Response.json(BAD_JSON);
     }
     let service: CampaignService;
@@ -89,6 +95,7 @@ export class CampaignAgent {
       service = this.invocation();
     } catch {
       // Missing sandbox keys: the message names a variable at most, never a value (see loadConfig).
+      this.logRows("fetch", typeof op?.op === "string" ? op.op : "other", this.db?.rowsWritten() ?? 0);
       return Response.json(BROKEN);
     }
     const before = this.db?.rowsWritten() ?? 0;
@@ -99,18 +106,21 @@ export class CampaignAgent {
   }
 
   async alarm(): Promise<void> {
+    this.alarmAt = undefined; // the alarm that woke us is spent; what is armed now is unknown until we set it
     let service: CampaignService;
     try {
       service = this.invocation();
     } catch {
       // Can't run a turn (keys missing): look again later, waiting longer each time, rather than dropping the alarm.
       await this.ctx.storage.setAlarm(this.clock.now() + (await this.bumpBackoff()));
+      this.logRows("alarm", "tick", this.db?.rowsWritten() ?? 0);
       return;
     }
     const before = this.db?.rowsWritten() ?? 0;
     if (!service.exists()) {
       await this.ctx.storage.deleteAlarm();
       await this.clearBackoff();
+      this.logRows("alarm", "tick", this.db?.rowsWritten() ?? 0);
       return;
     }
     let threw = true;
@@ -127,6 +137,7 @@ export class CampaignAgent {
       // A demo copy is 24 h old and has no money step left: delete everything it stored.
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();
+      this.alarmAt = undefined;
       this.store = null;
       this.db = null;
     }
@@ -149,7 +160,9 @@ export class CampaignAgent {
     if (!service.exists()) return;
     let at = service.nextWakeAt();
     if (cap !== undefined) at = at === null ? cap : Math.min(at, cap);
+    if (at === this.alarmAt) return;
     if (at === null) await this.ctx.storage.deleteAlarm();
     else await this.ctx.storage.setAlarm(at);
+    this.alarmAt = at;
   }
 }
