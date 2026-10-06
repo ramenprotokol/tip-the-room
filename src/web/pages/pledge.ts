@@ -1,6 +1,7 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
 import "../shared/boot.css";
+import { watchIdle } from "../shared/idle";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, Placeholder, setStatus, countdownHTML, enter, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
@@ -13,6 +14,7 @@ import { cleanInitials, noMemory, PledgeFlow, sessionMemory, type PledgeEvent } 
 import { mountPayPalButton } from "../shared/paypal";
 
 removeRefOnly();
+const idle = watchIdle();
 const api = apiClient(API_BASE);
 const showId = showIdFromPath(location.pathname, location.search);
 const SEED = 31, YAW = .16; // the reference's single-sign look (pledge, manage and start share it)
@@ -159,7 +161,7 @@ async function boot(): Promise<void> {
 
 /** Other fans' pledges and the tip, seen by polling (never in parity runs). */
 async function poll() {
-  if (!show || !showId || st.busy || st.phase === 'closed' || document.hidden) return;
+  if (!show || !showId || st.busy || st.phase === 'closed' || document.hidden || idle.idle()) return;
   let s: PublicShow;
   try { s = await api.getShow(showId); } catch { return; }
   if (s.version === show.version || st.busy) return;

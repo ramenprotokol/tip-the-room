@@ -1,6 +1,7 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
 import "../shared/boot.css";
+import { watchIdle } from "../shared/idle";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
@@ -12,6 +13,7 @@ import { andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
+const idle = watchIdle();
 const api = apiClient(API_BASE, undefined, { judgeCode });
 const store = safeStorage();
 
@@ -354,7 +356,7 @@ async function boot() {
 }
 let retryAt = 0;
 async function poll() {
-  if (!demo || document.hidden || inflight) return;
+  if (!demo || document.hidden || inflight || idle.idle()) return;
   await act(async () => {
     for (const c of [A, B]) {
       if (!c.show) continue;

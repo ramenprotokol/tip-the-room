@@ -1,6 +1,7 @@
 import "../shared/gsap-global";
 import "../shared/styles.css";
 import "../shared/boot.css";
+import { watchIdle } from "../shared/idle";
 import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, HoldButton, setStatus, countdownHTML, drawQR, copyText, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
@@ -14,6 +15,7 @@ import type { LedgerGrid } from "../shared/ledger";
 const ledgerModule = import("../shared/ledger"); // AG Grid is the biggest chunk: start fetching it now, in parallel with the API
 
 removeRefOnly();
+const idle = watchIdle();
 const api = apiClient(API_BASE);
 const store = safeStorage();
 const showId = showIdFromPath(location.pathname, location.search);
@@ -323,7 +325,7 @@ $('#decline').addEventListener('click', () => { void declineNow(); });
 $('#copy').addEventListener('click', () => copyText($('#share-url').textContent ?? '', $('[data-copied]')));
 $('#csv').addEventListener('click', () => grid?.csv(`tip-the-room-${showId ?? 'show'}.csv`));
 setInterval(() => { if (mv && live()) { st.remain = remainSec(show().deadline, clock); el.clock.innerHTML = countdownHTML(st.remain); } }, 1000);
-if (!PARITY) setInterval(() => { if (!mv || !showId || document.hidden) return; api.getShow(showId).then(s => (s.version !== mv?.version ? refresh() : undefined)).catch(() => undefined); }, 5000);
+if (!PARITY) setInterval(() => { if (!mv || !showId || document.hidden || idle.idle()) return; api.getShow(showId).then(s => (s.version !== mv?.version ? refresh() : undefined)).catch(() => undefined); }, 5000);
 soundToggle($('#sound'));
 
 interface ManageHooks extends MarqueeHooks { readonly state: ManageState; addFans(max?: number): void; skip(): void; reset(): void; approve(): void; decline(): void; holdTo(p: number): void }
