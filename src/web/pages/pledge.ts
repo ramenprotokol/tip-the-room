@@ -8,7 +8,7 @@ import { API_BASE, HOOKS, PARITY, markReady, paypalClientId, removeRefOnly } fro
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { dayLabel, dollars, endOf, planSplit, remainSec, ROLE_WORD, ShowClock, when } from "../shared/format";
 import { showIdFromPath } from "../shared/keys";
-import { cleanInitials, PledgeFlow, type PledgeEvent } from "../shared/pledge-flow";
+import { cleanInitials, noMemory, PledgeFlow, sessionMemory, type PledgeEvent } from "../shared/pledge-flow";
 import { mountPayPalButton } from "../shared/paypal";
 
 removeRefOnly();
@@ -113,16 +113,23 @@ function onHeld(res: AuthorizeResponse, ini: string) {
   });
 }
 
+/** A hold confirmed after a reload: the fan is already counted in the show we loaded, so no bulb animation. */
+function onResumed(ini: string) {
+  st.busy = false;
+  el.card.hidden = true; el.confirm.hidden = false;
+  $('[data-confirm-bulb]').textContent = `Your bulb is the one marked ${ini}.`;
+}
+
 function onFlow(e: PledgeEvent) {
   const sim = simulateBtn();
   if (e.kind === 'busy') { say(''); st.busy = true; if (sim) sim.disabled = true; return; }
-  if (e.kind === 'held') { onHeld(e.res, e.initials); return; }
+  if (e.kind === 'held') { if (e.resumed) onResumed(e.initials); else onHeld(e.res, e.initials); return; }
   st.busy = false; if (sim) sim.disabled = false; say(e.message);
 }
 const flow = new PledgeFlow({
   createOrder: (initials) => act(() => api.createOrder(showId ?? '', { initials })),
   authorize: (orderId) => act(() => api.authorize(showId ?? '', orderId)),
-}, onFlow, () => cleanInitials(el.initials.value));
+}, onFlow, () => cleanInitials(el.initials.value), { memory: showId && !PARITY ? sessionMemory(showId) : noMemory });
 
 function mountButton() {
   if (st.phase === 'closed') return;
@@ -146,6 +153,7 @@ async function boot(): Promise<void> {
   if (st.phase === 'closed') closedState(s);
   render(true);
   mountButton();
+  if (st.phase !== 'closed') void act(() => flow.resume());
 }
 
 /** Other fans' pledges and the tip, seen by polling (never in parity runs). */
