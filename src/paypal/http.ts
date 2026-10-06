@@ -51,22 +51,32 @@ export class PayPalHttp {
       body: "grant_type=client_credentials",
     });
     if (!res.ok) throw await errorFromResponse(res);
-    const body = (await res.json()) as { access_token: string; expires_in: number };
-    this.cached = { token: body.access_token, expiresAt: this.now() + body.expires_in * 1000 };
-    return body.access_token;
+    const body = (await res.json().catch(() => undefined)) as { access_token?: unknown; expires_in?: unknown } | undefined;
+    const token = body?.access_token;
+    const expiresIn = body?.expires_in;
+    if (typeof token !== "string" || token.length === 0 || typeof expiresIn !== "number" || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+      throw new PayPalError(502, "BAD_TOKEN_RESPONSE", "PayPal's token response was missing a usable access_token or expires_in");
+    }
+    this.cached = { token, expiresAt: this.now() + expiresIn * 1000 };
+    return token;
   }
 
   async request<T>(o: RequestOptions): Promise<T | undefined> {
     if (o.requestId !== undefined && (o.requestId.length === 0 || o.requestId.length > MAX_REQUEST_ID)) {
       throw new RangeError(`PayPal-Request-Id must be 1 to ${MAX_REQUEST_ID} characters`);
     }
+    if (!o.path.startsWith("/")) {
+      throw new RangeError('PayPal request path must start with "/"');
+    }
     const canRetry = o.method === "GET" || o.requestId !== undefined;
     let refreshed = false;
     let last: PayPalError | undefined;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      // Token fetch and body serialisation happen outside the try: only a rejected fetch is a NETWORK_ERROR.
+      const init = await this.init(o);
       let res: Response;
       try {
-        res = await this.fetchFn(`${this.config.baseUrl}${o.path}`, await this.init(o));
+        res = await this.fetchFn(`${this.config.baseUrl}${o.path}`, init);
       } catch (e) {
         last = new PayPalError(0, "NETWORK_ERROR", e instanceof Error ? e.message : "network failure");
         if (!canRetry) throw last;
@@ -82,7 +92,12 @@ export class PayPalHttp {
       if (res.status === 204) return undefined;
       if (res.ok) {
         const text = await res.text();
-        return (text ? JSON.parse(text) : undefined) as T | undefined;
+        if (!text) return undefined;
+        try {
+          return JSON.parse(text) as T;
+        } catch {
+          throw new PayPalError(502, "BAD_RESPONSE_BODY", `PayPal answered ${res.status} with a body that is not JSON`);
+        }
       }
       last = await errorFromResponse(res);
       if (!last.retryable || !canRetry) throw last;

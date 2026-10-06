@@ -15,14 +15,21 @@ describe("loadConfig", () => {
     expect(loadConfig({ PAYPAL_CLIENT_ID: "a", PAYPAL_CLIENT_SECRET: "b", PAYPAL_API_BASE: `${SANDBOX_BASE}/` }).baseUrl).toBe(SANDBOX_BASE);
   });
   it("refuses missing keys without echoing any value", () => {
-    expect(() => loadConfig({ PAYPAL_CLIENT_ID: "a" })).toThrow(/PAYPAL_CLIENT_SECRET/);
+    expect(() => loadConfig({ PAYPAL_CLIENT_ID: "a-visible-id" })).toThrow(/PAYPAL_CLIENT_SECRET/);
+    try {
+      loadConfig({ PAYPAL_CLIENT_ID: "a-visible-id" });
+    } catch (e) {
+      expect(String(e)).not.toContain("a-visible-id");
+    }
   });
   it("refuses the live API", () => {
     expect(() => loadConfig({ PAYPAL_CLIENT_ID: "a", PAYPAL_CLIENT_SECRET: "b", PAYPAL_API_BASE: "https://api-m.paypal.com" })).toThrow(/sandbox-only/);
   });
   it("never puts the secret in an error message", () => {
+    const bad = { PAYPAL_CLIENT_ID: "a", PAYPAL_CLIENT_SECRET: "s3cr3t", PAYPAL_API_BASE: "https://evil.example" };
+    expect(() => loadConfig(bad)).toThrow();
     try {
-      loadConfig({ PAYPAL_CLIENT_ID: "a", PAYPAL_CLIENT_SECRET: "s3cr3t", PAYPAL_API_BASE: "https://evil.example" });
+      loadConfig(bad);
     } catch (e) {
       expect(String(e)).not.toContain("s3cr3t");
     }
@@ -71,10 +78,10 @@ describe("PayPalHttp", () => {
   });
 
   it("retries 5xx, 429 and network errors with the SAME request id", async () => {
-    const f = fakeFetch([{ status: 503, body: { name: "SERVICE_UNAVAILABLE" } }, { status: 0, networkError: true }, { status: 201, body: { ok: true } }]);
-    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep, maxAttempts: 3 });
+    const f = fakeFetch([{ status: 503, body: { name: "SERVICE_UNAVAILABLE" } }, { status: 429, body: { name: "RATE_LIMIT_REACHED" } }, { status: 0, networkError: true }, { status: 201, body: { ok: true } }]);
+    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep, maxAttempts: 4 });
     await http.request({ method: "POST", path: "/p", body: {}, requestId: "r-1" });
-    expect(f.apiCalls().map((c) => c.headers["paypal-request-id"])).toEqual(["r-1", "r-1", "r-1"]);
+    expect(f.apiCalls().map((c) => c.headers["paypal-request-id"])).toEqual(["r-1", "r-1", "r-1", "r-1"]);
   });
 
   it("never retries a POST that has no request id", async () => {
@@ -118,5 +125,92 @@ describe("PayPalHttp", () => {
     const f = fakeFetch([]);
     const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep });
     await expect(http.request({ method: "POST", path: "/p", requestId: "x".repeat(109) })).rejects.toThrow(/108/);
+  });
+
+  it("two 401s in a row refresh the token exactly once, then throw 401", async () => {
+    const f = fakeFetch([{ status: 401, body: { error: "invalid_token" } }, { status: 401, body: { error: "invalid_token" } }]);
+    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep });
+    const err = (await http.request({ method: "GET", path: "/x" }).catch((e) => e)) as PayPalError;
+    expect(err).toBeInstanceOf(PayPalError);
+    expect(err.status).toBe(401);
+    expect(f.tokenCalls()).toBe(2);
+    expect(f.apiCalls()).toHaveLength(2);
+  });
+
+  it("keeps the real error when the token endpoint refuses (no network-error rewrite)", async () => {
+    let tokenCalls = 0;
+    let apiCalls = 0;
+    const fetch = async (url: string) => {
+      if (url.endsWith("/v1/oauth2/token")) {
+        tokenCalls += 1;
+        return new Response(JSON.stringify({ error: "invalid_client", error_description: "Client Authentication failed" }), { status: 401 });
+      }
+      apiCalls += 1;
+      return new Response("{}", { status: 200 });
+    };
+    const http = new PayPalHttp(config, { fetch, sleep: noSleep });
+    const err = (await http.request({ method: "GET", path: "/x" }).catch((e) => e)) as PayPalError;
+    expect(err).toBeInstanceOf(PayPalError);
+    expect(err.status).toBe(401);
+    expect(err.paypalName).toBe("invalid_client");
+    expect(err.retryable).toBe(false);
+    expect(tokenCalls).toBe(1);
+    expect(apiCalls).toBe(0);
+  });
+
+  it("lets local errors (circular body) through unchanged, with no API call", async () => {
+    const f = fakeFetch([]);
+    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep });
+    const body: Record<string, unknown> = {};
+    body.self = body;
+    const err = await http.request({ method: "POST", path: "/p", body, requestId: "r" }).catch((e) => e);
+    expect(err).toBeInstanceOf(TypeError);
+    expect(err).not.toBeInstanceOf(PayPalError);
+    expect(f.apiCalls()).toHaveLength(0);
+  });
+
+  it.each([
+    ["no access_token", { expires_in: 100 }],
+    ["empty access_token", { access_token: "", expires_in: 100 }],
+    ["non-string access_token", { access_token: 5, expires_in: 100 }],
+    ["missing expires_in", { access_token: "t" }],
+    ["zero expires_in", { access_token: "t", expires_in: 0 }],
+    ["negative expires_in", { access_token: "t", expires_in: -5 }],
+    ["non-finite expires_in", { access_token: "t", expires_in: "soon" }],
+  ])("rejects a bad token response (%s) and caches nothing", async (_n, tokenBody) => {
+    let tokenCalls = 0;
+    const fetch = async (url: string) => {
+      if (url.endsWith("/v1/oauth2/token")) {
+        tokenCalls += 1;
+        return new Response(JSON.stringify(tokenBody), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    };
+    const http = new PayPalHttp(config, { fetch, sleep: noSleep });
+    for (let i = 0; i < 2; i++) {
+      const err = (await http.token().catch((e) => e)) as PayPalError;
+      expect(err).toBeInstanceOf(PayPalError);
+      expect(err.status).toBe(502);
+      expect(err.paypalName).toBe("BAD_TOKEN_RESPONSE");
+    }
+    expect(tokenCalls).toBe(2);
+  });
+
+  it.each(["x", "https://evil.example/x", "@evil.example/x", ""])("rejects path %j before any network call", async (path) => {
+    const f = fakeFetch([]);
+    const http = new PayPalHttp(config, { fetch: f.fetch, sleep: noSleep });
+    await expect(http.request({ method: "GET", path })).rejects.toBeInstanceOf(RangeError);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("turns a non-JSON 2xx body into BAD_RESPONSE_BODY", async () => {
+    const f = fakeFetch([]);
+    const fetch = async (url: string, init: RequestInit) =>
+      url.endsWith("/v1/oauth2/token") ? f.fetch(url, init) : new Response("<html>oops</html>", { status: 200 });
+    const http = new PayPalHttp(config, { fetch, sleep: noSleep });
+    const err = (await http.request({ method: "GET", path: "/x" }).catch((e) => e)) as PayPalError;
+    expect(err).toBeInstanceOf(PayPalError);
+    expect(err.status).toBe(502);
+    expect(err.paypalName).toBe("BAD_RESPONSE_BODY");
   });
 });
