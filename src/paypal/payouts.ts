@@ -95,5 +95,5 @@ export async function getPayoutBatch(http: PayPalHttp, batchId: string): Promise
 export function isDuplicateBatch(e: unknown): boolean {
   if (!(e instanceof PayPalError)) return false;
   if (e.status !== 400 || e.paypalName !== "USER_BUSINESS_ERROR") return false;
-  return e.issues.some((i) => i.field === "SENDER_BATCH_ID" || i.issue.toLowerCase().includes("sender_batch_id already exists"));
+  return e.issues.some((i) => i.field === "SENDER_BATCH_ID" || (typeof i.issue === "string" && i.issue.toLowerCase().includes("sender_batch_id already exists")));
 }

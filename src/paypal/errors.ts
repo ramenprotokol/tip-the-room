@@ -4,6 +4,9 @@ export interface PayPalIssue {
   field?: string;
 }
 
+/** Our own checks on a response that may already have succeeded, or that a retry cannot fix. */
+const NOT_RETRYABLE = new Set(["UNEXPECTED_CURRENCY", "BAD_AMOUNT", "BAD_RESPONSE_BODY", "BAD_TOKEN_RESPONSE"]);
+
 export class PayPalError extends Error {
   readonly status: number;
   readonly paypalName: string;
@@ -21,6 +24,7 @@ export class PayPalError extends Error {
 
   /** Network failures (status 0), rate limits and PayPal-side errors are worth retrying with the same request id. */
   get retryable(): boolean {
+    if (NOT_RETRYABLE.has(this.paypalName)) return false;
     return this.status === 0 || this.status === 429 || this.status >= 500;
   }
 

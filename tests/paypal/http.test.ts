@@ -37,6 +37,10 @@ describe("loadConfig", () => {
 });
 
 describe("PayPalHttp", () => {
+  it("refuses to be built with any base other than sandbox", () => {
+    expect(() => new PayPalHttp({ ...config, baseUrl: "https://api-m.paypal.com" })).toThrow(/sandbox/);
+  });
+
   it("gets a token once and reuses it until near expiry", async () => {
     let now = 0;
     const f = fakeFetch([{ status: 200, body: { a: 1 } }, { status: 200, body: { a: 2 } }, { status: 200, body: { a: 3 } }], 3600);

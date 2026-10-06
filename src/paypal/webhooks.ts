@@ -35,7 +35,7 @@ export interface PayPalLedgerEvent {
   /** The PayPal id the event is about (authorization, capture, refund, batch or item). */
   ref: string;
   amountCents?: Cents;
-  /** Our custom_id ("show:pledge") or sender_item_id ("show-role"). */
+  /** Our custom_id ("show:pledge"), sender_item_id ("show-role") or, for a payout batch, sender_batch_id ("payout-show"). */
   customId?: string;
   at: number;
 }
@@ -53,6 +53,7 @@ function isPayPalCertUrl(u: string): boolean {
 
 /** Asks PayPal whether this delivery is genuine. Bad input means false; a failed verify call (network, 5xx) throws so the caller can answer 5xx and PayPal redelivers. */
 export async function verifyWebhook(http: PayPalHttp, headers: Headers, rawBody: string, webhookId: string): Promise<boolean> {
+  if (typeof webhookId !== "string" || webhookId.trim() === "") throw new RangeError("PAYPAL_WEBHOOK_ID is not set");
   const h = SIG_HEADERS.map((k) => headers.get(k));
   if (h.some((v) => !v)) return false;
   if (!isPayPalCertUrl(h[1]!)) return false;
@@ -116,7 +117,9 @@ export function mapWebhookEvent(event: WebhookEvent): PayPalLedgerEvent | null {
   let amount: string | undefined;
   let customId: string | undefined;
   if (kind.startsWith("payout_batch")) {
-    ref = str(obj(r.batch_header)?.payout_batch_id);
+    const header = obj(r.batch_header);
+    ref = str(header?.payout_batch_id);
+    customId = str(obj(header?.sender_batch_header)?.sender_batch_id);
   } else if (kind.startsWith("payout_item")) {
     const item = obj(r.payout_item);
     ref = str(r.payout_item_id);

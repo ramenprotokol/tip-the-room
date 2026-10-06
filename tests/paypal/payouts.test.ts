@@ -66,6 +66,10 @@ describe("isDuplicateBatch", () => {
   it("matches on the issue text alone when the field is missing", () => {
     expect(isDuplicateBatch(new PayPalError(400, "USER_BUSINESS_ERROR", "x", undefined, [{ issue: "Batch with given Sender_Batch_Id already exists" }]))).toBe(true);
   });
+  it("does not crash on an issue entry with no issue text", () => {
+    const e = new PayPalError(400, "USER_BUSINESS_ERROR", "x", undefined, [{ field: "RECEIVER" } as never]);
+    expect(isDuplicateBatch(e)).toBe(false);
+  });
   it("never matches USER_BUSINESS_ERROR on its name alone", () => {
     expect(isDuplicateBatch(new PayPalError(400, "USER_BUSINESS_ERROR", "x"))).toBe(false);
     expect(isDuplicateBatch(new PayPalError(400, "USER_BUSINESS_ERROR", "x", undefined, [{ field: "RECEIVER", issue: "Receiver is invalid" }]))).toBe(false);

@@ -1,4 +1,5 @@
 import type { PayPalConfig } from "./config";
+import { SANDBOX_BASE } from "./config";
 import { errorFromResponse, PayPalError } from "./errors";
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
@@ -33,6 +34,7 @@ export class PayPalHttp {
   private cached?: { token: string; expiresAt: number };
 
   constructor(config: PayPalConfig, opts: ClientOptions = {}) {
+    if (config.baseUrl !== SANDBOX_BASE) throw new Error(`PayPal base URL must be ${SANDBOX_BASE}: this project is sandbox-only`);
     this.config = config;
     this.fetchFn = opts.fetch ?? ((input, init) => fetch(input, init));
     this.now = opts.now ?? Date.now;

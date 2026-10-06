@@ -20,6 +20,13 @@ const sigHeaders = () =>
 const raw = JSON.stringify({ id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", create_time: "2026-10-05T12:00:00Z", resource: { id: "C1" } });
 
 describe("verifyWebhook", () => {
+  it.each(["", "   "])("throws RangeError for an empty webhook id %j before any call", async (id) => {
+    const { f, http } = client([]);
+    const err = await verifyWebhook(http, sigHeaders(), raw, id).catch((e) => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toBe("PAYPAL_WEBHOOK_ID is not set");
+    expect(f.calls).toHaveLength(0);
+  });
   it("asks PayPal to verify and returns true on SUCCESS", async () => {
     const { f, http } = client([{ status: 200, body: { verification_status: "SUCCESS" } }]);
     expect(await verifyWebhook(http, sigHeaders(), raw, "WHID")).toBe(true);
@@ -88,7 +95,9 @@ describe("mapWebhookEvent", () => {
     ["PAYMENT.CAPTURE.DECLINED", { id: "C3" }, { kind: "charge_failed", ref: "C3" }],
     ["PAYMENT.CAPTURE.REFUNDED", { id: "C1", amount: { value: "15.00" } }, { kind: "refunded", ref: "C1", amountCents: 1500 }],
     ["PAYMENT.PAYOUTSBATCH.SUCCESS", { batch_header: { payout_batch_id: "B1" } }, { kind: "payout_batch_done", ref: "B1" }],
+    ["PAYMENT.PAYOUTSBATCH.SUCCESS", { batch_header: { payout_batch_id: "B2", sender_batch_header: { sender_batch_id: "payout-show1" } } }, { kind: "payout_batch_done", ref: "B2", customId: "payout-show1" }],
     ["PAYMENT.PAYOUTSBATCH.DENIED", { batch_header: { payout_batch_id: "B1" } }, { kind: "payout_batch_failed", ref: "B1" }],
+    ["PAYMENT.PAYOUTSBATCH.DENIED", { batch_header: { payout_batch_id: "B3", sender_batch_header: { sender_batch_id: "payout-show1" } } }, { kind: "payout_batch_failed", ref: "B3", customId: "payout-show1" }],
     ["PAYMENT.PAYOUTS-ITEM.SUCCEEDED", { payout_item_id: "I1", payout_item: { amount: { value: "100.00" }, sender_item_id: "show1-room" } }, { kind: "payout_item_paid", ref: "I1", amountCents: 10000, customId: "show1-room" }],
     ["PAYMENT.PAYOUTS-ITEM.FAILED", { payout_item_id: "I2", payout_item: { sender_item_id: "show1-room" } }, { kind: "payout_item_failed", ref: "I2", customId: "show1-room" }],
     ["PAYMENT.CAPTURE.REVERSED", { id: "C1", amount: { value: "15.00" }, custom_id: "show1:p7" }, { kind: "charge_reversed", ref: "C1", amountCents: 1500, customId: "show1:p7" }],
