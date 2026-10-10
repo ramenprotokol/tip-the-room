@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { apiError, installFakeApi, type FakeApi } from "./fake-api";
-import { MAYA_ID, MAYA_KEY, startApi } from "./fixtures";
+import { MAYA_ID, MAYA_KEY, START_CREATE, startApi } from "./fixtures";
 import { APP_BASE } from "./parity";
 
 async function open(page: Page, api: FakeApi) {
@@ -53,6 +53,16 @@ test("the server's problems are listed and the sign button resets", async ({ pag
   await expect(page.locator("#problems")).toHaveText("The deadline must be within 21 days of launch.");
   await expect(page.locator("[data-sign-label]")).toHaveText("Hold to sign the money rules");
   await expect(page.locator("#live")).toBeHidden();
+});
+
+test("email reminders aren't listed at draft time, and a leftover problem clears when the draft is edited", async ({ page }) => {
+  const problems = ["Add a valid PayPal email for Lucky’s Café.", "Add a valid PayPal email for You.", "The show date must look like 2026-11-20."];
+  await open(page, startApi({ create: { status: 201, body: { ...START_CREATE, problems } } }));
+  await page.click("#fill");
+  await expect(page.locator("#draft")).toBeVisible();
+  await expect(page.locator("#problems")).toHaveText("The show date must look like 2026-11-20.");
+  await page.fill("#mail-0", "luckys-cafe@example.com");
+  await expect(page.locator("#problems")).toBeHidden();
 });
 
 test("an unreadable date is caught before anything is sent", async ({ page }) => {

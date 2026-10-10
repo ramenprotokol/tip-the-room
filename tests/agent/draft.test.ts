@@ -32,7 +32,7 @@ describe("draft fields", () => {
     const noEmails = draftFields(suggestion, { sentence: "x" }, NOW);
     const preview = previewDraft(SHOW, noEmails, NOW);
     expect(preview.threshold).toBe(21);
-    expect(preview.problems).toContain("You needs a valid PayPal email.");
+    expect(preview.problems).toContain("Add a valid PayPal email for You.");
   });
 
   it("refuses a malformed draft with a 400", () => {

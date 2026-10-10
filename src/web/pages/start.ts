@@ -28,6 +28,8 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, 
   return e;
 }
 const say = (text: string) => { els.msg.textContent = text; els.msg.hidden = !text; };
+// Emails are empty at draft time; the live sign hint already asks for them.
+const EMAIL_PROBLEM = /valid PayPal email/;
 function showProblems(list: string[]) {
   els.problems.textContent = '';
   for (const p of list) els.problems.append(h('li', {}, p));
@@ -45,7 +47,7 @@ function payRow(p: PayeeRow, i: number) {
   const amt = h('input', { id: `amt-${i}`, class: 'input mono', 'data-k': 'amount', inputmode: 'numeric', placeholder: '0', autocomplete: 'off' }); amt.value = p.amount ? String(p.amount) : '';
   const mail = h('input', { id: `mail-${i}`, class: 'input mono', 'data-k': 'email', type: 'email', placeholder: 'name@example.com', autocomplete: 'off' }); mail.value = p.email;
   li.append(role, who, h('div', { class: 'field' }, h('label', { for: `amt-${i}` }, p.me ? 'At least ($)' : 'Gets ($)'), amt), h('div', { class: 'field email' }, h('label', { for: `mail-${i}` }, 'PayPal email'), mail));
-  li.addEventListener('input', e => { const el = e.target as HTMLInputElement, k = el.dataset.k as 'who' | 'amount' | 'email' | undefined; if (!k) return; edited = true; if (k === 'amount') p.amount = dollarsOf(el.value); else p[k] = el.value; li.classList.toggle('is-empty', !!p.optional && !p.amount && !p.who); update(); });
+  li.addEventListener('input', e => { const el = e.target as HTMLInputElement, k = el.dataset.k as 'who' | 'amount' | 'email' | undefined; if (!k) return; edited = true; showProblems([]); if (k === 'amount') p.amount = dollarsOf(el.value); else p[k] = el.value; li.classList.toggle('is-empty', !!p.optional && !p.amount && !p.who); update(); });
   return li;
 }
 
@@ -63,7 +65,7 @@ async function fill() {
       $('.field:has(#f-deadline) .hint').textContent = `Holds last up to 21 days, so keep it within 21 days of today, ${today(d.timeZone)}.`;
       els.paylist.textContent = ''; d.payees.forEach((p, i) => els.paylist.appendChild(payRow(p, i)));
       els.draft.hidden = false; enter(els.draft, 12, 500); els.fill.textContent = 'Fill it in again';
-      showProblems(res.problems);
+      showProblems(res.problems.filter(x => !EMAIL_PROBLEM.test(x)));
       update(true);
     } catch (e) {
       say(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.');
@@ -74,7 +76,7 @@ async function fill() {
 }
 for (const [id, k] of [['f-name', 'name'], ['f-room', 'room'], ['f-date', 'date'], ['f-price', 'price'], ['f-deadline', 'deadline']] as const) $('#' + id).addEventListener('input', e => {
   if (!D) return; const v = (e.target as HTMLInputElement).value;
-  edited = true;
+  edited = true; showProblems([]);
   if (k === 'price') D.price = dollarsOf(v); else D[k] = v;
   if (k === 'room') { D.payees[0].who = D[k]; const w = document.querySelector<HTMLInputElement>('#who-0'); if (w) w.value = D[k]; }
   update();

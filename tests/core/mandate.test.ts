@@ -57,7 +57,7 @@ describe("validateMandate", () => {
     });
     const problems = validateMandate(m);
     expect(problems).toContain("The deadline must be after the show goes live.");
-    expect(problems).toContain("Spindle Records needs a valid PayPal email.");
+    expect(problems).toContain("Add a valid PayPal email for Spindle Records.");
     const late = raw({ ...draft, showDate: "2026-11-18" });
     expect(validateMandate(late)).toContain("The show must be on or after the pledge deadline.");
   });

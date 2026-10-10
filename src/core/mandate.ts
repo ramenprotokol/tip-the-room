@@ -80,7 +80,7 @@ export function validateDraft(draft: MandateDraft): string[] {
     const named = Boolean(p.label?.trim());
     const label = named ? p.label : "A payee";
     if (!named) problems.push(`${label} needs a name.`);
-    if (!EMAIL.test(p.paypalEmail ?? "")) problems.push(`${label} needs a valid PayPal email.`);
+    if (!EMAIL.test(p.paypalEmail ?? "")) problems.push(`Add a valid PayPal email for ${label}.`);
     if (p.role !== "artist") {
       if (!Number.isInteger(p.fixed) || (p.fixed as number) < 0) problems.push(`${label} needs a fixed amount.`);
     } else if (p.minimum !== undefined && (!Number.isInteger(p.minimum) || p.minimum < 0)) {
