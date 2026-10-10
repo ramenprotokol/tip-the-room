@@ -11,7 +11,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 // (GRID_THEME says 15), and the odd-row and pinned-cell backgrounds, which the stylesheet sets with exact colours.
 export const ledgerTheme = themeQuartz.withParams({ ...GRID_THEME, fontSize: 16 });
 
-const PILL: Record<LedgerStatus, string> = { "On hold": "on-hold", Charged: "charged", Paid: "paid", Cancelled: "cancelled", Refunded: "refunded", Failed: "failed", Pending: "pending", Info: "info" };
+const PILL: Record<LedgerStatus, string> = { "On hold": "on-hold", Charged: "charged", Paid: "paid", Cancelled: "cancelled", Refunded: "refunded", Failed: "failed", Pending: "pending", Sent: "pending", Info: "info" };
 
 export function pill(status: LedgerStatus): HTMLElement {
   const s = document.createElement("span");

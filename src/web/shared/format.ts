@@ -185,6 +185,9 @@ export function endOf(state: CampaignState): End {
   }
 }
 
+/** The card tag for each payout state. The ledger pill says the same ("Sent" until PayPal reports success, then "Paid"). */
+export const PAYOUT_TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned', funds: 'Waiting on PayPal' } as const;
+
 /** "Everyone's paid" only when PayPal confirmed every payout; otherwise the page says "Payouts sent". */
 export function payoutsConfirmed(parties: { payoutStatus: string }[]): boolean {
   return parties.length > 0 && parties.every((p) => p.payoutStatus === "paid" || p.payoutStatus === "none");

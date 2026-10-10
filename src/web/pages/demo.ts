@@ -10,7 +10,7 @@ import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } f
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, payState, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
+import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, PAYOUT_TAG, payState, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
@@ -32,7 +32,6 @@ let demo: SavedDemo | null = null;
 let inflight = false;
 const judgeMsg = (text: string) => { $('[data-judge-msg]').textContent = text; };
 const failed = (e: unknown) => judgeMsg(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.');
-const TAG = { paid: 'Paid', pending: 'Sent', failed: 'Didn’t go through', none: 'Nothing to pay', planned: 'Planned', funds: 'Waiting on PayPal' } as const;
 
 class ShowCtl {
   key: Key; look: Look; el: HTMLElement; stage: HTMLElement; tipEl: HTMLElement; status: HTMLElement; clockEl: HTMLElement; fansSub: HTMLElement; of: HTMLElement; moneySub: HTMLElement;
@@ -236,7 +235,7 @@ class ShowCtl {
     this.cues.at(C.paid, () => {
       Snd.paid(); this.phase = 'paid'; this.setStatus(this.payKey); this.renderFans(); this.label(); this.ph?.update('paid', this.fans);
       this.moneySub.textContent = this.payMoneySub();
-      if (this.key === 'a' && payout) payout.fill(amts, this.cues, `One PayPal payout, in money-rule order: ${split.map((p, i) => `${p.label} ${usd(amts[i])}`).join(' · ')}.`, this.confirmed ? undefined : this.parties.map(p => TAG[p.payoutStatus]));
+      if (this.key === 'a' && payout) payout.fill(amts, this.cues, `One PayPal payout, in money-rule order: ${split.map((p, i) => `${p.label} ${usd(amts[i])}`).join(' · ')}.`, this.confirmed ? undefined : this.parties.map(p => PAYOUT_TAG[p.payoutStatus]));
       this.flush('rule-4-pay-the-split');
       this.buttons(); this.step();
     });

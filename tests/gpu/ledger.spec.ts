@@ -7,7 +7,7 @@ const T = (d: number, h: number, mi = 0) => Date.UTC(2026, 10, d, h, mi);
 const XSS = `<img src=x onerror="window.__xss=1">`;
 const ROWS: LedgerRowDto[] = [
   { seq: 1, at: T(3, 19, 12), what: "Fan held a spot", who: "Fan 01 · JR", amountCents: 1500, ref: "5UX02069M9686893E", status: "Charged" },
-  { seq: 3, at: T(12, 18), what: "Paid Lucky’s Café", who: "Lucky’s Café", amountCents: 10000, ref: "7X4QKXC6L5BNA", status: "Pending" },
+  { seq: 3, at: T(12, 18), what: "Sent to Lucky’s Café", who: "Lucky’s Café", amountCents: 10000, ref: "7X4QKXC6L5BNA", status: "Sent" },
   { seq: 2, at: T(9, 9, 15), what: XSS, who: "<b>Maya</b>", amountCents: 31500, ref: null, status: "Info" },
   { seq: 4, at: T(4, 8, 5), what: "=HYPERLINK(\"http://evil.example\")", who: "Fan 02 · AK", amountCents: null, ref: "8AB12345CD678901E", status: "Cancelled" },
 ];
@@ -40,7 +40,8 @@ test("newest first, with times in the show's zone and cents in the amount", asyn
   await open(page);
   await expect(firstCells(page, "when")).toHaveText("Nov 12 · 6:00pm");
   await expect(firstCells(page, "amountCents")).toHaveText("$100.00");
-  await expect(page.locator('#ledger .ag-row[row-index="0"] .ag-cell-first-right-pinned .pill')).toHaveText("Pending");
+  await expect(page.locator('#ledger .ag-row[row-index="0"] .ag-cell-first-right-pinned .pill')).toHaveText("Sent");
+  await expect(page.locator('#ledger .ag-row[row-index="0"] .ag-cell-first-right-pinned .pill')).toHaveClass(/\bpending\b/);
 });
 
 test("backend text is shown as text, never as markup", async ({ page }) => {
@@ -63,7 +64,7 @@ test("sort, filter and CSV export work, and the CSV can't run spreadsheet formul
   const csv = readFileSync((await download.path())!, "utf8").replace(/^\uFEFF/, ""); // AG Grid adds a byte-order mark so Excel reads UTF-8
   expect(csv.split(/\r?\n/)[0]).toBe('"When","What happened","Who","Amount","PayPal ref","Status"');
   expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"")"`);
-  expect(csv).toContain('"Nov 12 · 6:00pm","Paid Lucky’s Café","Lucky’s Café","$100.00","7X4QKXC6L5BNA","Pending"');
+  expect(csv).toContain('"Nov 12 · 6:00pm","Sent to Lucky’s Café","Lucky’s Café","$100.00","7X4QKXC6L5BNA","Sent"');
 });
 
 test("sort and filter icons show whenever a column differs from the default, and stay hidden at rest", async ({ page }) => {

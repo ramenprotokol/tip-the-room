@@ -63,10 +63,11 @@ export function publicShow(p: Projection, m: Mandate, mandateHash: string, o: { 
   };
 }
 
+/** Same words as the cards on the manage and demo pages: "Sent" until PayPal reports the item successful. */
 function itemStatus(item: PayoutItemStatus | undefined): LedgerStatus {
-  if (!item) return "Pending";
+  if (!item) return "Sent";
   if (item.status === "SUCCESS") return "Paid";
-  return PAYOUT_FAILED.has(item.status) ? "Failed" : "Pending";
+  return PAYOUT_FAILED.has(item.status) ? "Failed" : "Sent";
 }
 
 /** The settlement sheet, newest first. Every row is plain words plus the PayPal ref. */
@@ -127,7 +128,9 @@ export function ledgerRows(events: StoredEvent[], p: Projection, showId: string)
           break;
         }
         for (const l of e.lines) {
-          rows.push({ ...base, what: e.retry ? `Paid ${l.label} (second try)` : `Paid ${l.label}`, who: l.label, amountCents: l.amount, ref: payout?.batchId ?? e.senderBatchId, status: itemStatus(payout?.items[payoutItemId(showId, l.role, e.retry)]) });
+          const status = itemStatus(payout?.items[payoutItemId(showId, l.role, e.retry)]);
+          const what = `${status === "Sent" ? "Sent to" : "Paid"} ${l.label}`;
+          rows.push({ ...base, what: e.retry ? `${what} (second try)` : what, who: l.label, amountCents: l.amount, ref: payout?.batchId ?? e.senderBatchId, status });
         }
         break;
       }

@@ -149,7 +149,7 @@ export interface AuthorizeResponse {
   show: PublicShow;
 }
 
-export type LedgerStatus = "On hold" | "Charged" | "Paid" | "Cancelled" | "Refunded" | "Failed" | "Pending" | "Info";
+export type LedgerStatus = "On hold" | "Charged" | "Paid" | "Cancelled" | "Refunded" | "Failed" | "Pending" | "Sent" | "Info";
 
 export interface LedgerRowDto {
   seq: number;

@@ -3,6 +3,8 @@ import { splitPayout } from "../../src/core/split";
 import { commit, drain, type ExecDeps } from "../../src/agent/executor";
 import { SIM_CARD } from "../../src/agent/paypal-port";
 import { retryLines } from "../../src/agent/payout-runner";
+import { ledgerRows, manageParties } from "../../src/agent/views";
+import { PAYOUT_TAG } from "../../src/web/shared/format";
 import { RUNNERS } from "../../src/agent/runners";
 import { Store } from "../../src/agent/store";
 import { PayPalError } from "../../src/paypal/errors";
@@ -315,5 +317,40 @@ describe("payout retry", () => {
     expect(retryLines(SHOW, p, first)).toEqual([first.lines[0]]);
     expect(retryLines(SHOW, p, { ...first, lines: [{ ...first.lines[0], amount: 9999 }, first.lines[1]] })).toEqual([]);
     expect(retryLines(SHOW, p, { ...first, lines: [{ ...first.lines[0], paypalEmail: "thief@example.com" }, first.lines[1]] })).toEqual([]);
+  });
+});
+
+describe("payout words on the cards and in the ledger", () => {
+  const payoutRows = (h: Awaited<ReturnType<typeof readyToPay>>) => ledgerRows(h.store.events(), h.store.projection(), SHOW).filter((r) => r.what.startsWith("Sent to ") || r.what.startsWith("Paid "));
+  const cardTags = (h: Awaited<ReturnType<typeof readyToPay>>) => Object.fromEntries(manageParties(h.store.projection(), SHOW).map((x) => [x.label, PAYOUT_TAG[x.payoutStatus]]));
+
+  it("both say Sent until PayPal reports the item successful", async () => {
+    const h = await readyToPay((paypal) => {
+      const mixed = (b: string) => ({ batchId: b, senderBatchId: "", status: "PROCESSING", items: [
+        { senderItemId: payoutItemId(SHOW, "room"), status: "UNCLAIMED", amountCents: 2000 },
+        { senderItemId: payoutItemId(SHOW, "artist"), status: "HELD", amountCents: 2236 },
+      ] });
+      paypal.script("getPayoutBatch", mixed, mixed);
+    });
+    await drain(h.d, RUNNERS);
+    const rows = payoutRows(h);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.status).toBe("Sent");
+      expect(r.what).toBe(`Sent to ${r.who}`);
+      expect(cardTags(h)[r.who]).toBe("Sent");
+    }
+  });
+
+  it("both say Paid once the item succeeded", async () => {
+    const h = await readyToPay();
+    await settle(h);
+    const rows = payoutRows(h);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.status).toBe("Paid");
+      expect(r.what).toBe(`Paid ${r.who}`);
+      expect(cardTags(h)[r.who]).toBe("Paid");
+    }
   });
 });
