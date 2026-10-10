@@ -123,6 +123,19 @@ describe("sentence → draft", () => {
   });
 });
 
+describe("show date and pledge deadline", () => {
+  it("rejects a model show date that only matches the deadline's day", () => {
+    const sentence = "Acoustic set at Lucky's Café, $15 tickets, café wants $100, I need $200, pledges close Oct 16";
+    expect(parseDraft({ ...valid, showDate: "2026-10-16" }, sentence)).toBeNull();
+    expect(parseDraft({ ...valid, showDate: null }, sentence)).not.toBeNull();
+    expect(parseDraft({ ...valid, showDate: "2026-10-20" }, `${sentence}, show Oct 20`)).not.toBeNull();
+  });
+  it("leaves the deadline's date out of the template show date", () => {
+    expect(templateDraft("Set at Lucky's Café, pledges close Oct 16, Oct 20, $15 tickets", NOW).showDate).toBe("2026-10-20");
+    expect(templateDraft("Set at Lucky's Café, $15 tickets, deadline Oct 16", NOW).showDate).toBeNull();
+  });
+});
+
 describe("pace note", () => {
   it("accepts only numbers code computed", () => {
     const allowed = new Set(["8", "20"]);

@@ -90,12 +90,29 @@ export function parseDraft(raw: unknown, sentence: string): DraftSuggestion | nu
   if (r.ticketPriceDollars !== null && (ticketPrice === null || ticketPrice === 0)) return null;
   if (room === null || opener === null || host === null || artistMinimum === null) return null;
   if (![ticketPrice, room, opener, host, artistMinimum].every(inSentence)) return null;
-  if (showDate !== null && !written.has(Number(showDate.slice(8)))) return null;
+  if (showDate !== null && !new Set(digitsIn(withoutDeadline(sentence.slice(0, MAX_SENTENCE))).map(Number)).has(Number(showDate.slice(8)))) return null;
   return { showName, roomName, showDate, ticketPrice, room, opener, host, artistMinimum };
 }
 
+/** "pledges close Oct 16", "deadline Oct 16", "by Oct 16": the date belongs to the pledge deadline, never to the show. */
+export const DEADLINE_PHRASE = /\b(?:pledges?\s+(?:close|end)|deadline(?:\s+is)?|by)\s*:?\s*(?:on\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b/i;
+
+/** The sentence without its deadline phrase, so the show date can't be read from it. */
+export const withoutDeadline = (sentence: string): string => sentence.replace(new RegExp(DEADLINE_PHRASE.source, "gi"), " ");
+
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const AMOUNT = String.raw`(\d+(?:\.\d{1,2})?)`;
+
+/** "Oct", "16" → the next such day on or after today (UTC) as YYYY-MM-DD, or null if it isn't a real date. */
+export function monthDayIso(monthName: string, dayText: string, now: number): string | null {
+  const month = MONTHS.indexOf(monthName.slice(0, 3).toLowerCase());
+  const day = Number(dayText);
+  const today = new Date(now);
+  let year = today.getUTCFullYear();
+  if (Date.UTC(year, month, day) < Date.UTC(year, today.getUTCMonth(), today.getUTCDate())) year += 1;
+  const iso = `${year}-${pad(month + 1)}-${pad(day)}`;
+  return isIsoDate(iso) ? iso : null;
+}
 
 /** Deterministic fallback: the same patterns the Start page's preview used, returning cents. */
 export function templateDraft(sentence: string, now: number): DraftSuggestion {
@@ -113,15 +130,9 @@ export function templateDraft(sentence: string, now: number): DraftSuggestion {
   const host = num(new RegExp(String.raw`host\s+(?:wants|needs|gets)\s+\$${AMOUNT}`, "i"));
   const me = num(new RegExp(String.raw`\bI\s+(?:need|want|get)\s+\$${AMOUNT}`, "i"));
   let showDate: string | null = null;
-  const dm = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b/i.exec(t);
+  const dm = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b/i.exec(withoutDeadline(t));
   if (dm) {
-    const month = MONTHS.indexOf(dm[1].toLowerCase());
-    const day = Number(dm[2]);
-    const today = new Date(now);
-    let year = today.getUTCFullYear();
-    if (Date.UTC(year, month, day) < Date.UTC(year, today.getUTCMonth(), today.getUTCDate())) year += 1;
-    const iso = `${year}-${pad(month + 1)}-${pad(day)}`;
-    showDate = isIsoDate(iso) ? iso : null;
+    showDate = monthDayIso(dm[1], dm[2], now);
   }
   const roomName = (/\bat\s+([A-Z][\w'é&.-]*(?:\s[A-Z][\w'é&.-]*)*)(?=\s+on\b|,|$)/.exec(t)?.[1] ?? "").trim().slice(0, 80);
   const showName = (/^\s*([^,]+?)\s+at\s+/i.exec(t)?.[1] ?? "").trim().slice(0, 80) || "My show";
