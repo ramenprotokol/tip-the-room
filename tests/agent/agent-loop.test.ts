@@ -24,7 +24,7 @@ describe("pace check", () => {
       proposalId: "pace1",
       source: "template",
       recommend: "extend",
-      explanation: "1 of 3 fans with 4 days left. At this pace about 2 will join. You could extend the deadline 7 days, or lower the target to 2.",
+      explanation: "1 of 3 fans with 3 days left. At this pace about 2 will join. You could extend the deadline 7 days, or lower the target to 2.",
     });
     expect(proposals[0].options.map((o) => o.id)).toEqual(["extend", "lower"]);
     expect(h.store.logs().at(-1)).toMatchObject({ rule: "rule-5-ask-first", source: "template" });
@@ -42,7 +42,7 @@ describe("pace check", () => {
   });
 
   it("uses the model's explanation only when it passes the checks", async () => {
-    const good = await signedService({ ai: { ai: new FakeAi([json({ text: "You have 1 of 3 fans with 4 days left. Extending 7 days gives fans time.", recommend: "extend" })]), budget: fakeBudget().port } });
+    const good = await signedService({ ai: { ai: new FakeAi([json({ text: "You have 1 of 3 fans with 3 days left. Extending 7 days gives fans time.", recommend: "extend" })]), budget: fakeBudget().port } });
     await pledge(good.svc);
     good.clock.t = HALF;
     await good.svc.tick();
@@ -344,7 +344,7 @@ describe("task 7 hardening", () => {
     const ai: AiPort = {
       run: async () => {
         await pledge(svcRef!.svc, "BB");
-        return json({ text: "You have 1 of 3 fans with 4 days left. Extending 7 days gives fans time.", recommend: "extend" });
+        return json({ text: "You have 1 of 3 fans with 3 days left. Extending 7 days gives fans time.", recommend: "extend" });
       },
     };
     const h = await signedService({ ai: { ai, budget: fakeBudget().port } });
@@ -363,7 +363,7 @@ describe("pace option comparison", () => {
     const ai: AiPort = {
       run: async () => {
         ref!.clock.t = HALF + 2 * DAY_MS; // projected fans fall from 2 to 1, so the "lower" target moves
-        return json({ text: "You have 1 of 3 fans with 4 days left. Extending 7 days gives fans time.", recommend: "extend" });
+        return json({ text: "You have 1 of 3 fans with 3 days left. Extending 7 days gives fans time.", recommend: "extend" });
       },
     };
     const h = await signedService({ ai: { ai, budget: fakeBudget().port } });
@@ -425,7 +425,7 @@ describe("recovered payout batch with no id", () => {
 
 describe("turn budget", () => {
   it("counts a pace check's model call (budget reservation plus AI call) on the turn's meter", async () => {
-    const ai = new FakeAi([json({ text: "You have 1 of 3 fans with 4 days left. Extending 7 days gives fans time.", recommend: "extend" })]);
+    const ai = new FakeAi([json({ text: "You have 1 of 3 fans with 3 days left. Extending 7 days gives fans time.", recommend: "extend" })]);
     const h = await signedService({ ai: { ai, budget: fakeBudget().port } });
     await pledge(h.svc);
     h.clock.t = HALF;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODELS, NEURON_ESTIMATE } from "../../src/agent/ai";
-import { draftFromSentence, numbersOk, paceNote, parseDraft, settlementNote, templateDraft, templateNote, templatePaceNote, type NoteFacts, type PaceFacts } from "../../src/agent/ai-jobs";
+import { draftFromSentence, numbersOk, paceNote, parseDraft, settlementNote, templateDraft, templateNote, templatePaceNote, timeLeftPhrase, type NoteFacts, type PaceFacts } from "../../src/agent/ai-jobs";
 import { readFileSync } from "node:fs";
 import { FakeAi, fakeBudget, json } from "./fake-ai";
 
@@ -11,6 +11,7 @@ const facts: PaceFacts = {
   committed: 8,
   threshold: 20,
   daysLeft: 3,
+  hoursLeft: 77,
   projected: 14,
   percentElapsed: 57,
   options: [
@@ -138,6 +139,34 @@ describe("pace note", () => {
     expect(r.source).toBe("model");
     expect(r.value.recommend).toBe("extend");
     expect(ai.calls[0].model).toBe(MODELS.big);
+  });
+  it("falls back to the template when the note talks about the artist or holds instead of to you", async () => {
+    for (const text of ["The artist has 8 fans, needs 20, and has 3 days left.", "You are on hold for 57 percent of the time, with 8 of 20 fans.", "8 of 20 fans. The Artist could extend 7 days."]) {
+      const r = await paceNote({ ai: new FakeAi([json({ text, recommend: "extend" })]), budget: fakeBudget().port }, facts);
+      expect(r.source).toBe("template");
+    }
+  });
+  it("sends the model a labelled time left and the share of the pledge window passed", async () => {
+    const ai = new FakeAi([json({ text: "You have 8 of 20 fans and 3 days left.", recommend: "wait" })]);
+    await paceNote({ ai, budget: fakeBudget().port }, facts);
+    const sent = JSON.parse(ai.calls[0].input.messages.at(-1)!.content as string);
+    expect(sent).toMatchObject({ timeLeft: "3 days left", percentOfPledgeWindowPassed: 57 });
+    expect(sent).not.toHaveProperty("percentOfTimeUsed");
+  });
+  it("speaks the time left like the page countdown: days rounded down, hours under a day", () => {
+    expect(timeLeftPhrase({ daysLeft: 2, hoursLeft: 49 })).toBe("2 days left");
+    expect(timeLeftPhrase({ daysLeft: 1, hoursLeft: 24 })).toBe("1 day left");
+    expect(timeLeftPhrase({ daysLeft: 0, hoursLeft: 5 })).toBe("5 hours left");
+    expect(timeLeftPhrase({ daysLeft: 0, hoursLeft: 1 })).toBe("1 hour left");
+    expect(timeLeftPhrase({ daysLeft: 0, hoursLeft: 0 })).toBe("less than an hour left");
+  });
+  it("allows the hours figure, not the days figure, once under a day", async () => {
+    const soon = { ...facts, daysLeft: 0, hoursLeft: 5 };
+    expect(templatePaceNote(soon).text).toContain("with 5 hours left.");
+    const ok = await paceNote({ ai: new FakeAi([json({ text: "You have 8 of 20 fans and 5 hours left.", recommend: "wait" })]), budget: fakeBudget().port }, soon);
+    expect(ok.source).toBe("model");
+    const bad = await paceNote({ ai: new FakeAi([json({ text: "You have 8 of 20 fans and 3 hours left.", recommend: "wait" })]), budget: fakeBudget().port }, soon);
+    expect(bad.source).toBe("template");
   });
   it("rejects invented numbers and options that weren't offered", async () => {
     for (const bad of [{ text: "Only 2 days left, lower it to 5.", recommend: "lower" }, { text: "You have 8 of 20 fans.", recommend: "refund" }, { text: "x", recommend: "wait" }]) {

@@ -7,10 +7,15 @@ import { thresholdPledges } from "../core/threshold";
 import type { ProposalOption } from "./events";
 import { PACE_LATE_MS } from "./policy";
 
+const HOUR_MS = 3_600_000;
+
 export interface PaceNumbers {
   committed: number;
   threshold: number;
+  /** Whole days, rounded down like the page countdown. */
   daysLeft: number;
+  /** Whole hours, rounded down. The figure to speak in once under one day. */
+  hoursLeft: number;
   projected: number;
   percentElapsed: number;
 }
@@ -46,7 +51,8 @@ export function paceNumbers(m: Mandate, c: Campaign, now: number): PaceNumbers {
   return {
     committed,
     threshold: c.threshold,
-    daysLeft: Math.max(0, Math.ceil((c.deadline - now) / DAY_MS)),
+    daysLeft: Math.max(0, Math.floor((c.deadline - now) / DAY_MS)),
+    hoursLeft: Math.max(0, Math.floor((c.deadline - now) / HOUR_MS)),
     projected: elapsed > 0 ? Math.round(committed / elapsed) : committed,
     percentElapsed: Math.round(elapsed * 100),
   };

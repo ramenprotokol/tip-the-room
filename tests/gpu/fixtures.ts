@@ -335,8 +335,8 @@ export function demoApi(payout: ManageParty["payoutStatus"] = "paid", opts: { ca
     }
     if (b.show.state === "live" && b.proposals.length === 0) {
       set(b, { fans: b.show.fans.committed });
-      b.proposals = [{ proposalId: "pace1", explanation: "Marlow Finch is at 19 of 28 with 2 days left. At this pace it lands near 25.", recommend: "extend", source: "template", options: [{ id: "extend", label: "Extend 7 days", newDeadline: iso(T(11, 27, 18)), newThreshold: null }, { id: "lower", label: "Lower the target to 25", newDeadline: null, newThreshold: 25 }], approved: null }];
-      push(b, stamp(), "Proposed: Extend 7 days or Lower the target to 25. Waiting for the artist.", "19 of 28 fans with 2 days left (75% of the way). At this pace, about 25.", "rule-5-ask-first");
+      b.proposals = [{ proposalId: "pace1", explanation: "Marlow Finch is at 19 of 28 with 1 day left. At this pace it lands near 25.", recommend: "extend", source: "template", options: [{ id: "extend", label: "Extend 7 days", newDeadline: iso(T(11, 27, 18)), newThreshold: null }, { id: "lower", label: "Lower the target to 25", newDeadline: null, newThreshold: 25 }], approved: null }];
+      push(b, stamp(), "Proposed: Extend 7 days or Lower the target to 25. Waiting for the artist.", "19 of 28 fans with 1 day left (75% of the way). At this pace, about 25.", "rule-5-ask-first");
     }
   }
 

@@ -26,7 +26,14 @@ describe("pace checks", () => {
   });
   it("project the final count linearly", () => {
     const one = { ...live, pledges: { ...live.pledges, held: 1 } };
-    expect(paceNumbers(m, one, HALF)).toEqual({ committed: 1, threshold: 3, daysLeft: 4, projected: 2, percentElapsed: 50 });
+    expect(paceNumbers(m, one, HALF)).toEqual({ committed: 1, threshold: 3, daysLeft: 3, hoursLeft: 84, projected: 2, percentElapsed: 50 });
+  });
+  it("round the time left down like the page countdown, and give hours under a day", () => {
+    const one = { ...live, pledges: { ...live.pledges, held: 1 } };
+    expect(paceNumbers(m, one, DEADLINE - 25 * 3_600_000)).toMatchObject({ daysLeft: 1, hoursLeft: 25 });
+    expect(paceNumbers(m, one, DEADLINE - DAY_MS)).toMatchObject({ daysLeft: 1, hoursLeft: 24 });
+    expect(paceNumbers(m, one, DEADLINE - 5 * 3_600_000 - 1)).toMatchObject({ daysLeft: 0, hoursLeft: 5 });
+    expect(paceNumbers(m, one, DEADLINE + 1)).toMatchObject({ daysLeft: 0, hoursLeft: 0 });
   });
   it("offer only guard-approved options: extend within 21 days, lower no further than the fixed costs", () => {
     const one = { ...live, pledges: { ...live.pledges, held: 1 } };

@@ -67,6 +67,8 @@ const DRAFT_SYSTEM =
 /** Longest sentence any draft path looks at. Slicing first keeps every regex input small. */
 export const MAX_SENTENCE = 500;
 const JARGON = /authori[sz]|captur|void|payout batch|sender_|mandate/i;
+/** Wording the pace prompt no longer asks for; seeing it means the model is talking about the artist, not to them. */
+const STALE_WORDING = /on hold|the artist/i;
 
 /** Schema check for the model's draft. Null means "use the template". Every non-zero amount and the day must appear in the sentence. */
 export function parseDraft(raw: unknown, sentence: string): DraftSuggestion | null {
@@ -158,6 +160,7 @@ export interface PaceFacts {
   committed: number;
   threshold: number;
   daysLeft: number;
+  hoursLeft: number;
   projected: number;
   percentElapsed: number;
   /** Already guard-approved options (needsApproval), computed by code. */
@@ -171,13 +174,20 @@ export interface PaceNote {
   recommend: ProposalOptionId | "wait";
 }
 
+/** The time left as the page countdown reads it: whole days rounded down, whole hours once under a day. */
+export function timeLeftPhrase(f: Pick<PaceFacts, "daysLeft" | "hoursLeft">): string {
+  if (f.daysLeft >= 1) return `${f.daysLeft} day${f.daysLeft === 1 ? "" : "s"} left`;
+  if (f.hoursLeft >= 1) return `${f.hoursLeft} hour${f.hoursLeft === 1 ? "" : "s"} left`;
+  return "less than an hour left";
+}
+
 const PACE_SCHEMA = { type: "object", properties: { text: { type: "string" }, recommend: { type: "string" } }, required: ["text", "recommend"] };
 const PACE_SYSTEM =
-  "You help an artist whose small show needs more fans. In 1 to 3 short, plain sentences, explain the numbers given and the options given. " +
-  "Use ONLY the numbers provided. No jargon: say 'on hold', never 'authorized'. Then set recommend to one option id, or \"wait\". Answer with JSON only.";
+  "You help an artist whose small show needs more fans. Speak to the artist as 'you'. In 1 to 3 short, plain sentences, explain the numbers given and name each option offered in plain words. " +
+  "Use ONLY the numbers provided. No jargon. Then set recommend to one option id, or \"wait\". Answer with JSON only.";
 
 function paceAllowed(f: PaceFacts): Set<string> {
-  const nums = [f.committed, f.threshold, f.daysLeft, f.projected, f.percentElapsed, Math.max(0, f.threshold - f.committed)];
+  const nums = [f.committed, f.threshold, f.daysLeft >= 1 ? f.daysLeft : f.hoursLeft, f.projected, f.percentElapsed, Math.max(0, f.threshold - f.committed)];
   if (f.extendDays !== null) nums.push(f.extendDays);
   if (f.lowerTo !== null) nums.push(f.lowerTo);
   return new Set(nums.map(String));
@@ -189,12 +199,12 @@ export function parsePaceNote(raw: unknown, f: PaceFacts): PaceNote | null {
   if (typeof r.text !== "string" || r.text.trim().length < 10 || r.text.length > 400) return null;
   const ids: string[] = ["wait", ...f.options.map((o) => o.id)];
   if (typeof r.recommend !== "string" || !ids.includes(r.recommend)) return null;
-  if (JARGON.test(r.text) || !numbersOk(r.text, paceAllowed(f))) return null;
+  if (JARGON.test(r.text) || STALE_WORDING.test(r.text) || !numbersOk(r.text, paceAllowed(f))) return null;
   return { text: r.text.trim(), recommend: r.recommend as ProposalOptionId | "wait" };
 }
 
 export function templatePaceNote(f: PaceFacts): PaceNote {
-  const first = `${f.committed} of ${f.threshold} fans with ${f.daysLeft} day${f.daysLeft === 1 ? "" : "s"} left. At this pace about ${f.projected} will join.`;
+  const first = `${f.committed} of ${f.threshold} fans with ${timeLeftPhrase(f)}. At this pace about ${f.projected} will join.`;
   const choices: string[] = [];
   if (f.extendDays !== null) choices.push(`extend the deadline ${f.extendDays} day${f.extendDays === 1 ? "" : "s"}`);
   if (f.lowerTo !== null) choices.push(`lower the target to ${f.lowerTo}`);
@@ -208,7 +218,7 @@ export async function paceNote(deps: AiDeps, f: PaceFacts): Promise<AiResult<Pac
   const answer = await askModel(deps, MODELS.big, {
     messages: [
       { role: "system", content: PACE_SYSTEM },
-      { role: "user", content: JSON.stringify({ fans: f.committed, target: f.threshold, daysLeft: f.daysLeft, percentOfTimeUsed: f.percentElapsed, projectedFans: f.projected, options: f.options.map((o) => ({ id: o.id, label: o.label })) }) },
+      { role: "user", content: JSON.stringify({ fans: f.committed, target: f.threshold, timeLeft: timeLeftPhrase(f), percentOfPledgeWindowPassed: f.percentElapsed, projectedFans: f.projected, options: f.options.map((o) => ({ id: o.id, label: o.label })) }) },
     ],
     max_tokens: 200,
     temperature: 0.2,

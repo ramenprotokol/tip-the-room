@@ -10,7 +10,7 @@ import { requestIds, type Hold, type TestCard } from "../paypal/payments";
 import { isKnownEventType, type PayPalLedgerEvent } from "../paypal/webhooks";
 import type { ApproveRequest, ApproveResponse, AuthorizeResponse, CallOffResponse, CreateOrderRequest, CreateOrderResponse, DeclineResponse, DemoFansResponse, ManageView, PublicShow, SignRequest, SignResponse } from "../worker/api-types";
 import type { AiDeps } from "./ai";
-import { paceNote, settlementNote, type PaceFacts } from "./ai-jobs";
+import { paceNote, settlementNote, timeLeftPhrase, type PaceFacts } from "./ai-jobs";
 import type { DemoSeed } from "./demo";
 import { toMandateDraft } from "./draft";
 import { ServiceError } from "./errors";
@@ -473,7 +473,7 @@ export class CampaignService {
     const m = this.requireMandate(p);
     const c = p.campaign;
     const nums = paceNumbers(m, c, this.now());
-    const saw = `${nums.committed} of ${nums.threshold} fans with ${nums.daysLeft} day${nums.daysLeft === 1 ? "" : "s"} left (${nums.percentElapsed}% of the way). At this pace, about ${nums.projected}.`;
+    const saw = `${nums.committed} of ${nums.threshold} fans with ${timeLeftPhrase(nums)} (${nums.percentElapsed}% of the way). At this pace, about ${nums.projected}.`;
     if (nums.projected >= c.threshold) {
       commit(store, this.now(), { type: "pace_checked", check });
       return this.log({ saw, did: "On pace. Nothing to change.", rule: null });
