@@ -181,6 +181,12 @@ describe("pace note", () => {
     const bad = await paceNote({ ai: new FakeAi([json({ text: "You have 8 of 20 fans and 3 hours left.", recommend: "wait" })]), budget: fakeBudget().port }, soon);
     expect(bad.source).toBe("template");
   });
+  it("allows the count of offered options, and only that count", async () => {
+    const ok = await paceNote({ ai: new FakeAi([json({ text: "You have 8 of 20 fans and 2 options: extend or lower.", recommend: "extend" })]), budget: fakeBudget().port }, facts);
+    expect(ok.source).toBe("model");
+    const bad = await paceNote({ ai: new FakeAi([json({ text: "You have 8 of 20 fans and 4 options: extend or lower.", recommend: "extend" })]), budget: fakeBudget().port }, facts);
+    expect(bad.source).toBe("template");
+  });
   it("rejects invented numbers and options that weren't offered", async () => {
     for (const bad of [{ text: "Only 2 days left, lower it to 5.", recommend: "lower" }, { text: "You have 8 of 20 fans.", recommend: "refund" }, { text: "x", recommend: "wait" }]) {
       const r = await paceNote({ ai: new FakeAi([json(bad)]), budget: fakeBudget().port }, facts);

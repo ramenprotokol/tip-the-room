@@ -198,7 +198,7 @@ const PACE_SYSTEM =
   "Use ONLY the numbers provided. No jargon. Then set recommend to one option id, or \"wait\". Answer with JSON only.";
 
 function paceAllowed(f: PaceFacts): Set<string> {
-  const nums = [f.committed, f.threshold, f.daysLeft >= 1 ? f.daysLeft : f.hoursLeft, f.projected, f.percentElapsed, Math.max(0, f.threshold - f.committed)];
+  const nums = [f.committed, f.threshold, f.daysLeft >= 1 ? f.daysLeft : f.hoursLeft, f.projected, f.percentElapsed, Math.max(0, f.threshold - f.committed), f.options.length];
   if (f.extendDays !== null) nums.push(f.extendDays);
   if (f.lowerTo !== null) nums.push(f.lowerTo);
   return new Set(nums.map(String));
