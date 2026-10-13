@@ -35,6 +35,13 @@ describe("pledge flow", () => {
     expect(t.flow.busy).toBe(false);
   });
 
+  it("shows the server's own message when the initials are refused", async () => {
+    const t = setup(async () => held, async () => { throw new ApiFailure(422, "invalid", "Please use different initials."); });
+    await expect(t.flow.createOrder()).rejects.toBeInstanceOf(ApiFailure);
+    expect(t.events.at(-1)).toEqual({ kind: "failed", message: "Please use different initials." });
+    expect(t.flow.busy).toBe(false);
+  });
+
   it("a 502 on authorize is uncertain: the SAME order is asked again and nothing new is created", async () => {
     const t = setup(async (_id, n) => { if (n === 1) throw new ApiFailure(502, "paypal_error", "PayPal didn't answer as expected. Nothing was charged."); return held; });
     await t.flow.approve(await t.flow.createOrder());

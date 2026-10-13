@@ -3,7 +3,8 @@ import { dispatch } from "../../src/agent/dispatch";
 import { commit } from "../../src/agent/executor";
 import { sha256Hex } from "../../src/agent/ids";
 import { PayPalError } from "../../src/paypal/errors";
-import { MAX_ORDERS_PER_SHOW, ORDER_OPEN_MS } from "../../src/agent/policy";
+import { BLOCKED_INITIALS, MAX_ORDERS_PER_SHOW, ORDER_OPEN_MS } from "../../src/agent/policy";
+import { SIM_INITIALS } from "../../src/agent/sim-runner";
 import { DRAFT, makeService, pledge, SIGN_TOKEN, signedService } from "./harness";
 import { DEADLINE, SHOW } from "./fixtures";
 
@@ -85,6 +86,19 @@ describe("orders and authorize", () => {
     const h = await signedService();
     for (const bad of ["J1", "", "ABCD", 5]) await expect(h.svc.createOrder({ initials: bad as string })).rejects.toMatchObject({ status: 422 });
     expect(h.paypal.calls).toHaveLength(0);
+  });
+
+  it("refuses blocked initials in any case, with a plain message, before calling PayPal", async () => {
+    const h = await signedService();
+    for (const bad of ["KKK", "kkk", " Fag ", "ass"]) await expect(h.svc.createOrder({ initials: bad })).rejects.toMatchObject({ status: 422, code: "invalid", message: "Please use different initials." });
+    expect(h.paypal.calls).toHaveLength(0);
+    for (const fine of ["SS", "JR", "YOU", "ASH", "TIM"]) await expect(h.svc.createOrder({ initials: fine })).resolves.toMatchObject({ orderId: expect.any(String) });
+  });
+
+  it("blocks none of the initials the simulated fans use", () => {
+    for (const i of SIM_INITIALS) expect(BLOCKED_INITIALS.has(i), i).toBe(false);
+    for (const blocked of BLOCKED_INITIALS) expect(blocked).toMatch(/^[A-Z]{2,3}$/);
+    expect(BLOCKED_INITIALS.has("SS")).toBe(false);
   });
 
   it("holds the pledge once PayPal authorizes the order we created", async () => {

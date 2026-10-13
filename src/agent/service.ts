@@ -20,7 +20,7 @@ import { sweepStuckHolds, sweepWakes } from "./hold-runner";
 import { customIdFor, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, type Clock, type Random } from "./ids";
 import { duePaceCheck, paceCheckTimes, paceNumbers, paceOptions } from "./pace";
 import type { PayPalPort } from "./paypal-port";
-import { DEMO_GRACE_MS, DEMO_PACE_POINT, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, ORDER_OPEN_MS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
+import { BLOCKED_INITIALS, DEMO_GRACE_MS, DEMO_PACE_POINT, DEMO_GRACE_TOTAL_MAX_MS, DEMO_TOP_UP_EXTRA, demoGraceMs, DEMO_TTL_MS, MAX_JOBS_PER_TURN, MAX_ORDERS_PER_SHOW, MODEL_CALL_COST, MONEY_JOBS, ORDER_OPEN_MS, RECOVERED_BATCH_ATTENTION_MS, REHOLD_MARGIN_MS, SIM_ADD_MAX, SIM_CAP_PER_SHOW, TURN_CALL_BUDGET, UNSIGNED_TTL_MS } from "./policy";
 import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
 import { SIM_INITIALS } from "./sim-runner";
@@ -212,6 +212,7 @@ export class CampaignService {
     const raw = req?.initials;
     if (typeof raw !== "string" || !INITIALS.test(raw.trim())) throw new ServiceError(422, "invalid", "Initials must be 1 to 3 letters.");
     const initials = raw.trim().toUpperCase();
+    if (BLOCKED_INITIALS.has(initials)) throw new ServiceError(422, "invalid", "Please use different initials.");
     const p = this.applyDeadline();
     const m = this.requireMandate(p);
     if (p.campaign.state !== "live" && p.campaign.state !== "tipped") throw new ServiceError(409, "conflict", "Pledging has closed for this show.");

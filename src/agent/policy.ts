@@ -126,3 +126,6 @@ export const SWEEP_MAX = SWEEP_BACKOFF_MS.length;
 export const SWEEP_PER_TURN = 3;
 /** Settle looks (2 h apart) allowed after the reconcile sweeps when PayPal shows a capture it cannot read yet; then the sweep stops. */
 export const SWEEP_FINAL_LOOKS = 12;
+
+/** Initials go on the public sign. A short blocklist of crude words and hate symbols keeps the bulbs clean; common real initials (like SS) stay allowed. */
+export const BLOCKED_INITIALS: ReadonlySet<string> = new Set(["KKK", "FAG", "FGT", "NIG", "NGR", "CUM", "FUK", "FUC", "FCK", "ASS", "TIT", "DIK", "COK", "JIZ", "SEX"]);
