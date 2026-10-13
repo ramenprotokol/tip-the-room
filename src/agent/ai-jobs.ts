@@ -62,7 +62,7 @@ const DRAFT_SCHEMA = {
 const DRAFT_SYSTEM =
   "You turn one sentence about a small live show into JSON. Use only facts in the sentence. " +
   "Money is in US dollars as plain numbers. Use 0 for a missing amount, and null for a missing showDate or ticketPriceDollars. " +
-  "showDate is YYYY-MM-DD. roomName is the venue. roomDollars is what the venue (cafe, bar, room) wants, openerDollars what the opener wants, hostDollars what a host wants. ticketPriceDollars is the price of one ticket, never a payout. artistMinimumDollars is what the artist says they need. Answer with JSON only.";
+  "showDate is YYYY-MM-DD. roomName is the venue. roomDollars is what the venue (cafe, bar, room) wants, openerDollars what the opener wants, hostDollars what a host wants. ticketPriceDollars is the price of one ticket, never a payout. artistMinimumDollars is what the artist says they need. hostDollars is only for a person the sentence calls a host or MC; \"I need $X\" or \"I want $X\" is artistMinimumDollars. Answer with JSON only.";
 
 /** Longest sentence any draft path looks at. Slicing first keeps every regex input small. */
 export const MAX_SENTENCE = 500;
@@ -93,6 +93,7 @@ export function parseDraft(raw: unknown, sentence: string): DraftSuggestion | nu
   if (room === null || opener === null || host === null || artistMinimum === null) return null;
   if (![ticketPrice, room, opener, host, artistMinimum].every(inSentence)) return null;
   if (showDate !== null && !new Set(digitsIn(withoutDeadline(sentence.slice(0, MAX_SENTENCE))).map(Number)).has(Number(showDate.slice(8)))) return null;
+  if (!rolesMatchSentence(sentence.slice(0, MAX_SENTENCE).replace(/[’]/g, "'"), { ticketPrice, room, opener, host, artistMinimum })) return null;
   return { showName, roomName, showDate, ticketPrice, room, opener, host, artistMinimum };
 }
 
@@ -101,6 +102,23 @@ export const DEADLINE_PHRASE = /\b(?:pledges?\s+(?:close|end)|deadline(?:\s+is)?
 
 /** The sentence without its deadline phrase, so the show date can't be read from it. */
 export const withoutDeadline = (sentence: string): string => sentence.replace(new RegExp(DEADLINE_PHRASE.source, "gi"), " ");
+
+/**
+ * The model's roles against the sentence's own words (the numbers all being written somewhere is not enough: "I need $200" once
+ * came back as the host's pay). Where the sentence says what a role gets, the model must agree; a host or opener needs a
+ * host or opener word; two roles can't share an amount unless the sentence writes it that many times.
+ */
+function rolesMatchSentence(t: string, m: { ticketPrice: Cents | null; room: Cents; opener: Cents; host: Cents; artistMinimum: Cents }): boolean {
+  const said = sentenceAmounts(t);
+  const differs = (found: number | null, cents: Cents | null) => found !== null && cents !== dollarsToCents(found);
+  if (differs(said.price, m.ticketPrice) || differs(said.room, m.room) || differs(said.opener, m.opener) || differs(said.host, m.host) || differs(said.me, m.artistMinimum)) return false;
+  if (m.host > 0 && !/\b(?:host|mc|emcee|promoter)\b/i.test(t)) return false;
+  if (m.opener > 0 && !/\b(?:opener|opening|opens|support)\b/i.test(t)) return false;
+  const written = digitsIn(t).map(Number);
+  const shared = new Map<number, number>();
+  for (const c of [m.room, m.opener, m.host, m.artistMinimum]) if (c > 0) shared.set(c, (shared.get(c) ?? 0) + 1);
+  return [...shared].every(([c, roles]) => roles <= 1 || written.filter((n) => n === c / 100).length >= roles);
+}
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const AMOUNT = String.raw`(\d+(?:\.\d{1,2})?)`;
@@ -116,21 +134,28 @@ export function monthDayIso(monthName: string, dayText: string, now: number): st
   return isIsoDate(iso) ? iso : null;
 }
 
-/** Deterministic fallback: the same patterns the Start page's preview used, returning cents. */
-export function templateDraft(sentence: string, now: number): DraftSuggestion {
-  const t = sentence.slice(0, MAX_SENTENCE).replace(/[’]/g, "'");
+/** What the sentence itself says each role gets, in dollars (null where it doesn't say). One set of patterns for the template and for checking the model. */
+export function sentenceAmounts(t: string): { price: number | null; room: number | null; opener: number | null; host: number | null; me: number | null } {
   const num = (re: RegExp): number | null => {
     const m = re.exec(t);
     return m ? Number(m[1]) : null;
   };
+  return {
+    price:
+      num(new RegExp(String.raw`\$${AMOUNT}\s*(?:tickets?|a ticket|each|a spot|per (?:ticket|person|fan))`, "i")) ??
+      num(new RegExp(String.raw`tickets?\s*(?:are|at)?\s*\$${AMOUNT}`, "i")),
+    room: num(new RegExp(String.raw`(?:caf[eé]|room|venue|bar|shop|store|place)\s+(?:wants|needs|gets|charges)\s+\$${AMOUNT}`, "i")),
+    opener: num(new RegExp(String.raw`opener\s+(?:wants|needs|gets)\s+\$${AMOUNT}`, "i")),
+    host: num(new RegExp(String.raw`host\s+(?:wants|needs|gets)\s+\$${AMOUNT}`, "i")),
+    me: num(new RegExp(String.raw`\bI\s+(?:need|want|get)\s+\$${AMOUNT}`, "i")),
+  };
+}
+
+/** Deterministic fallback: the same patterns the Start page's preview used, returning cents. */
+export function templateDraft(sentence: string, now: number): DraftSuggestion {
+  const t = sentence.slice(0, MAX_SENTENCE).replace(/[’]/g, "'");
   const cents = (n: number | null): Cents => (n === null || !Number.isFinite(n) || n < 0 || n > 100_000 ? 0 : dollarsToCents(n));
-  const price =
-    num(new RegExp(String.raw`\$${AMOUNT}\s*(?:tickets?|a ticket|each|a spot|per (?:ticket|person|fan))`, "i")) ??
-    num(new RegExp(String.raw`tickets?\s*(?:are|at)?\s*\$${AMOUNT}`, "i"));
-  const room = num(new RegExp(String.raw`(?:caf[eé]|room|venue|bar|shop|store|place)\s+(?:wants|needs|gets|charges)\s+\$${AMOUNT}`, "i"));
-  const opener = num(new RegExp(String.raw`opener\s+(?:wants|needs|gets)\s+\$${AMOUNT}`, "i"));
-  const host = num(new RegExp(String.raw`host\s+(?:wants|needs|gets)\s+\$${AMOUNT}`, "i"));
-  const me = num(new RegExp(String.raw`\bI\s+(?:need|want|get)\s+\$${AMOUNT}`, "i"));
+  const { price, room, opener, host, me } = sentenceAmounts(t);
   let showDate: string | null = null;
   const dm = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b/i.exec(withoutDeadline(t));
   if (dm) {

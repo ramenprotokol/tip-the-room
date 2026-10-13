@@ -123,6 +123,47 @@ describe("sentence → draft", () => {
   });
 });
 
+describe("the model's roles are checked against the sentence's own words", () => {
+  const LIVE = "Acoustic set at Lucky's Café on Nov 20, $15 tickets, the café wants $100 and I need $200";
+  const right = { ...valid, showDate: "2026-11-20" };
+  it("refuses the misread seen live (the $200 given to a host, the artist $0) and drafts from the sentence instead", async () => {
+    const misread = { ...right, hostDollars: 200, artistMinimumDollars: 0 };
+    expect(parseDraft(misread, LIVE)).toBeNull();
+    const r = await draftFromSentence({ ai: new FakeAi([json(misread)]), budget: fakeBudget().port }, LIVE, NOW);
+    expect(r.source).toBe("template");
+    expect(r.value).toMatchObject({ artistMinimum: 20000, host: 0, room: 10000 });
+  });
+  it("keeps the correct answer for the same sentence as the model's", async () => {
+    const r = await draftFromSentence({ ai: new FakeAi([json(right)]), budget: fakeBudget().port }, LIVE, NOW);
+    expect(r).toEqual({ source: "model", value: { showName: "Acoustic set", roomName: "Lucky's Café", showDate: "2026-11-20", ticketPrice: 1500, room: 10000, opener: 0, host: 0, artistMinimum: 20000 } });
+  });
+  it("refuses a role whose amount differs from what the sentence says for it, price included", () => {
+    expect(parseDraft({ ...right, artistMinimumDollars: 100, roomDollars: 200 }, LIVE)).toBeNull();
+    expect(parseDraft({ ...right, roomDollars: 0 }, LIVE)).toBeNull();
+    expect(parseDraft({ ...right, ticketPriceDollars: 200 }, LIVE)).toBeNull();
+  });
+  it("needs a host word for a host amount and an opener word for an opener amount", () => {
+    const noWords = "Acoustic set at Lucky's Café on Nov 20, $15 tickets, $50, $100 and $200";
+    expect(parseDraft({ ...right, roomDollars: 100, hostDollars: 50, artistMinimumDollars: 200 }, noWords)).toBeNull();
+    expect(parseDraft({ ...right, roomDollars: 100, openerDollars: 50, artistMinimumDollars: 200 }, noWords)).toBeNull();
+    expect(parseDraft({ ...right, roomDollars: 100, hostDollars: 50, artistMinimumDollars: 200 }, `${noWords}, our MC gets $50`)).not.toBeNull();
+    expect(parseDraft({ ...right, roomDollars: 100, openerDollars: 50, artistMinimumDollars: 200 }, `${noWords}, the support act gets $50`)).not.toBeNull();
+  });
+  it("refuses two roles with the same amount unless the sentence writes it that many times", () => {
+    const once = "Show at Lucky's Café on Nov 20, $15 tickets, $100 for the room and the opener, I need $300";
+    expect(parseDraft({ ...right, roomDollars: 100, openerDollars: 100, artistMinimumDollars: 300 }, once)).toBeNull();
+    const twice = "Show at Lucky's Café on Nov 20, $15 tickets, the café wants $100, the opener wants $100, I need $300";
+    expect(parseDraft({ ...right, roomDollars: 100, openerDollars: 100, artistMinimumDollars: 300 }, twice)).not.toBeNull();
+  });
+  it("still accepts a sane answer when the sentence has no role words to check it against", () => {
+    const loose = "Acoustic set at Lucky's Café on Nov 20, tickets for 15, 100 for the room, 200 for me";
+    expect(parseDraft(right, loose)).not.toBeNull();
+  });
+  it("leaves the template's own output as it was", () => {
+    expect(templateDraft(LIVE, NOW)).toMatchObject({ ticketPrice: 1500, room: 10000, opener: 0, host: 0, artistMinimum: 20000 });
+  });
+});
+
 describe("show date and pledge deadline", () => {
   it("rejects a model show date that only matches the deadline's day", () => {
     const sentence = "Acoustic set at Lucky's Café, $15 tickets, café wants $100, I need $200, pledges close Oct 16";
