@@ -140,18 +140,24 @@ export function monthDayIso(monthName: string, dayText: string, now: number): st
 
 /** What the sentence itself says each role gets, in dollars (null where it doesn't say). One set of patterns for the template and for checking the model. */
 export function sentenceAmounts(t: string): { price: number | null; room: number | null; opener: number | null; host: number | null; me: number | null } {
-  const num = (re: RegExp): number | null => {
-    const m = re.exec(t);
-    return m ? Number(m[1]) : null;
+  const num = (...res: RegExp[]): number | null => {
+    for (const re of res) {
+      const m = re.exec(t);
+      if (m) return Number(m[1]);
+    }
+    return null;
   };
+  const re = (source: string) => new RegExp(source, "i");
+  // An amount must directly follow the phrase, so a number belonging to another role is never picked up.
+  const VENUE = String.raw`(?:caf[eé]|room|venue|bar|shop|store|place|tavern|club|pub|hall|theat(?:er|re)|house|gallery|brewery|studio|lounge|basement|church)`;
+  const PAID = String.raw`(?:wants|needs|gets|charges|takes|asks for)`;
+  const PAYS = String.raw`(?:wants|needs|gets|takes)`;
   return {
-    price:
-      num(new RegExp(String.raw`\$${AMOUNT}\s*(?:tickets?|a ticket|each|a spot|per (?:ticket|person|fan))`, "i")) ??
-      num(new RegExp(String.raw`tickets?\s*(?:are|at)?\s*\$${AMOUNT}`, "i")),
-    room: num(new RegExp(String.raw`(?:caf[eé]|room|venue|bar|shop|store|place)\s+(?:wants|needs|gets|charges)\s+\$${AMOUNT}`, "i")),
-    opener: num(new RegExp(String.raw`opener\s+(?:wants|needs|gets)\s+\$${AMOUNT}`, "i")),
-    host: num(new RegExp(String.raw`host\s+(?:wants|needs|gets)\s+\$${AMOUNT}`, "i")),
-    me: num(new RegExp(String.raw`\bI\s+(?:need|want|get)\s+\$${AMOUNT}`, "i")),
+    price: num(re(String.raw`\$${AMOUNT}\s*(?:tickets?|a ticket|each|a spot|per (?:ticket|person|fan))`), re(String.raw`tickets?\s*(?:are|at)?\s*\$${AMOUNT}`)),
+    room: num(re(String.raw`\b${VENUE}\s+${PAID}\s+\$${AMOUNT}`)),
+    opener: num(re(String.raw`\bopener\s+${PAYS}\s+\$${AMOUNT}`), re(String.raw`\bopens?\s+for\s+\$${AMOUNT}`), re(String.raw`\bopening\s+for\s+\$${AMOUNT}`), re(String.raw`\bopening\s+act\s+${PAYS}\s+\$${AMOUNT}`), re(String.raw`\bsupport(?:\s+act)?\s+${PAYS}\s+\$${AMOUNT}`)),
+    host: num(re(String.raw`host\s+(?:wants|needs|gets)\s+\$${AMOUNT}`)),
+    me: num(re(String.raw`\bI\s+(?:need|want|get)(?:\s+at\s+least)?\s+\$${AMOUNT}`), re(String.raw`\bat\s+least\s+\$${AMOUNT}\s+for\s+me\b`)),
   };
 }
 

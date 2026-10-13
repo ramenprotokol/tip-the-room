@@ -62,7 +62,7 @@ async function fill() {
   if (signing || els.fill.disabled) return;
   if (D && edited && Date.now() > armed) { armed = Date.now() + 6000; els.fill.textContent = 'Replace your edits? Click again'; return; }
   armed = 0; edited = false;
-  els.fill.disabled = true; say(''); sourceLine(null);
+  els.fill.disabled = true; say(''); sourceLine(null); $('#no-payees').hidden = true;
   await act(async () => {
     try {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -73,6 +73,7 @@ async function fill() {
       els.paylist.textContent = ''; d.payees.forEach((p, i) => els.paylist.appendChild(payRow(p, i)));
       els.draft.hidden = false; enter(els.draft, 12, 500); els.fill.textContent = 'Fill it in again';
       sourceLine(res.source);
+      $('#no-payees').hidden = PARITY || d.payees.some(p => p.amount > 0); // nothing was read from the sentence: say so before they try to sign
       showProblems(res.problems.filter(x => !EMAIL_PROBLEM.test(x)));
       update(true);
     } catch (e) {

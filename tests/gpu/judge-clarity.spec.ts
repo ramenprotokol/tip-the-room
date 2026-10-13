@@ -428,3 +428,42 @@ window.paypal = { createInstance: async () => ({ findEligibleMethods: async () =
   });
 });
 
+
+test.describe("the start page warns when nobody was found to be paid", () => {
+  const WARNING = "We couldn't find who gets paid in your sentence. Add the amounts below before you sign.";
+  const emptyDraft = () => ({ ...START_CREATE, threshold: null, draft: { ...START_CREATE.draft, parties: START_CREATE.draft.parties.map((p) => ({ ...p, fixedCents: p.fixedCents === undefined ? undefined : 0, minimumCents: p.minimumCents === undefined ? undefined : 0 })) } });
+  async function start(page: Page, create: () => unknown, query = "?e2e") {
+    const base = startApi();
+    await installFakeApi(page, (req) => (req.method === "POST" && req.path === "/api/shows" ? { status: 201, body: create() } : base(req)));
+    await page.goto(`${APP_BASE}start${query}`);
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+  }
+
+  test("shows when the draft has no amounts, and clears on the next fill", async ({ page }) => {
+    let empty = true;
+    await start(page, () => (empty ? emptyDraft() : START_CREATE));
+    await expect(page.locator("#no-payees")).toBeHidden();
+    await page.click("#fill");
+    await expect(page.locator("#no-payees")).toHaveText(WARNING);
+    await expect(page.locator("#no-payees")).toBeVisible();
+    empty = false;
+    await page.click("#fill");
+    await expect(page.locator("#draft")).toBeVisible();
+    await expect(page.locator("#no-payees")).toBeHidden();
+  });
+
+  test("stays hidden when the draft has amounts, and in the pixel-comparison mode", async ({ page }) => {
+    await start(page, () => START_CREATE);
+    await page.click("#fill");
+    await expect(page.locator("#draft")).toBeVisible();
+    await expect(page.locator("#no-payees")).toBeHidden();
+    const p2 = await page.context().newPage();
+    const base = startApi();
+    await installFakeApi(p2, (req) => (req.method === "POST" && req.path === "/api/shows" ? { status: 201, body: emptyDraft() } : base(req)));
+    await p2.goto(`${APP_BASE}start?e2e=parity`);
+    await expect(p2.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await p2.click("#fill");
+    await expect(p2.locator("#draft")).toBeVisible();
+    await expect(p2.locator("#no-payees")).toBeHidden();
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODELS, NEURON_ESTIMATE } from "../../src/agent/ai";
-import { draftFromSentence, numbersOk, paceNote, parseDraft, parseNote, settlementNote, templateDraft, templateNote, templatePaceNote, timeLeftPhrase, type NoteFacts, type PaceFacts } from "../../src/agent/ai-jobs";
+import { draftFromSentence, numbersOk, paceNote, parseDraft, parseNote, sentenceAmounts, settlementNote, templateDraft, templateNote, templatePaceNote, timeLeftPhrase, type NoteFacts, type PaceFacts } from "../../src/agent/ai-jobs";
 import { readFileSync } from "node:fs";
 import { FakeAi, fakeBudget, json } from "./fake-ai";
 
@@ -121,6 +121,53 @@ describe("sentence → draft", () => {
       templateDraft(s, NOW);
       expect(performance.now() - t0).toBeLessThan(50);
     }
+  });
+});
+
+describe("the built-in reader's phrasings", () => {
+  const PRE = "Acoustic set at Lucky's Café on Nov 20, $15 tickets, the café wants $100 and I need $200";
+  const BLUE = "Jazz night in the Blue Heron Tavern basement on Dec 5, tickets are $25, the tavern wants $150, my drummer Sam opens for $120 and I need at least $300.";
+  it("reads both real sentences without grabbing another role's number", () => {
+    expect(sentenceAmounts(PRE)).toEqual({ price: 15, room: 100, opener: null, host: null, me: 200 });
+    expect(sentenceAmounts(BLUE)).toEqual({ price: 25, room: 150, opener: 120, host: null, me: 300 });
+  });
+  it("with no AI, drafts the third judge's sentence with every amount in its place", async () => {
+    const r = await draftFromSentence({ ai: null, budget: fakeBudget().port }, BLUE, NOW);
+    expect(r.source).toBe("template");
+    expect(r.value).toMatchObject({ ticketPrice: 2500, room: 15000, opener: 12000, host: 0, artistMinimum: 30000, showDate: "2026-12-05" });
+  });
+  it("knows more venue words and verbs for the room", () => {
+    for (const venue of ["tavern", "club", "pub", "hall", "theater", "theatre", "house", "gallery", "brewery", "studio", "lounge", "basement", "church", "café", "cafe"]) {
+      expect(sentenceAmounts(`Gig on Nov 3, $10 tickets, the ${venue} wants $75, I need $200`).room, venue).toBe(75);
+    }
+    for (const verb of ["needs", "gets", "charges", "takes", "asks for"]) expect(sentenceAmounts(`$10 tickets, the pub ${verb} $60, I need $200`).room, verb).toBe(60);
+    // The number after the venue phrase is the room's, whatever else is written around it.
+    expect(sentenceAmounts("I need $200, $10 tickets, the pub takes $60").room).toBe(60);
+    expect(sentenceAmounts("$10 tickets, my bedroom wants $5").room).toBeNull();
+  });
+  it("knows the artist's 'at least' phrasings", () => {
+    expect(sentenceAmounts("$10 tickets, the pub wants $60, I need at least $300").me).toBe(300);
+    expect(sentenceAmounts("$10 tickets, the pub wants $60, I want at least $250").me).toBe(250);
+    expect(sentenceAmounts("$10 tickets, the pub wants $60, at least $275 for me").me).toBe(275);
+    expect(sentenceAmounts("$10 tickets, at least $90 for the band, the pub wants $60").me).toBeNull();
+  });
+  it("knows the opener's phrasings and keeps the amounts apart", () => {
+    const cases: [string, number][] = [
+      ["Sam opens for $120", 120], ["Sam is opening for $110", 110], ["the opener takes $90", 90], ["the opener gets $80", 80],
+      ["the opening act gets $70", 70], ["the opening act wants $65", 65], ["support gets $55", 55], ["the support act takes $45", 45],
+    ];
+    for (const [phrase, amount] of cases) {
+      const a = sentenceAmounts(`Gig on Nov 3, $10 tickets, the pub wants $60, ${phrase} and I need $200`);
+      expect(a.opener, phrase).toBe(amount);
+      expect(a).toMatchObject({ price: 10, room: 60, me: 200 });
+    }
+    expect(sentenceAmounts("Gig, $10 tickets, the pub wants $60, I need $200").opener).toBeNull();
+  });
+  it("the model check still refuses a swap in the third judge's sentence and accepts the right answer", () => {
+    const blue = { showName: "Jazz night", roomName: "Blue Heron Tavern", showDate: "2026-12-05", ticketPriceDollars: 25, roomDollars: 150, openerDollars: 120, hostDollars: 0, artistMinimumDollars: 300 };
+    expect(parseDraft(blue, BLUE)).not.toBeNull();
+    expect(parseDraft({ ...blue, openerDollars: 300, artistMinimumDollars: 120 }, BLUE)).toBeNull();
+    expect(parseDraft({ ...blue, roomDollars: 120, openerDollars: 150 }, BLUE)).toBeNull();
   });
 });
 
