@@ -263,3 +263,58 @@ test.describe("fans above the target say how many more than needed joined", () =
     await expect(page.locator("#show-a [data-fans-sub]")).not.toContainText("more than needed");
   });
 });
+
+test.describe("a lasting pointer while a show's agent is asking the artist", () => {
+  const SENTENCE = "Marlow Finch’s agent is asking the artist to approve a change.";
+  const HREF = `/s/${DEMO_ID}b/manage#${DEMO_KEY}`;
+
+  test("appears on that card and in the judges list after Check pace now, and survives a reload", async ({ page }) => {
+    await open(page);
+    for (const sel of ["#show-a [data-ask-pointer]", "#show-b [data-ask-pointer]", "[data-judge-ask]"]) await expect(page.locator(sel)).toBeHidden();
+    await page.locator("#pace").click();
+    const card = page.locator("#show-b [data-ask-pointer]");
+    await expect(card).toBeVisible();
+    await expect(card.locator("[data-ask-text]")).toHaveText(SENTENCE);
+    await expect(card.locator("a")).toHaveText("Open Marlow Finch’s show page");
+    await expect(card.locator("a")).toHaveAttribute("href", HREF);
+    await expect(page.locator("#show-a [data-ask-pointer]")).toBeHidden();
+    const here = page.locator("#judge [data-judge-ask]");
+    await expect(here).toContainText(SENTENCE);
+    await expect(here.locator("a")).toHaveAttribute("href", HREF);
+    await expect(page.locator("[data-judge-msg]")).toContainText("The agent checked the pace.");
+    await page.reload();
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await expect(page.locator("#show-b [data-ask-pointer]")).toBeVisible();
+    await expect(page.locator("#judge [data-judge-ask] a")).toHaveAttribute("href", HREF);
+  });
+
+  test("goes away once the question has been answered", async ({ page }) => {
+    const base = demoApi();
+    let answered = false;
+    const api: FakeApi = (req) => {
+      const r = base(req);
+      if (answered && r && req.method === "GET" && req.path.endsWith("/manage")) {
+        const body = structuredClone(r.body) as { proposals: { approved: string | null }[] };
+        body.proposals.forEach((p) => { p.approved = "lower"; });
+        return { ...r, body };
+      }
+      return r;
+    };
+    await open(page, api);
+    await page.locator("#pace").click();
+    await expect(page.locator("#show-b [data-ask-pointer]")).toBeVisible();
+    answered = true;
+    await page.reload();
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await expect(page.locator("#show-b [data-ask-pointer]")).toBeHidden();
+    await expect(page.locator("[data-judge-ask]")).toBeHidden();
+  });
+
+  test("stays hidden in the pixel-comparison mode", async ({ page }) => {
+    await open(page, demoApi(), "?e2e=parity");
+    await page.locator("#pace").click();
+    await expect(page.locator("[data-judge-msg]")).toContainText("The agent checked the pace.");
+    await expect(page.locator("#show-b [data-ask-pointer]")).toBeHidden();
+    await expect(page.locator("[data-judge-ask]")).toBeHidden();
+  });
+});

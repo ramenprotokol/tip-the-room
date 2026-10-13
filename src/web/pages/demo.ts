@@ -148,7 +148,7 @@ class ShowCtl {
   }
   takeView(v: ManageView, instant = false) {
     this.resting = aiResting(v.log); showResting();
-    this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length;
+    this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length; renderAsks();
     for (const e of [...v.log].reverse()) if (e.seq > this.lastSeq) { this.queue.push(e); this.lastSeq = e.seq; }
     if (this.phase === 'paid') { this.setStatus(this.payKey, true); this.renderFans(); this.moneySub.textContent = this.payMoneySub(); }
     if (instant) this.flush(null, true); else this.step();
@@ -332,10 +332,27 @@ function links() {
   set('#manage-a', `/s/${encodeURIComponent(A.show.showId)}/manage#${demo.demoKey}`, `${A.show.showName}’s show page`);
   set('#manage-b', `/s/${encodeURIComponent(B.show.showId)}/manage#${demo.demoKey}`, `${B.show.showName}’s show page`);
 }
+/** While a show's agent is asking the artist something, say so on its card and in the judges list, with a way to the show page. */
+function renderAsks() {
+  const open = ctls.filter(c => !PARITY && c.openProposals > 0 && c.show);
+  const pointer = (c: ShowCtl, text: HTMLElement, link: HTMLAnchorElement) => {
+    text.textContent = `${c.name}’s agent is asking the artist to approve a change.`;
+    link.setAttribute('href', $(c.key === 'a' ? '#manage-a' : '#manage-b').getAttribute('href') ?? '/'); link.textContent = `Open ${c.name}’s show page`;
+  };
+  for (const c of ctls) {
+    const box = $('[data-ask-pointer]', c.el), on = open.includes(c); box.hidden = !on;
+    if (on) pointer(c, $('[data-ask-text]', box), $<HTMLAnchorElement>('[data-ask-link]', box));
+  }
+  const here = $('[data-judge-ask]'); here.textContent = ''; here.hidden = open.length === 0;
+  for (const c of open) {
+    const row = document.createElement('span'), t = document.createElement('b'), a = document.createElement('a');
+    a.className = 'btn btn-red'; row.append(t, ' ', a); pointer(c, t, a); here.append(row);
+  }
+}
 function start(r: DemoResponse) {
   lastChangeAt = Date.now();
   demo = { demoId: r.demoId, demoKey: r.demoKey, expiresAt: r.expiresAt }; saveDemo(store, demo);
-  log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links();
+  log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links(); renderAsks();
 }
 /** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
 async function begin(r: DemoResponse) { start(r); filling = true; setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }

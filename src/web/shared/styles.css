@@ -363,6 +363,9 @@ main{padding:0 var(--gutter) 28px}
 .calloff .why{margin:0;font:400 16px/1.45 var(--f-ui);color:var(--ink-2)}
 .judge{margin-top:28px;display:grid;gap:12px}
 .judge p{margin:0;font:400 17px/1.45 var(--f-ui)}
+.ask-pointer{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 14px;border:2px solid var(--red);border-radius:14px;background:#FBE9E6}
+.ask-pointer .note{color:var(--ink);font-weight:600}
+.ask-here{display:grid;gap:8px;margin-top:8px}
 .try{margin:0;padding:0;list-style:none;counter-reset:try;display:grid;gap:10px}
 .try li{counter-increment:try;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font:400 17px/1.45 var(--f-ui)}
 .try li::before{content:counter(try);flex:none;width:26px;height:26px;border-radius:50%;background:var(--ink);color:var(--paper);display:inline-grid;place-items:center;font:600 14px/1 var(--f-mono)}
