@@ -8,9 +8,12 @@ const PAYPAL_ID: string = (import.meta.env.VITE_PAYPAL_CLIENT_ID ?? "").trim();
 /** Origin printed in share links. Defaults to wherever the page is served from. */
 export const PUBLIC_ORIGIN: string = (import.meta.env.VITE_PUBLIC_ORIGIN ?? "").trim().replace(/\/+$/, "") || (typeof location === "undefined" ? "" : location.origin);
 /** The sandbox buyer judges log in with (spec §4: printed on the page). Public sandbox values. */
-export const SANDBOX_BUYER = { email: (import.meta.env.VITE_SANDBOX_BUYER_EMAIL ?? "").trim(), password: (import.meta.env.VITE_SANDBOX_BUYER_PASSWORD ?? "").trim() };
+const BUYER_BUILT = { email: (import.meta.env.VITE_SANDBOX_BUYER_EMAIL ?? "").trim(), password: (import.meta.env.VITE_SANDBOX_BUYER_PASSWORD ?? "").trim() };
 /** Test hooks (window.__marquee and the reference-only controls): dev server, or a test build opened with ?e2e. */
 export const HOOKS: boolean = import.meta.env.DEV || (import.meta.env.VITE_E2E_HOOKS === "1" && query.has("e2e"));
+/** Test pages may pass ?buyer=<email>,<password> (hooks only) to show a login without baking one into the build. */
+const BUYER_TEST = HOOKS ? (query.get("buyer") ?? "").split(",") : [];
+export const SANDBOX_BUYER = BUYER_TEST.length === 2 && BUYER_TEST[0] ? { email: BUYER_TEST[0].trim(), password: BUYER_TEST[1].trim() } : BUYER_BUILT;
 /** Parity runs (?e2e=parity): no background polling, so the fake API's scripted answers stay in step. */
 export const PARITY: boolean = HOOKS && query.get("e2e") === "parity";
 

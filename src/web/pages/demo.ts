@@ -3,7 +3,7 @@ import "../shared/styles.css";
 import "../shared/boot.css";
 import { IDLE_MS, watchIdle } from "../shared/idle";
 import { compareVersion } from "../shared/version";
-import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
+import { $, REDUCED, Ticker, copyText, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
@@ -271,16 +271,18 @@ class ShowCtl {
   async ffClicked() {
     if (!demo || !(this.phase === 'open' || this.phase === 'tipped') || this.busy) return;
     const d = demo;
-    await solo(async () => { const r = await api.demoFastForward(d.demoId, d.demoKey, this.key); await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]); });
+    const ok = await solo(async () => { const r = await api.demoFastForward(d.demoId, d.demoKey, this.key); await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]); });
+    // The skip moves both shows, whichever card's button was pressed: say so, and what to do next.
+    if (ok) judgeMsg('Both sample shows have reached their deadlines. Press Start over for a fresh pair (you need one to try the checkout).');
   }
 }
 
 /** Every demo button (both shows, Start over, Check pace now) runs one at a time; the rest stay disabled until it ends. Errors show as a plain line. */
-async function solo(fn: () => Promise<void>) {
-  if (inflight) return;
+async function solo(fn: () => Promise<void>): Promise<boolean> {
+  if (inflight) return false;
   inflight = true; lock();
-  try { await act(fn); }
-  catch (e) { failed(e); }
+  try { await act(fn); return true; }
+  catch (e) { failed(e); return false; }
   finally { inflight = false; lock(); }
 }
 function lock() { ctls.forEach(c => c.buttons()); $<HTMLButtonElement>('#pace').disabled = inflight; }
@@ -297,7 +299,15 @@ function pullView(c: ShowCtl, instant = false): Promise<void> {
   c.viewP = p; void p.then(() => { if (c.viewP === p) c.viewP = null; });
   return p;
 }
-async function applyShow(c: ShowCtl, s: PublicShow) { c.apply(s); await pullView(c); }
+async function applyShow(c: ShowCtl, s: PublicShow) { c.apply(s); setupLine(); await pullView(c); }
+
+/** The starting fans of each sample show (src/agent/demo.ts). A fresh copy is "filling" until both are seated, or a show moves on. */
+const START_FANS = { a: 29, b: 19 };
+let filling = false;
+function setupLine() {
+  if (filling && (!A.show || !B.show || A.show.state !== 'live' || B.show.state !== 'live' || (A.show.fans.committed >= START_FANS.a && B.show.fans.committed >= START_FANS.b))) filling = false;
+  $('#setup').hidden = PARITY || !filling;
+}
 
 function summary() {
   const shows = [A.show, B.show].filter((s): s is PublicShow => s !== null);
@@ -318,7 +328,7 @@ function start(r: DemoResponse) {
   log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links();
 }
 /** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
-async function begin(r: DemoResponse) { start(r); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
+async function begin(r: DemoResponse) { start(r); filling = true; setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
 async function freshCopy(msg: string) { await begin(await api.createDemo()); judgeMsg(msg); }
 async function resetDemo() {
   const d = demo; if (!d) return;
@@ -353,10 +363,21 @@ async function boot() {
       if (!reused) await begin(await api.createDemo());
     } catch (e) { failed(e); }
   });
-  $('[data-judge-creds]').textContent = SANDBOX_BUYER.email
-    ? `To try the real PayPal checkout, log in with the sandbox buyer ${SANDBOX_BUYER.email}${SANDBOX_BUYER.password ? `, password ${SANDBOX_BUYER.password}` : ''}. It’s play money: nothing real is charged.`
-    : 'Sandbox buyer login coming soon';
+  credsBox();
   $('#judge').hidden = false;
+}
+function credsBox() {
+  const box = $('[data-judge-creds]'); box.textContent = '';
+  if (!SANDBOX_BUYER.email) { box.textContent = 'Sandbox buyer login coming soon'; return; }
+  const node = (tag: string, cls: string, text: string) => { const n = document.createElement(tag); if (cls) n.className = cls; n.textContent = text; return n; };
+  const row = (label: string, value: string) => {
+    const copy = node('button', 'btn btn-ghost', 'Copy') as HTMLButtonElement; copy.type = 'button'; copy.setAttribute('aria-label', `Copy the ${label.toLowerCase()}`);
+    copy.addEventListener('click', () => { void copyText(value).then(ok => { copy.textContent = ok ? 'Copied' : 'Select it and copy'; setTimeout(() => { copy.textContent = 'Copy'; }, 1800); }); });
+    const r = node('div', 'cred', ''); r.append(node('span', 'cred-l', label), node('code', '', value), copy); return r;
+  };
+  box.append(node('p', '', 'To try the real PayPal checkout, log in with this sandbox buyer:'), row('Email', SANDBOX_BUYER.email));
+  if (SANDBOX_BUYER.password) box.append(row('Password', SANDBOX_BUYER.password));
+  box.append(node('p', '', 'It’s play money: nothing real is charged.'));
 }
 let retryAt = 0, lastChangeAt = Date.now();
 /** A passive watcher must not see the demo freeze: keep going while a copy is still seating fans or settling, and for a while after its last change. */
@@ -391,6 +412,9 @@ const A = new ShowCtl('a'), B = new ShowCtl('b'), ctls = [A, B];
 setInterval(() => ctls.forEach(c => { if ((c.phase === 'open' || c.phase === 'tipped' || c.phase === 'tipping') && c.show) { c.remain = remainSec(c.show.deadline, c.clock); c.renderClock(); } }), 1000);
 if (!QUIET) setInterval(() => { void poll(); }, 4000);
 soundToggle($('#sound'));
+// New real-site pointers (app-only: the pixel-comparison page never shows them). The T/P/M/R key hints only work in test builds.
+if (!PARITY) document.querySelectorAll<HTMLElement>('#hdr-links, [data-both-note], #agent-note').forEach(n => { n.hidden = false; });
+if (!HOOKS) $('.keys').hidden = true;
 $('#pace').addEventListener('click', () => { void checkPace(); });
 // t/p/m/r are the reference's test keys: dev and test builds only. The real site has the visible buttons.
 if (HOOKS) addEventListener('keydown', e => {
