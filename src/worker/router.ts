@@ -70,8 +70,8 @@ export const LIMITS = {
   orderPerShow: { limit: 20, windowMs: 3 * HOUR },
   manage: { limit: 1500, windowMs: HOUR },
   demo: { limit: 12, windowMs: HOUR },
-  /** Public pool only: one visitor can't take more than a fifth of the day's copies. */
-  demoDay: { limit: 10, windowMs: 24 * HOUR },
+  /** Public pool only: one visitor can't take more than half of the day's copies (judges on one office network share an address, so 10 was too tight). */
+  demoDay: { limit: 25, windowMs: 24 * HOUR },
   /** Reset attempts per visitor, right or wrong key: bounds the Durable Object work a wrong key costs, apart from the copy pools. */
   demoResetTry: { limit: 60, windowMs: HOUR },
   demoJudge: { limit: 12, windowMs: HOUR },

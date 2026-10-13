@@ -4,6 +4,13 @@ import { LIMITS } from "../../src/worker/router";
 import { workerHarness } from "./harness";
 
 const HOUR = 60 * 60 * 1000;
+/** Takes every public copy a visitor may have in a day, an hour at a time so the hourly cap (12) is never the one that stops it. */
+async function useUpDay(w: ReturnType<typeof workerHarness>, headers: (i: number) => Record<string, string> = () => ({})) {
+  for (let i = 0; i < LIMITS.demoDay.limit; i++) {
+    expect((await w.call("POST", "/api/demo", undefined, headers(i))).status).toBe(201);
+    if (i % 10 === 9) w.clock.t += HOUR;
+  }
+}
 
 describe("demo routes", () => {
   it("create a private copy with two seeded shows and a demo key", async () => {
@@ -126,7 +133,7 @@ describe("demo routes", () => {
     expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": "k".repeat(43) })).status).toBe(403);
   });
 
-  it("a visitor gets 10 public copies a day, then 429; another visitor and the judge pool are unaffected", async () => {
+  it("a visitor gets 25 public copies a day, then 429; another visitor and the judge pool are unaffected", async () => {
     const w = workerHarness({ judgeCode: "judge-code-123" });
     for (let i = 0; i < LIMITS.demoDay.limit; i++) {
       expect((await w.call("POST", "/api/demo")).status).toBe(201);
@@ -149,7 +156,7 @@ describe("demo routes", () => {
 
   it("limits demo copies per visitor and answers 404 for a bad demo id", async () => {
     const w = workerHarness();
-    for (let i = 0; i < LIMITS.demoDay.limit; i++) expect((await w.call("POST", "/api/demo")).status).toBe(201);
+    await useUpDay(w);
     expect((await w.call("POST", "/api/demo")).status).toBe(429);
     expect((await w.call("POST", "/api/demo/NOPE/fast-forward")).status).toBe(404);
     expect((await w.call("POST", "/api/demo/dabcdefghjk/fast-forward", undefined, { "x-manage-key": "x".repeat(43) })).status).toBe(404);
@@ -157,7 +164,7 @@ describe("demo routes", () => {
 
   it("counts an IPv6 /64 as one visitor, and a different /64 as another", async () => {
     const w = workerHarness();
-    for (let i = 0; i < LIMITS.demoDay.limit; i++) expect((await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": `2001:db8:0:0:${i}::1` })).status).toBe(201);
+    await useUpDay(w, (i) => ({ "cf-connecting-ip": `2001:db8:0:0:${i}::1` }));
     expect((await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": "2001:db8::ffff" })).status).toBe(429);
     expect((await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": "2001:db8:0:1::1" })).status).toBe(201);
   });
@@ -191,7 +198,7 @@ describe("demo routes", () => {
 
   it("a judge code skips the visitor limit and draws from its own daily pool", async () => {
     const w = workerHarness({ judgeCode: "judge-code-123" });
-    for (let i = 0; i < LIMITS.demoDay.limit; i += 1) expect((await w.call("POST", "/api/demo")).status).toBe(201);
+    await useUpDay(w);
     expect((await w.call("POST", "/api/demo")).status).toBe(429);
     expect((await w.call("POST", "/api/demo", undefined, { "x-judge-code": "judge-code-123" })).status).toBe(201);
     expect((await w.call("POST", "/api/demo", undefined, { "x-judge-code": "wrong-code-123" })).status).toBe(429);
