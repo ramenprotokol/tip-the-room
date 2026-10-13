@@ -113,9 +113,10 @@ class ShowCtl {
   renderFans() {
     const { fans, target } = this, p = this.phase;
     this.of.textContent = fans <= target ? `of ${target} fans` : `fans · target was ${target}`;
-    this.fansSub.textContent = p === 'paid' || p === 'paying' ? (p === 'paid' ? this.payFansSub() : 'Everyone’s paid')
-      : p === 'released' || p === 'missing' ? (this.refunded ? 'Called off · refunding' : `Called off · ${target - fans} short`)
-      : this.tipped ? (fans > target ? `It’s on! · ${fans - target} joined after it tipped` : 'It’s on! Everyone’s charged')
+    const over = fans > target && !PARITY ? ` · ${fans - target} more than needed joined` : '';
+    this.fansSub.textContent = p === 'paid' || p === 'paying' ? (p === 'paid' ? this.payFansSub() : 'Everyone’s paid') + over
+      : p === 'released' || p === 'missing' ? (this.refunded ? 'Called off · refunding' + over : `Called off · ${target - fans} short`)
+      : this.tipped ? (fans > target ? (over ? `It’s on!${over}` : `It’s on! · ${fans - target} joined after it tipped`) : 'It’s on! Everyone’s charged')
       : `${target - fans} more to make it happen`;
   }
   buttons() {

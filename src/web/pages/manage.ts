@@ -86,7 +86,8 @@ function render(instant = false) {
   const s = show(), { fans } = st, t = s.threshold, total = fans * priceCents() / 100, v = visual().phase, d = Date.parse(s.deadline), dl = when(d, s.timeZone, 'long');
   odoFans.set(fans, instant); odoHeld.set(st.tipped || v === 'released' ? 0 : total, instant); odoCharged.set(st.tipped && !cancelled() ? total : 0, instant);
   el.of.textContent = fans <= t ? `of ${t} fans` : `fans · target was ${t}`;
-  el.sub.textContent = v === 'paid' ? ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', funds: 'Paying everyone · waiting on PayPal', waiting: 'Payouts sent' } as const)[payState()] : v === 'released' ? (cancelled() ? 'Called off · refunding' : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? `It’s on! · ${fans - t} joined after it tipped` : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
+  const over = fans > t && !PARITY ? ` · ${fans - t} more than needed joined` : '';
+  el.sub.textContent = v === 'paid' ? ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', funds: 'Paying everyone · waiting on PayPal', waiting: 'Payouts sent' } as const)[payState()] + over : v === 'released' ? (cancelled() ? 'Called off · refunding' + over : `Called off · ${t - fans} short`) : st.tipped ? (fans > t ? (over ? `It’s on!${over}` : `It’s on! · ${fans - t} joined after it tipped`) : 'It’s on! Everyone’s charged') : `${t - fans} more to make it happen`;
   const a = v === 'paid' ? paidAmounts() : splitOf(fans), fixed = fixedParties();
   el.sentence.textContent = v === 'paid' ? paidSentence(a)
     : v === 'released' ? (cancelled() ? `Called off. All ${fans} fans who were charged are getting ${dollars(priceCents())} back.` : `Called off. Every hold was cancelled, ${usd(total)} went back to ${fans} fans, and nobody paid.`)

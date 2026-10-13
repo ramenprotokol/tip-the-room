@@ -2,7 +2,7 @@
 // All run against the fake API; the new text is app-only, so the pixel-comparison runs (?e2e=parity) must not show it.
 import { expect, test, type Page } from "@playwright/test";
 import { apiError, installFakeApi, type FakeApi } from "./fake-api";
-import { DEMO_ID, DEMO_KEY, demoApi, startApi } from "./fixtures";
+import { DEMO_ID, DEMO_KEY, MANAGE_FRAMES, MAYA, MAYA_ID, MAYA_KEY, demoApi, manageApi, showOf, startApi } from "./fixtures";
 import { APP_BASE } from "./parity";
 
 const NOHOOKS = "http://127.0.0.1:5201/";
@@ -232,5 +232,34 @@ test.describe("Use example emails on the start page", () => {
     await start(page, "?e2e=parity");
     await page.click("#fill");
     await expect(page.locator("#example-emails")).toBeHidden();
+  });
+});
+
+test.describe("fans above the target say how many more than needed joined", () => {
+  test("on the demo, after the target is reached and more fans join", async ({ page }) => {
+    await open(page);
+    const sub = page.locator("#show-a [data-fans-sub]");
+    await page.locator("#show-a [data-act=add]").click(); // 29 -> 34: it tips
+    await expect(fans(page, "a")).toHaveText("34", { timeout: 15_000 });
+    await expect(page.locator("#show-a [data-word]")).toHaveText("It’s on!", { timeout: 15_000 });
+    await expect(page.locator("#show-a [data-act=add]")).toBeEnabled({ timeout: 15_000 });
+    await page.locator("#show-a [data-act=add]").click(); // +5 after the tip
+    await expect(fans(page, "a")).toHaveText("39", { timeout: 15_000 });
+    await expect(sub).toHaveText("It’s on! · 5 more than needed joined", { timeout: 15_000 });
+    await expect(page.locator("#show-a [data-of]")).toHaveText("fans · target was 34");
+  });
+
+  test("on the artist's show page", async ({ page }) => {
+    const over = { ...MANAGE_FRAMES.tipped, show: showOf(MAYA, { fans: 23, state: "tipped", version: 8 }), version: "e8.l8" };
+    const seen = await installFakeApi(page, manageApi([over]));
+    await page.goto(`${APP_BASE}s/${MAYA_ID}/manage?e2e#${MAYA_KEY}`);
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    expect(seen.length).toBeGreaterThan(0);
+    await expect(page.locator("[data-fans-sub]")).toHaveText("It’s on! · 2 more than needed joined", { timeout: 15_000 });
+  });
+
+  test("nothing extra is said while fans have not passed the target", async ({ page }) => {
+    await open(page);
+    await expect(page.locator("#show-a [data-fans-sub]")).not.toContainText("more than needed");
   });
 });
