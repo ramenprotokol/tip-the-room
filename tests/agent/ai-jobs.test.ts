@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODELS, NEURON_ESTIMATE } from "../../src/agent/ai";
-import { draftFromSentence, numbersOk, paceNote, parseDraft, settlementNote, templateDraft, templateNote, templatePaceNote, timeLeftPhrase, type NoteFacts, type PaceFacts } from "../../src/agent/ai-jobs";
+import { draftFromSentence, numbersOk, paceNote, parseDraft, parseNote, settlementNote, templateDraft, templateNote, templatePaceNote, timeLeftPhrase, type NoteFacts, type PaceFacts } from "../../src/agent/ai-jobs";
 import { readFileSync } from "node:fs";
 import { FakeAi, fakeBudget, json } from "./fake-ai";
 
@@ -330,6 +330,38 @@ describe("no links, markup or handles in model text", () => {
     const text = "The show happened with 21 fans, and Lucky's Café was paid $100.00 for the night. Thank you, everyone.";
     const r = await settlementNote({ ai: new FakeAi([json({ text })]), budget: fakeBudget().port }, note);
     expect(r).toEqual({ source: "model", value: text });
+  });
+});
+
+describe("a settlement note can't contradict the outcome", () => {
+  const off: NoteFacts = { role: "opener", label: "The opener", showName: "Marlow Finch", outcome: "called_off", amountCents: 0, fans: 19, ticketPriceCents: 1200 };
+  const paid: NoteFacts = { role: "room", label: "Spindle Records", showName: "Juniper Vale", outcome: "paid", amountCents: 8000, fans: 36, ticketPriceCents: 1500 };
+  const ask = (facts: NoteFacts, text: string) => settlementNote({ ai: new FakeAi([json({ text })]), budget: fakeBudget().port }, facts);
+  it("refuses the real wrong note for a called-off show (it said the amount will be refunded)", async () => {
+    const wrong = "The opener was not charged because the Marlow Finch show was called off, so their amount of $0.00 is on hold and will be refunded.";
+    expect(parseNote({ text: wrong }, off)).toBeNull();
+    expect(await ask(off, wrong)).toEqual({ source: "template", value: templateNote(off) });
+  });
+  it("still accepts the real notes that were right", async () => {
+    expect(await ask(paid, "Spindle Records was paid $80.00 for the Juniper Vale show.")).toEqual({ source: "model", value: "Spindle Records was paid $80.00 for the Juniper Vale show." });
+    const ok = "The Marlow Finch show at the Elm St house was called off, so no one was charged and the room's amount is $0.00.";
+    expect(await ask({ ...off, role: "room", label: "Elm St house" }, ok)).toEqual({ source: "model", value: ok });
+  });
+  it("refuses 'will be charged' or 'will be paid' for a called-off show, and cancel/refund words for a paid one", () => {
+    expect(parseNote({ text: "The Marlow Finch show was called off, so nobody will be charged or paid $0.00 today." }, off)).toBeNull();
+    expect(parseNote({ text: "The Marlow Finch show was called off, and the opener will be paid $0.00 later on." }, off)).toBeNull();
+    for (const bad of ["Spindle Records was paid $80.00, though one fan cancelled their hold.", "Spindle Records was paid $80.00 and the other show was called off.", "Spindle Records was paid $80.00; nobody needed a refund."]) expect(parseNote({ text: bad }, paid), bad).toBeNull();
+  });
+  it("leaves the refunded outcome alone", () => {
+    const refunded: NoteFacts = { ...off, outcome: "refunded" };
+    expect(parseNote({ text: "The Marlow Finch show was called off after it tipped, so every fan is being refunded and you receive $0.00." }, refunded)).not.toBeNull();
+  });
+  it("tells the model never to mention a refund unless the outcome is refunded, and no longer lists the words to say", async () => {
+    const ai = new FakeAi([json({ text: "Spindle Records was paid $80.00 for the Juniper Vale show." })]);
+    await settlementNote({ ai, budget: fakeBudget().port }, paid);
+    const system = ai.calls[0].input.messages[0].content;
+    expect(system).toContain("never mention a refund unless the outcome is refunded");
+    expect(system).not.toContain("'on hold', 'charged', 'cancelled', 'refunded'");
   });
 });
 

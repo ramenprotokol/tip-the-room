@@ -296,7 +296,7 @@ export interface NoteFacts {
 const NOTE_SCHEMA = { type: "object", properties: { text: { type: "string" } }, required: ["text"] };
 const NOTE_SYSTEM =
   "Write one or two plain sentences for the named person about how a small show's money settled. " +
-  "Use only the facts and numbers given. No jargon: say 'on hold', 'charged', 'cancelled', 'refunded'. Answer with JSON only.";
+  "Use only the facts and numbers given. No jargon: use plain words for what actually happened to this person's money, and never mention a refund unless the outcome is refunded. Answer with JSON only.";
 
 export function templateNote(f: NoteFacts): string {
   switch (f.outcome) {
@@ -315,6 +315,9 @@ export function parseNote(raw: unknown, f: NoteFacts): string | null {
   if (typeof text !== "string" || text.trim().length < 20 || text.length > 400) return null;
   const allowed = new Set([String(f.fans), ...moneyForms(f.amountCents), ...moneyForms(f.ticketPriceCents), ...digitsIn(f.showName, f.label)]);
   if (JARGON.test(text) || LINKISH.test(text) || !numbersOk(text, allowed)) return null;
+  // The words must fit what happened: a show called off before anyone was charged has no refund, and a paid show wasn't called off.
+  if (f.outcome === "called_off" && /refund|will be (?:charged|paid)/i.test(text)) return null;
+  if (f.outcome === "paid" && /cancel|called off|refund/i.test(text)) return null;
   if (f.outcome === "paid" && /\bpaid\b/i.test(text) && !digitsIn(text).some((d) => moneyForms(f.amountCents).includes(d))) return null;
   return text.trim();
 }
