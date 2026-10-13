@@ -256,20 +256,28 @@ export function templatePaceNote(f: PaceFacts): PaceNote {
   };
 }
 
-export async function paceNote(deps: AiDeps, f: PaceFacts): Promise<AiResult<PaceNote>> {
-  const answer = await askModel(deps, MODELS.big, {
-    messages: [
-      { role: "system", content: PACE_SYSTEM },
-      { role: "user", content: JSON.stringify({ fans: f.committed, target: f.threshold, timeLeft: timeLeftPhrase(f), percentOfPledgeWindowPassed: f.percentElapsed, projectedFans: f.projected, options: f.options.map((o) => ({ id: o.id, label: o.label })) }) },
-    ],
-    max_tokens: 200,
-    temperature: 0.2,
-    response_format: { type: "json_schema", json_schema: PACE_SCHEMA },
-  });
-  if (answer.ok) {
-    const value = parsePaceNote(answer.value, f);
-    if (value) return { value, source: "model" };
+/**
+ * One try, and a second when the first answer arrived but failed the checks (never when there was no answer: resting or
+ * down). `canRetry` lets the caller veto the second try, e.g. when the turn has no subrequests left for it.
+ */
+export async function paceNote(deps: AiDeps, f: PaceFacts, canRetry: () => boolean = () => true): Promise<AiResult<PaceNote>> {
+  const ask = () =>
+    askModel(deps, MODELS.big, {
+      messages: [
+        { role: "system", content: PACE_SYSTEM },
+        { role: "user", content: JSON.stringify({ fans: f.committed, target: f.threshold, timeLeft: timeLeftPhrase(f), percentOfPledgeWindowPassed: f.percentElapsed, projectedFans: f.projected, options: f.options.map((o) => ({ id: o.id, label: o.label })) }) },
+      ],
+      max_tokens: 200,
+      temperature: 0.2,
+      response_format: { type: "json_schema", json_schema: PACE_SCHEMA },
+    });
+  let answer = await ask();
+  let value = answer.ok ? parsePaceNote(answer.value, f) : null;
+  if (answer.ok && !value && canRetry()) {
+    answer = await ask();
+    value = answer.ok ? parsePaceNote(answer.value, f) : null;
   }
+  if (value) return { value, source: "model" };
   return { value: templatePaceNote(f), source: fallbackSource(answer) };
 }
 

@@ -257,6 +257,36 @@ describe("pace note", () => {
     const bad = await paceNote({ ai: new FakeAi([json({ text: "You have 8 of 20 fans and 4 options: extend or lower.", recommend: "extend" })]), budget: fakeBudget().port }, facts);
     expect(bad.source).toBe("template");
   });
+  it("tries once more when the first answer fails the checks, and uses the second if it passes", async () => {
+    const ai = new FakeAi([json({ text: "The artist has 8 fans, on hold.", recommend: "extend" }), json({ text: "You have 8 of 20 fans and 3 days left. Extending 7 days gives fans more time.", recommend: "extend" })]);
+    const b = fakeBudget();
+    const r = await paceNote({ ai, budget: b.port }, facts);
+    expect(r.source).toBe("model");
+    expect(ai.calls).toHaveLength(2);
+    expect(ai.calls[1].input).toEqual(ai.calls[0].input);
+    expect(b.used()).toBe(2 * NEURON_ESTIMATE[MODELS.big]);
+  });
+  it("uses the template after two bad answers, and makes no third call", async () => {
+    const bad = json({ text: "Refund everyone now.", recommend: "refund" });
+    const ai = new FakeAi([bad, bad, json({ text: "You have 8 of 20 fans and 3 days left. Extending 7 days gives fans more time.", recommend: "extend" })]);
+    const r = await paceNote({ ai, budget: fakeBudget().port }, facts);
+    expect(r).toEqual({ source: "template", value: templatePaceNote(facts) });
+    expect(ai.calls).toHaveLength(2);
+  });
+  it("does not retry when there was no answer (down) or the budget is spent (resting)", async () => {
+    const down = new FakeAi([new Error("down")]);
+    expect((await paceNote({ ai: down, budget: fakeBudget().port }, facts)).source).toBe("template");
+    expect(down.calls).toHaveLength(1);
+    const resting = new FakeAi([]);
+    expect((await paceNote({ ai: resting, budget: fakeBudget(0).port }, facts)).source).toBe("resting");
+    expect(resting.calls).toHaveLength(0);
+  });
+  it("does not retry when the caller says there is no room", async () => {
+    const ai = new FakeAi([json({ text: "x", recommend: "wait" }), json({ text: "You have 8 of 20 fans and 3 days left. Extending 7 days gives fans more time.", recommend: "extend" })]);
+    const r = await paceNote({ ai, budget: fakeBudget().port }, facts, () => false);
+    expect(r.source).toBe("template");
+    expect(ai.calls).toHaveLength(1);
+  });
   it("rejects invented numbers and options that weren't offered", async () => {
     for (const bad of [{ text: "Only 2 days left, lower it to 5.", recommend: "lower" }, { text: "You have 8 of 20 fans.", recommend: "refund" }, { text: "x", recommend: "wait" }]) {
       const r = await paceNote({ ai: new FakeAi([json(bad)]), budget: fakeBudget().port }, facts);

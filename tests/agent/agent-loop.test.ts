@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DAY_MS } from "../../src/core/holds";
 import { dispatch } from "../../src/agent/dispatch";
 import { PayPalError } from "../../src/paypal/errors";
+import { MODEL_CALL_COST, TURN_CALL_BUDGET } from "../../src/agent/policy";
 import type { PayPalLedgerEvent } from "../../src/paypal/webhooks";
 import { FakeAi, fakeBudget, json } from "./fake-ai";
 import { DEADLINE, LAUNCH, SHOW } from "./fixtures";
@@ -56,6 +57,34 @@ describe("pace check", () => {
     expect(proposal?.source).toBe("template");
     expect(proposal?.options.map((o) => o.id)).toEqual(["extend", "lower"]);
     expect(bad.store.jobs().some((j) => j.kind === "refund")).toBe(false);
+  });
+
+  it("asks the model a second time when its first sentence fails the checks, counting both tries on the turn's meter", async () => {
+    const bad = json({ text: "You have 1 of 3 fans. Refund everyone now.", recommend: "refund" });
+    const good = json({ text: "You have 1 of 3 fans with 3 days left. Extending 7 days gives fans time.", recommend: "extend" });
+    const ai = new FakeAi([bad, good]);
+    const h = await signedService({ ai: { ai, budget: fakeBudget().port } });
+    await pledge(h.svc);
+    h.clock.t = HALF;
+    h.paypal.meter.reset();
+    await (h.svc as unknown as { runPaceCheck(n: 1 | 2): Promise<void> }).runPaceCheck(1);
+    expect(ai.calls).toHaveLength(2);
+    expect(h.svc.project().proposals.get("pace1")?.source).toBe("model");
+    expect(h.paypal.meter.used).toBe(2 * MODEL_CALL_COST);
+  });
+
+  it("makes no second try when the turn has no room for it", async () => {
+    const bad = json({ text: "You have 1 of 3 fans. Refund everyone now.", recommend: "refund" });
+    const ai = new FakeAi([bad, json({ text: "You have 1 of 3 fans with 3 days left. Extending 7 days gives fans time.", recommend: "extend" })]);
+    const h = await signedService({ ai: { ai, budget: fakeBudget().port } });
+    await pledge(h.svc);
+    h.clock.t = HALF;
+    h.paypal.meter.reset();
+    h.paypal.meter.add(TURN_CALL_BUDGET - MODEL_CALL_COST); // room for exactly one model call
+    await (h.svc as unknown as { runPaceCheck(n: 1 | 2): Promise<void> }).runPaceCheck(1);
+    expect(ai.calls).toHaveLength(1);
+    expect(h.svc.project().proposals.get("pace1")?.source).toBe("template");
+    expect(h.paypal.meter.used).toBe(TURN_CALL_BUDGET);
   });
 
   it("says the AI is resting when the budget is spent", async () => {

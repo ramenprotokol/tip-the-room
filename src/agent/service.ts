@@ -494,7 +494,8 @@ export class CampaignService {
     const lower = options.find((o) => o.id === "lower");
     const facts: PaceFacts = { ...nums, options, extendDays: extend?.newDeadline !== undefined ? Math.ceil((extend.newDeadline - c.deadline) / DAY_MS) : null, lowerTo: lower?.newThreshold ?? null };
     // The model's answer is schema- and number-checked inside paceNote before anything else looks at it.
-    const note = await paceNote(this.modelDeps(), facts);
+    // A second try (when the first answer fails the checks) is another two subrequests on this turn's meter: only if they fit.
+    const note = await paceNote(this.modelDeps(), facts, () => TURN_CALL_BUDGET - this.deps.paypal.meter.used >= MODEL_CALL_COST);
     // The model call took time: apply the deadline, then re-check the options against the campaign as it is NOW.
     const after = this.applyDeadline();
     if (after.campaign.state !== "live") {
