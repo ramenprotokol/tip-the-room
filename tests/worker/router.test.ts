@@ -196,6 +196,27 @@ describe("router", () => {
     expect(inits).toEqual([true, false, false, true, true, false, false]);
   });
 
+  it("allows a visitor 8 new orders on one show in 3 hours; other shows, other visitors and authorize are unaffected", async () => {
+    const w = workerHarness();
+    const { c } = await createAndSign(w);
+    const other = (await createAndSign(w)).c;
+    const order = (id: string, ip?: string) => w.call("POST", `/api/shows/${id}/orders`, { initials: "AB" }, ip ? { "cf-connecting-ip": ip } : {});
+    let first: CreateOrderResponse | undefined;
+    for (let i = 0; i < LIMITS.orderPerShow.limit; i++) {
+      const res = await order(c.showId);
+      expect(res.status).toBe(201);
+      first ??= (await res.json()) as CreateOrderResponse;
+    }
+    const refused = await order(c.showId);
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).not.toBeNull();
+    expect((await order(other.showId)).status).toBe(201);
+    expect((await order(c.showId, "10.4.4.4")).status).toBe(201);
+    expect((await w.call("POST", `/api/shows/${c.showId}/orders/${first!.orderId}/authorize`)).status).not.toBe(429);
+    w.clock.t += 3 * 60 * 60 * 1000;
+    expect((await order(c.showId)).status).toBe(201);
+  });
+
   it("refuses a too-short sentence", async () => {
     const res = await workerHarness().call("POST", "/api/shows", { sentence: "hi" });
     expect(res.status).toBe(422);

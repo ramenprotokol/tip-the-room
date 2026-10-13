@@ -65,6 +65,8 @@ export const LIMITS = {
   draftAiJudge: { limit: 30, windowMs: 24 * HOUR },
   sign: { limit: 20, windowMs: HOUR },
   order: { limit: 30, windowMs: HOUR },
+  /** New orders per visitor per show: filling a show's order slots then takes many addresses, not a few. */
+  orderPerShow: { limit: 8, windowMs: 3 * HOUR },
   manage: { limit: 1500, windowMs: HOUR },
   demo: { limit: 12, windowMs: HOUR },
   /** Public pool only: one visitor can't take more than a fifth of the day's copies. */
@@ -276,6 +278,7 @@ const getShow: Handler = async (c) => {
 const createOrder: Handler = async (c) => {
   await limit(c, "order");
   const id = showParam(c);
+  await limit(c, "orderPerShow", `${await visitor(c)}:${id}`);
   return fromReply(await c.deps.campaigns.call(id, { op: "order", body: await readJson(c.req) }), 201);
 };
 
