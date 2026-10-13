@@ -112,8 +112,8 @@ function rolesMatchSentence(t: string, m: { ticketPrice: Cents | null; room: Cen
   const said = sentenceAmounts(t);
   const differs = (found: number | null, cents: Cents | null) => found !== null && cents !== dollarsToCents(found);
   if (differs(said.price, m.ticketPrice) || differs(said.room, m.room) || differs(said.opener, m.opener) || differs(said.host, m.host) || differs(said.me, m.artistMinimum)) return false;
-  if (m.host > 0 && !/\b(?:host|mc|emcee|promoter)\b/i.test(t)) return false;
-  if (m.opener > 0 && !/\b(?:opener|opening|opens|support)\b/i.test(t)) return false;
+  if (m.host > 0 && !/\b(?:hosts?|hosting|hosted|mc|emcee|promoter)\b/i.test(t)) return false;
+  if (m.opener > 0 && !/\b(?:openers?|opening|opens|support(?:ing)?)\b/i.test(t)) return false;
   const written = digitsIn(t).map(Number);
   const shared = new Map<number, number>();
   for (const c of [m.room, m.opener, m.host, m.artistMinimum]) if (c > 0) shared.set(c, (shared.get(c) ?? 0) + 1);

@@ -149,6 +149,15 @@ describe("the model's roles are checked against the sentence's own words", () =>
     expect(parseDraft({ ...right, roomDollars: 100, hostDollars: 50, artistMinimumDollars: 200 }, `${noWords}, our MC gets $50`)).not.toBeNull();
     expect(parseDraft({ ...right, roomDollars: 100, openerDollars: 50, artistMinimumDollars: 200 }, `${noWords}, the support act gets $50`)).not.toBeNull();
   });
+  it("keeps a correct model answer for natural phrasing of a host or an opener", async () => {
+    const hosts = "Acoustic set at Lucky's Café on Nov 20, $15 tickets, my friend Sam hosts for $50, the café wants $100 and I need $200";
+    const h = await draftFromSentence({ ai: new FakeAi([json({ ...right, hostDollars: 50 })]), budget: fakeBudget().port }, hosts, NOW);
+    expect(h).toMatchObject({ source: "model", value: { host: 5000, room: 10000, artistMinimum: 20000 } });
+    const openers = "Acoustic set at Lucky's Café on Nov 20, $15 tickets, two openers get $40 each, the café wants $100 and I need $200";
+    const o = await draftFromSentence({ ai: new FakeAi([json({ ...right, openerDollars: 40 })]), budget: fakeBudget().port }, openers, NOW);
+    expect(o).toMatchObject({ source: "model", value: { opener: 4000, room: 10000, artistMinimum: 20000 } });
+    expect(parseDraft({ ...right, openerDollars: 40 }, "Opening act and support act: $40, the café wants $100 and I need $200, $15 tickets, Nov 20")).not.toBeNull();
+  });
   it("refuses two roles with the same amount unless the sentence writes it that many times", () => {
     const once = "Show at Lucky's Café on Nov 20, $15 tickets, $100 for the room and the opener, I need $300";
     expect(parseDraft({ ...right, roomDollars: 100, openerDollars: 100, artistMinimumDollars: 300 }, once)).toBeNull();
