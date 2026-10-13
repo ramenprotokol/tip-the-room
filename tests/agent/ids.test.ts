@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customIdFor, demoShowIds, isDemoId, isShowId, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, showIdFromRef } from "../../src/agent/ids";
+import { customIdFor, demoShowIds, isDemoId, isShowId, newId, newSecret, pledgeIdFromCustomId, sameHex, sha256Hex, showIdFromRef, visitorNet } from "../../src/agent/ids";
 import { payoutBatchId, payoutItemId } from "../../src/paypal/payouts";
 import { seqRandom } from "./fixtures";
 
@@ -57,5 +57,32 @@ describe("ids", () => {
       }
     }
     expect(isShowId(longest + "a")).toBe(false);
+  });
+});
+
+describe("visitorNet", () => {
+  it("leaves IPv4 and anything it can't read unchanged", () => {
+    for (const same of ["203.0.113.7", "local", "", "garbage", "1:2:3:4:5:6:7:8:9", "1::2::3", "12345::1", "g::1", ":1:2:3:4:5:6:7", "1:2:3:4:5:6:7:8::", "::1.2.3.999"]) {
+      expect(visitorNet(same)).toBe(same);
+    }
+  });
+  it("counts an IPv6 /64 as one visitor", () => {
+    expect(visitorNet("2001:db8::1")).toBe(visitorNet("2001:db8:0:0:ffff::2"));
+    expect(visitorNet("2001:db8::1")).toBe(visitorNet("2001:DB8:0000:0000:0:0:0:9"));
+    expect(visitorNet("2001:db8:0:1::1")).not.toBe(visitorNet("2001:db8::1"));
+    expect(visitorNet("2001:db8:0:0:1:2:3:4")).toBe("2001:db8:0:0::/64");
+    expect(visitorNet("1:2:3:4:5:6:7:8")).toBe("1:2:3:4::/64");
+  });
+  it("handles ::, ::1, brackets and zone ids", () => {
+    expect(visitorNet("::")).toBe("0:0:0:0::/64");
+    expect(visitorNet("::1")).toBe("0:0:0:0::/64");
+    expect(visitorNet("[2001:db8::1]")).toBe(visitorNet("2001:db8::7"));
+    expect(visitorNet("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
+  });
+  it("turns an IPv4-mapped address into the IPv4 address", () => {
+    expect(visitorNet("::ffff:203.0.113.7")).toBe("203.0.113.7");
+    expect(visitorNet("::ffff:cb00:7107")).toBe("203.0.113.7");
+    expect(visitorNet("0:0:0:0:0:FFFF:cb00:7107")).toBe("203.0.113.7");
+    expect(visitorNet("::fffe:cb00:7107")).not.toBe("203.0.113.7");
   });
 });

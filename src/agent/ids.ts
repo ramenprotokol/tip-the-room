@@ -32,6 +32,52 @@ export function demoShowIds(demoId: string): [string, string] {
   return [`${demoId}a`, `${demoId}b`];
 }
 
+const HEXTET = /^[0-9a-f]{1,4}$/i;
+const DOTTED = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/** The eight 16-bit groups of an IPv6 address (an IPv4 tail counts as two), or null when it is not one. */
+function ipv6Groups(text: string): number[] | null {
+  let t = text.trim();
+  if (t.startsWith("[") && t.endsWith("]")) t = t.slice(1, -1);
+  const zone = t.indexOf("%");
+  if (zone >= 0) t = t.slice(0, zone);
+  if (!t.includes(":")) return null;
+  const halves = t.split("::");
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (part === "") return [];
+    const out: number[] = [];
+    const bits = part.split(":");
+    for (let i = 0; i < bits.length; i++) {
+      const dotted = i === bits.length - 1 ? DOTTED.exec(bits[i]) : null;
+      if (dotted) {
+        const o = dotted.slice(1).map(Number);
+        if (o.some((n) => n > 255)) return null;
+        out.push(o[0] * 256 + o[1], o[2] * 256 + o[3]);
+      } else if (HEXTET.test(bits[i])) out.push(parseInt(bits[i], 16));
+      else return null;
+    }
+    return out;
+  };
+  const left = parse(halves[0]);
+  const right = halves.length === 2 ? parse(halves[1]) : [];
+  if (!left || !right) return null;
+  if (halves.length === 1) return left.length === 8 ? left : null;
+  const gap = 8 - left.length - right.length;
+  return gap >= 1 ? [...left, ...new Array<number>(gap).fill(0), ...right] : null;
+}
+
+/**
+ * What a rate limit should count as one visitor. An IPv6 address is a whole /64 to its owner, so only its first 64 bits
+ * count; an IPv4-mapped IPv6 address is the IPv4 address. IPv4 and anything unparseable (like "local") come back unchanged.
+ */
+export function visitorNet(ip: string): string {
+  const g = ipv6Groups(ip);
+  if (!g) return ip;
+  if (g.slice(0, 5).every((n) => n === 0) && g[5] === 0xffff) return `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`;
+  return `${g.slice(0, 4).map((n) => n.toString(16)).join(":")}::/64`;
+}
+
 /** 32 random bytes, base64url. Used for manage keys, demo keys and sign tokens. */
 export function newSecret(random: Random): string {
   let s = "";

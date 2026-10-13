@@ -143,6 +143,13 @@ describe("demo routes", () => {
     expect((await w.call("POST", "/api/demo/dabcdefghjk/fast-forward", undefined, { "x-manage-key": "x".repeat(43) })).status).toBe(404);
   });
 
+  it("counts an IPv6 /64 as one visitor, and a different /64 as another", async () => {
+    const w = workerHarness();
+    for (let i = 0; i < LIMITS.demoDay.limit; i++) expect((await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": `2001:db8:0:0:${i}::1` })).status).toBe(201);
+    expect((await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": "2001:db8::ffff" })).status).toBe(429);
+    expect((await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": "2001:db8:0:1::1" })).status).toBe(201);
+  });
+
   it("retires copy a when copy b cannot be made, so no orphan runs holds", async () => {
     const w = workerHarness();
     const real = w.deps.campaigns.call.bind(w.deps.campaigns);

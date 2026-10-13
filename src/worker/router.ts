@@ -4,7 +4,7 @@ import type { CampaignOp, CampaignReply } from "../agent/dispatch";
 import { draftFields, previewDraft } from "../agent/draft";
 import { ServiceError } from "../agent/errors";
 import { demoSeeds, type Receivers } from "../agent/demo";
-import { demoShowIds, isDemoId, isShowId, newId, newSecret, sameHex, sha256Hex, showIdFromRef, type Clock, type Random } from "../agent/ids";
+import { demoShowIds, isDemoId, isShowId, newId, newSecret, sameHex, sha256Hex, showIdFromRef, visitorNet, type Clock, type Random } from "../agent/ids";
 import { DEMO_COPIES_PER_DAY, DEMO_JUDGE_COPIES_PER_DAY, DEMO_TTL_MS } from "../agent/policy";
 import type { QuotaPort } from "../agent/quota";
 import { isKnownEventType, mapWebhookEvent, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
@@ -147,7 +147,7 @@ function fromReply(reply: CampaignReply, okStatus = 200): Response {
 
 async function visitor(c: Ctx): Promise<string> {
   const ip = c.req.headers.get("cf-connecting-ip") ?? "local";
-  return (await sha256Hex(`${c.deps.config.rateSalt}|${ip}`)).slice(0, 24);
+  return (await sha256Hex(`${c.deps.config.rateSalt}|${visitorNet(ip)}`)).slice(0, 24);
 }
 
 async function limit(c: Ctx, name: LimitName, scope?: string): Promise<void> {

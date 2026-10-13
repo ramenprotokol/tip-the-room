@@ -98,10 +98,11 @@ test("submission video: the judge flow with captions", async ({ browser }) => {
     const popupWait = page.waitForEvent("popup", { timeout: 30_000 });
     await button.click();
     const popup = await popupWait;
+    await popup.bringToFront().catch(() => undefined);
     const popupStart = at();
     popupVideo = popup.video();
     const auto = creds?.[2] && !process.env.VIDEO_MANUAL_POPUP ? await payPalLogin(popup, { email: creds[1]!, password: creds[2] }) : false;
-    if (!auto) console.log("Finish the PayPal popup by hand (run with --headed).");
+    if (!auto) { console.log("Finish the PayPal popup by hand (run with --headed)."); await popup.bringToFront().catch(() => undefined); }
     await expect(page.locator("#confirm")).toBeVisible({ timeout: 300_000 });
     popupSpan = { start: popupStart, end: at() };
     segments.push({ start: popupStart, end: popupSpan.end, kind: "fast" });
