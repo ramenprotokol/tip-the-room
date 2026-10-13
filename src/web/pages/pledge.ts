@@ -64,7 +64,9 @@ function texts(s: PublicShow) {
   $('.mode').textContent = s.demo ? 'Fan page · sample show' : 'Fan page';
   $('.row-top .eyebrow').textContent = `${dayLabel(s.showDate)} · ${s.roomName}`;
   $('#show-title').textContent = s.showName;
-  $('.bill').textContent = `${artist}${opener ? ` with ${opener}` : ''} · ${s.roomName}`;
+  // A self-started show whose artist name was never filled in has the placeholder "You": leave it out of the bill.
+  const named = artist && artist !== 'You' ? artist : '';
+  $('.bill').textContent = `${named}${opener ? `${named ? ' ' : ''}with ${opener}` : ''}${named || opener ? ' · ' : ''}${s.roomName}`;
   $('.stat.clock dt').textContent = `Fans needed by · ${when(d, tz, 'long')}`;
   $('[data-of]').textContent = `of ${t} fans`;
   $('#h-pledge').textContent = `Hold my spot · ${p}`;
@@ -151,6 +153,7 @@ function mountButton() {
   if (st.phase === 'closed') return;
   const id = paypalClientId(show?.paypalClientId ?? "");
   if (!id) { if (!HOOKS) el.slot.textContent = 'Pledging isn’t switched on for this site yet.'; return; }
+  $('#paypal-note').hidden = PARITY; // inside the card, so it goes with it once the fan is on hold or pledging has closed
   if (!PARITY) el.slot.textContent = 'Loading PayPal checkout…'; // the approved picture keeps the reference's placeholder words
   mountPayPalButton(el.slot, id, { canStart: () => flow.canStart(), createOrder: () => flow.createOrder(), onApprove: (orderId) => flow.approve(orderId), onCancel: () => flow.cancel(), onError: (err) => flow.error(err) })
     .catch(() => { el.slot.textContent = 'PayPal couldn’t load. Refresh the page to try again.'; });

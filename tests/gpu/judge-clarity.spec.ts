@@ -2,7 +2,7 @@
 // All run against the fake API; the new text is app-only, so the pixel-comparison runs (?e2e=parity) must not show it.
 import { expect, test, type Page } from "@playwright/test";
 import { apiError, installFakeApi, type FakeApi } from "./fake-api";
-import { DEMO_ID, DEMO_KEY, MANAGE_FRAMES, MAYA, MAYA_ID, MAYA_KEY, START_CREATE, demoApi, manageApi, showOf, startApi } from "./fixtures";
+import { DEMO_ID, DEMO_KEY, MANAGE_FRAMES, MAYA, MAYA_ID, MAYA_KEY, START_CREATE, demoApi, manageApi, pledgeApi, showOf, startApi } from "./fixtures";
 import { APP_BASE } from "./parity";
 
 const NOHOOKS = "http://127.0.0.1:5201/";
@@ -367,3 +367,64 @@ test.describe("who wrote it", () => {
     });
   }
 });
+
+test.describe("the fan page", () => {
+  const SDK = "https://www.sandbox.paypal.com/web-sdk/v6/core";
+  const STUB = `customElements.define("paypal-button", class extends HTMLElement { connectedCallback() { this.textContent = "PayPal"; this.style.cssText = "display:block;min-height:44px;background:#ffc439"; } });
+window.paypal = { createInstance: async () => ({ findEligibleMethods: async () => ({ isEligible: (m) => m === "paypal" }), createPayPalOneTimePaymentSession: () => ({ start: async () => {} }) }) };`;
+  const party = (role: "room" | "opener" | "artist", label: string) => ({ role, label, fixedCents: role === "artist" ? null : 5000, minimumCents: role === "artist" ? 20000 : null });
+  async function fanPage(page: Page, split: ReturnType<typeof party>[], opts: { query?: string; state?: "live" | "missed" } = {}) {
+    await page.route(SDK, (r) => r.fulfill({ contentType: "application/javascript", body: STUB }));
+    await installFakeApi(page, pledgeApi({ show: { ...showOf(MAYA, { fans: 12, state: opts.state ?? "live" }), split } }));
+    await page.goto(`${APP_BASE}s/${MAYA_ID}${opts.query ?? "?e2e&paypal=test-client"}`);
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+  }
+
+  test("the bill leaves out the placeholder artist name 'You'", async ({ page }) => {
+    await fanPage(page, [party("room", "Lucky’s Café"), party("artist", "You")]);
+    await expect(page.locator(".bill")).toHaveText("Lucky’s Café");
+  });
+
+  test("the bill reads 'with <opener> · <room>' when only the opener is named", async ({ page }) => {
+    await fanPage(page, [party("room", "Lucky’s Café"), party("opener", "The Low Tides"), party("artist", "You")]);
+    await expect(page.locator(".bill")).toHaveText("with The Low Tides · Lucky’s Café");
+  });
+
+  test("a named artist is kept, with or without an opener", async ({ page }) => {
+    await fanPage(page, [party("room", "Lucky’s Café"), party("artist", "Maya")]);
+    await expect(page.locator(".bill")).toHaveText("Maya · Lucky’s Café");
+    const p2 = await page.context().newPage();
+    await installFakeApi(p2, pledgeApi({ show: { ...showOf(MAYA, { fans: 12 }), split: [party("room", "Lucky’s Café"), party("opener", "The Low Tides"), party("artist", "Maya")] } }));
+    await p2.goto(`${APP_BASE}s/${MAYA_ID}?e2e`);
+    await expect(p2.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await expect(p2.locator(".bill")).toHaveText("Maya with The Low Tides · Lucky’s Café");
+  });
+
+  test("a line beside the PayPal button says the window's 'Complete Purchase' is still only a hold", async ({ page }) => {
+    await fanPage(page, [party("room", "Lucky’s Café"), party("artist", "Maya")]);
+    await expect(page.locator("#pledge-card #paypal-note")).toHaveText("PayPal's window says “Complete Purchase”. It is still only a hold: you are charged only if the show happens.");
+    await expect(page.locator("#pledge-card #paypal-note")).toBeVisible();
+  });
+
+  test("the PayPal note is gone once pledging has closed, and absent in the pixel-comparison mode", async ({ page }) => {
+    await fanPage(page, [party("room", "Lucky’s Café"), party("artist", "Maya")], { state: "missed" });
+    await expect(page.locator("#paypal-note")).toBeHidden();
+    const p2 = await page.context().newPage();
+    await installFakeApi(p2, pledgeApi());
+    await p2.goto(`${APP_BASE}s/${MAYA_ID}?e2e=parity`);
+    await expect(p2.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await expect(p2.locator("#paypal-note")).toBeHidden();
+  });
+
+  test("the PayPal note goes away once the fan is on hold", async ({ page }) => {
+    const approving = STUB.replace("start: async () => {}", "start: async (o, order) => { const { orderId } = await order; await cb.onApprove({ orderId }); }").replace("createPayPalOneTimePaymentSession: () =>", "createPayPalOneTimePaymentSession: (cb) =>");
+    await page.route(SDK, (r) => r.fulfill({ contentType: "application/javascript", body: approving }));
+    await installFakeApi(page, pledgeApi());
+    await page.goto(`${APP_BASE}s/${MAYA_ID}?e2e&paypal=test-client`);
+    await expect(page.locator("#paypal-note")).toBeVisible();
+    await page.locator("paypal-button").click();
+    await expect(page.locator("#confirm")).toBeVisible();
+    await expect(page.locator("#paypal-note")).toBeHidden();
+  });
+});
+
