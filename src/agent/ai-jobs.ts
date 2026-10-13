@@ -196,10 +196,35 @@ export async function draftFromSentence(deps: AiDeps, sentence: string, now: num
     response_format: { type: "json_schema", json_schema: DRAFT_SCHEMA },
   });
   if (answer.ok) {
-    const value = parseDraft(answer.value, sentence);
+    const parsed = parseDraft(answer.value, sentence);
+    const value = parsed && withCodeShowDate(parsed, sentence, now);
     if (value) return { value, source: "model" };
   }
   return { value: templateDraft(sentence, now), source: fallbackSource(answer) };
+}
+
+/** "Dec 5", "Dec. 5th" or "Dec 5, 2026": month, day and, when written right after it, a four-digit year. */
+const SHOW_DAY = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b(?:\s*,?\s*(\d{4})\b)?/i;
+
+/**
+ * The model reads the month and day from the sentence but guesses the year (it once wrote 2024). So the year comes from
+ * code: the one the sentence writes, else the next such day from today. A model date whose month or day (or written
+ * year) disagrees with the sentence refuses the whole answer (null). With no date in the sentence, a past date is dropped.
+ */
+function withCodeShowDate(d: DraftSuggestion, sentence: string, now: number): DraftSuggestion | null {
+  const m = SHOW_DAY.exec(withoutDeadline(sentence.slice(0, MAX_SENTENCE).replace(/[’]/g, "'")));
+  if (!m) return d.showDate !== null && d.showDate < new Date(now).toISOString().slice(0, 10) ? { ...d, showDate: null } : d;
+  const month = MONTHS.indexOf(m[1].toLowerCase()) + 1;
+  const day = Number(m[2]);
+  if (d.showDate !== null) {
+    if (Number(d.showDate.slice(5, 7)) !== month || Number(d.showDate.slice(8)) !== day) return null;
+    if (m[3] !== undefined && d.showDate.slice(0, 4) !== m[3]) return null;
+  }
+  if (m[3] !== undefined) {
+    const iso = `${m[3]}-${pad(month)}-${pad(day)}`;
+    return { ...d, showDate: isIsoDate(iso) ? iso : null };
+  }
+  return { ...d, showDate: monthDayIso(m[1], m[2], now) };
 }
 
 /* ---------- 2 · pace check: explain code's numbers and options (70B) ---------- */

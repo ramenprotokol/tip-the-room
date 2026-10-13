@@ -171,6 +171,59 @@ describe("the built-in reader's phrasings", () => {
   });
 });
 
+describe("the show year comes from code, not the model", () => {
+  const TODAY = Date.UTC(2026, 9, 13);
+  const BLUE = "Jazz night in the Blue Heron Tavern basement on Dec 5, tickets are $25, the tavern wants $150, my drummer Sam opens for $120 and I need at least $300.";
+  const blue = { showName: "Jazz night", roomName: "Blue Heron Tavern", showDate: "2026-12-05", ticketPriceDollars: 25, roomDollars: 150, openerDollars: 120, hostDollars: 0, artistMinimumDollars: 300 };
+  const draft = (sentence: string, answer: object) => draftFromSentence({ ai: new FakeAi([json(answer)]), budget: fakeBudget().port }, sentence, TODAY);
+  it("fixes the live case: the model's 2024 becomes 2026-12-05 and the draft stays the model's", async () => {
+    const r = await draft(BLUE, { ...blue, showDate: "2024-12-05" });
+    expect(r.source).toBe("model");
+    expect(r.value).toMatchObject({ showDate: "2026-12-05", room: 15000, opener: 12000, artistMinimum: 30000 });
+  });
+  it("rolls into next year when the day has passed: Jan 9 is 2027-01-09", async () => {
+    const sentence = "Jazz night at The Attic on Jan 9, $25 tickets, the bar wants $150 and I need $300";
+    const answer = { ...blue, roomName: "The Attic", showDate: "2025-01-09", roomDollars: 150, openerDollars: 0 };
+    const r = await draft(sentence, answer);
+    expect(r.source).toBe("model");
+    expect(r.value.showDate).toBe("2027-01-09");
+  });
+  it("refuses a model date whose month or day disagrees with the sentence", async () => {
+    for (const wrong of ["2026-12-06", "2026-11-05", "2027-01-05"]) {
+      const r = await draft(BLUE, { ...blue, showDate: wrong });
+      expect(r.source, wrong).toBe("template");
+      expect(r.value.showDate).toBe("2026-12-05");
+    }
+  });
+  it("keeps the year the sentence writes and refuses a different one from the model", async () => {
+    const sentence = BLUE.replace("Dec 5,", "Dec 5, 2026,");
+    expect((await draft(sentence, blue)).value.showDate).toBe("2026-12-05");
+    expect((await draft(sentence, blue)).source).toBe("model");
+    const wrong = await draft(sentence, { ...blue, showDate: "2025-12-05" });
+    expect(wrong.source).toBe("template");
+    const far = BLUE.replace("Dec 5,", "Dec 5 2028,");
+    expect((await draft(far, { ...blue, showDate: "2028-12-05" })).value.showDate).toBe("2028-12-05");
+  });
+  it("sends no past date when the sentence has none: a past model date becomes null, a future one stays", async () => {
+    const noDate = "Jazz night at The Attic, $25 tickets, the bar wants $150 and I need $300";
+    const base = { ...blue, roomName: "The Attic", openerDollars: 0 };
+    expect((await draft(noDate, { ...base, showDate: "2024-12-05" })).value.showDate).toBeNull();
+    expect((await draft(noDate, { ...base, showDate: "2026-10-12" })).value.showDate).toBeNull();
+    expect((await draft(noDate, { ...base, showDate: "2026-12-25" })).value.showDate).toBe("2026-12-25");
+    expect((await draft(noDate, { ...base, showDate: null })).value.showDate).toBeNull();
+  });
+  it("leaves the pre-filled sentence unchanged", async () => {
+    const pre = "Acoustic set at Lucky's Café on Nov 20, $15 tickets, the café wants $100 and I need $200";
+    const r = await draft(pre, { showName: "Acoustic set", roomName: "Lucky's Café", showDate: "2026-11-20", ticketPriceDollars: 15, roomDollars: 100, openerDollars: 0, hostDollars: 0, artistMinimumDollars: 200 });
+    expect(r).toEqual({ source: "model", value: { showName: "Acoustic set", roomName: "Lucky's Café", showDate: "2026-11-20", ticketPrice: 1500, room: 10000, opener: 0, host: 0, artistMinimum: 20000 } });
+  });
+  it("does not read the pledge deadline as the show date", async () => {
+    const sentence = "Set at The Attic on Dec 5, $25 tickets, the bar wants $150, I need $300, pledges close Nov 20";
+    const r = await draft(sentence, { ...blue, roomName: "The Attic", showDate: "2024-12-05", openerDollars: 0 });
+    expect(r.value.showDate).toBe("2026-12-05");
+  });
+});
+
 describe("drafts on the larger model", () => {
   const BLUE = "Jazz night in the Blue Heron Tavern basement on Dec 5, tickets are $25, the tavern wants $150, my drummer Sam opens for $120 and I need at least $300.";
   const blue = { showName: "Jazz night", roomName: "Blue Heron Tavern", showDate: "2026-12-05", ticketPriceDollars: 25, roomDollars: 150, openerDollars: 120, hostDollars: 0, artistMinimumDollars: 300 };
