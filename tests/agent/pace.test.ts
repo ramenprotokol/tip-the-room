@@ -46,3 +46,38 @@ describe("pace checks", () => {
     expect(paceOptions(m, extended, new Set(), 0, paceNumbers(m, extended, HALF)).map((o) => o.id)).toEqual(["lower"]);
   });
 });
+
+describe("an extension never reaches the show", () => {
+  const ext = (showDate: string, timeZone = "UTC", campaign = live) => {
+    const mm = { ...m, showDate, timeZone };
+    return paceOptions(mm, { ...campaign, pledges: { ...campaign.pledges, held: 1 } }, new Set(), 0, paceNumbers(mm, campaign, HALF)).find((o) => o.id === "extend");
+  };
+  it("stops the day before the show: a show 3 days after the deadline gets 2 days, never 7", () => {
+    expect(ext("2026-11-11")).toMatchObject({ label: "Extend 2 days", newDeadline: DEADLINE + 2 * DAY_MS });
+  });
+  it("offers no extension when the show is the day after the deadline, or the same day", () => {
+    expect(ext("2026-11-09")).toBeUndefined();
+    expect(ext("2026-11-08")).toBeUndefined();
+  });
+  it("says 1 day, singular, when only one day fits", () => {
+    expect(ext("2026-11-10")).toMatchObject({ label: "Extend 1 day", newDeadline: DEADLINE + DAY_MS });
+  });
+  it("keeps the full 7 days when the show is far enough away", () => {
+    expect(ext("2026-11-20")).toMatchObject({ label: "Extend 7 days", newDeadline: DEADLINE + 7 * DAY_MS });
+    expect(ext("2026-11-16")).toMatchObject({ label: "Extend 7 days" }); // the new deadline's day is Nov 15, before the show
+    expect(ext("2026-11-15")).toMatchObject({ label: "Extend 6 days" });
+  });
+  it("reads the show's day in the show's time zone, like the mandate does", () => {
+    // 2026-11-08T00:00Z is Nov 7, 4pm in Los Angeles, so the last allowed local day before a Nov 10 show is Nov 9: 2 days.
+    expect(ext("2026-11-10", "America/Los_Angeles")).toMatchObject({ label: "Extend 2 days" });
+    expect(ext("2026-11-10", "UTC")).toMatchObject({ label: "Extend 1 day" });
+  });
+  it("never offers an extension on or after the show date for any show date", () => {
+    for (let day = 8; day <= 30; day++) {
+      const showDate = `2026-11-${String(day).padStart(2, "0")}`;
+      const o = ext(showDate);
+      if (o) expect(new Date(o.newDeadline!).toISOString().slice(0, 10) < showDate).toBe(true);
+    }
+  });
+});
+

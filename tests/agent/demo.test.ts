@@ -370,8 +370,13 @@ describe("check pace now (demo)", () => {
     const proposals = h.svc.manageView().proposals;
     expect(proposals).toHaveLength(1);
     expect(proposals[0].options.map((o) => o.id)).toEqual(["extend", "lower"]);
-    expect(proposals[0].options[0].label).toBe("Extend 7 days");
+    // Seed B's show is 3 days after its deadline, so the extension stops the day before the show: 2 days, not 7.
+    expect(proposals[0].options[0].label).toBe("Extend 2 days");
     expect(proposals[0].options[0].newDeadline).toMatch(/Z$/);
+    expect(proposals[0].explanation).toContain("extend the deadline 2 days");
+    const m = p.mandate!;
+    expect(Date.parse(proposals[0].options[0].newDeadline!)).toBe(p.campaign.deadline + 2 * DAY_MS);
+    expect(new Date(Date.parse(proposals[0].options[0].newDeadline!)).toISOString().slice(0, 10) < m.showDate).toBe(true);
     expect(proposals[0].options[0].newThreshold).toBeNull();
     expect(proposals[0].options[1]).toMatchObject({ label: "Lower the target to 25", newThreshold: 25, newDeadline: null });
     expect(h.store.logs().some((l) => l.did.startsWith("Proposed:"))).toBe(true);
@@ -421,7 +426,7 @@ describe("decline a proposal", () => {
     const res = h.svc.declineProposal(id);
     expect(res.proposalId).toBe(id);
     expect(res.show.threshold).toBe(28);
-    expect(h.store.logs().at(-1)?.did).toBe('You said not now to "Extend 7 days" or "Lower the target to 25". Nothing changes.');
+    expect(h.store.logs().at(-1)?.did).toBe('You said not now to "Extend 2 days" or "Lower the target to 25". Nothing changes.');
     expect(() => h.svc.declineProposal("nope")).toThrow(/no such proposal/);
     await h.svc.approve(id, { option: "lower" });
     expect(() => h.svc.declineProposal(id)).toThrow(/already approved/);

@@ -14,7 +14,7 @@ export const SIGN_TOKEN = "sign-token-for-tests-0123456789";
 export const DRAFT: DraftFields = {
   showName: "Acoustic Set",
   roomName: "Lucky's Café",
-  showDate: "2026-11-10",
+  showDate: "2026-11-20",
   ticketPriceCents: 1500,
   feeBufferBps: 500,
   deadline: "2026-11-08T00:00:00Z",

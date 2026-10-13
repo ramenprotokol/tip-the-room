@@ -58,12 +58,35 @@ export function paceNumbers(m: Mandate, c: Campaign, now: number): PaceNumbers {
   };
 }
 
+/** The calendar day of an instant in the show's time zone, as YYYY-MM-DD (the same reading src/core/mandate.ts uses for "the show is on or after the deadline"). */
+function dayIn(zone: string, at: number): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+  } catch {
+    return new Date(at).toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * An extension never lands on or after the show: the new deadline's day must be before the show's day. A candidate that
+ * is already early enough is kept as is; otherwise the deadline moves by the most whole days that still fit (the
+ * current deadline when none do, so no extension is offered).
+ */
+function beforeShow(m: Mandate, deadline: number, candidate: number): number {
+  const zone = m.timeZone ?? "UTC";
+  if (dayIn(zone, candidate) < m.showDate) return candidate;
+  for (let days = Math.floor((candidate - deadline) / DAY_MS); days >= 1; days--) {
+    if (dayIn(zone, deadline + days * DAY_MS) < m.showDate) return deadline + days * DAY_MS;
+  }
+  return deadline;
+}
+
 /** Options the artist may approve. Each is kept only when the guard answers "needs approval". */
 export function paceOptions(m: Mandate, c: Campaign, approvals: ReadonlySet<string>, collectedNet: Cents, n: PaceNumbers): ProposalOption[] {
   const ctx = { mandate: m, campaign: c, approvals, collectedNet };
   const options: ProposalOption[] = [];
   if (c.extensionsUsed < m.maxExtensions) {
-    const newDeadline = Math.min(c.deadline + MAX_EXTENSION_DAYS * DAY_MS, Date.parse(m.launchedAt) + MAX_CAMPAIGN_DAYS * DAY_MS);
+    const newDeadline = beforeShow(m, c.deadline, Math.min(c.deadline + MAX_EXTENSION_DAYS * DAY_MS, Date.parse(m.launchedAt) + MAX_CAMPAIGN_DAYS * DAY_MS));
     if (newDeadline > c.deadline) {
       const d = guard({ kind: "extend_deadline", newDeadline }, ctx);
       if (d.needsApproval && d.approvalKey) {

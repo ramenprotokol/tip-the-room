@@ -37,7 +37,7 @@ export function testMandate(): Mandate {
     showId: SHOW,
     showName: "Acoustic Set",
     roomName: "Lucky's Café",
-    showDate: "2026-11-10",
+    showDate: "2026-11-20",
     ticketPrice: 1500,
     feeBufferBps: 500,
     parties: [
