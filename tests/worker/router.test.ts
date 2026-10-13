@@ -208,7 +208,7 @@ describe("router", () => {
     expect(inits).toEqual([true, false, false, true, true, false, false]);
   });
 
-  it("allows a visitor 8 new orders on one show in 3 hours; other shows, other visitors and authorize are unaffected", async () => {
+  it("allows a visitor 20 new orders on one show in 3 hours; other shows, other visitors and authorize are unaffected", async () => {
     const w = workerHarness();
     const { c } = await createAndSign(w);
     const other = (await createAndSign(w)).c;
