@@ -44,21 +44,22 @@ describe("rate limits", () => {
     expect(quotaDispatch(q, { op: "hit", key: "k", limit: 1, windowMs: 1000 }, T)).toEqual({ ok: true, retryAfterSec: 0 });
     expect(quotaDispatch(q, { op: "used" }, T)).toEqual({ used: 100, limit: PUBLIC_NEURON_BUDGET, restingUntil: null });
   });
-  it("lets the public use 5,000 of the 8,000 units and keeps the rest for judge links", () => {
+  it("lets the public use the whole 8,000 units a day, judge flag or not, and stops at 8,000", () => {
+    expect(PUBLIC_NEURON_BUDGET).toBe(DAILY_NEURON_BUDGET);
     const q = quota();
-    expect(quotaDispatch(q, { op: "reserve", neurons: 4900 }, T)).toEqual({ ok: true });
-    expect(quotaDispatch(q, { op: "reserve", neurons: 150 }, T)).toEqual({ ok: false });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 5000 }, T)).toEqual({ ok: true });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 2900 }, T)).toEqual({ ok: true });
     expect(quotaDispatch(q, { op: "reserve", neurons: 100 }, T)).toEqual({ ok: true });
     expect(quotaDispatch(q, { op: "reserve", neurons: 1 }, T)).toEqual({ ok: false });
-    expect(quotaDispatch(q, { op: "reserve", neurons: 150, judge: true }, T)).toEqual({ ok: true });
-    expect(quotaDispatch(q, { op: "reserve", neurons: 2850, judge: true }, T)).toEqual({ ok: true });
     expect(quotaDispatch(q, { op: "reserve", neurons: 1, judge: true }, T)).toEqual({ ok: false });
     expect(q.neuronsUsed(T)).toBe(DAILY_NEURON_BUDGET);
   });
-  it("reports resting for the caller asking: the public at 5,000, judges at 8,000", () => {
+  it("reports resting for both kinds of caller only at 8,000", () => {
     const q = quota();
     q.reserveNeurons(T, 5000);
-    expect(quotaDispatch(q, { op: "used" }, T)).toMatchObject({ used: 5000, limit: 5000, restingUntil: "2026-11-02T00:00:00.000Z" });
-    expect(quotaDispatch(q, { op: "used", judge: true }, T)).toMatchObject({ used: 5000, limit: 8000, restingUntil: null });
+    expect(quotaDispatch(q, { op: "used" }, T)).toMatchObject({ used: 5000, limit: 8000, restingUntil: null });
+    q.reserveNeurons(T, 3000);
+    expect(quotaDispatch(q, { op: "used" }, T)).toMatchObject({ limit: 8000, restingUntil: "2026-11-02T00:00:00.000Z" });
+    expect(quotaDispatch(q, { op: "used", judge: true }, T)).toMatchObject({ limit: 8000, restingUntil: "2026-11-02T00:00:00.000Z" });
   });
 });

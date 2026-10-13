@@ -11,9 +11,9 @@ export const MODELS = {
 } as const;
 export type ModelId = (typeof MODELS)[keyof typeof MODELS];
 
-/** ESTIMATES, not measurements (a typical call is roughly 10 to 50 neurons at the catalogue rates): the fixed neuron cost charged to the daily budget per call, set high on purpose. */
+/** ESTIMATES, not measurements (a typical call is roughly 10 to 50 neurons at the catalogue rates): the fixed neuron cost charged to the daily budget per call, set above a real call on purpose (75 for the larger model, 40 for the small one). */
 export const NEURON_ESTIMATE: Record<ModelId, number> = {
-  [MODELS.big]: 150,
+  [MODELS.big]: 75,
   [MODELS.small]: 40,
 };
 

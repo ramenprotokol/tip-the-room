@@ -2,8 +2,11 @@ import type { SqlDb } from "./sql";
 
 /** Workers AI free tier is 10,000 neurons/day; we stop at 8,000 to stay clear of it. */
 export const DAILY_NEURON_BUDGET = 8000;
-/** The public's share of that: the rest is kept for shows made through a judge link. */
-export const PUBLIC_NEURON_BUDGET = 5000;
+/**
+ * The public's share of that. It is the whole budget for now: the judge-link mechanism (the `judge` flag on a reserve)
+ * stays in place, but holds nothing back. Set it below DAILY_NEURON_BUDGET to keep the rest for judge links again.
+ */
+export const PUBLIC_NEURON_BUDGET = DAILY_NEURON_BUDGET;
 
 export function utcDay(now: number): string {
   return new Date(now).toISOString().slice(0, 10);

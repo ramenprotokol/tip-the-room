@@ -26,7 +26,8 @@ const note: NoteFacts = { role: "room", label: "Lucky's Café", showName: "Acous
 describe("models and budget estimates", () => {
   it("uses the 70B model for proposals and notes and the 3B model for extraction, with positive estimates", () => {
     expect(MODELS).toEqual({ big: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", small: "@cf/meta/llama-3.2-3b-instruct" });
-    expect(NEURON_ESTIMATE[MODELS.big]).toBeGreaterThan(0);
+    expect(NEURON_ESTIMATE[MODELS.big]).toBe(75);
+    expect(NEURON_ESTIMATE[MODELS.small]).toBe(40);
     expect(NEURON_ESTIMATE[MODELS.small]).toBeGreaterThan(0);
   });
 });
