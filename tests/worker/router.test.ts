@@ -180,6 +180,22 @@ describe("router", () => {
     });
   });
 
+  it("marks a show made with the judge code as a judge show, and no other", async () => {
+    const w = workerHarness({ judgeCode: "judge-code-123" });
+    const inits: (boolean | undefined)[] = [];
+    const real = w.deps.campaigns.call.bind(w.deps.campaigns);
+    w.deps.campaigns.call = async (id, op) => {
+      if (op.op === "init" || op.op === "demo_init") inits.push(op.judge);
+      return real(id, op);
+    };
+    await w.call("POST", "/api/shows", { sentence: SENTENCE }, { "x-judge-code": "judge-code-123" });
+    await w.call("POST", "/api/shows", { sentence: SENTENCE }, { "x-judge-code": "wrong-code-123" });
+    await w.call("POST", "/api/shows", { sentence: SENTENCE });
+    await w.call("POST", "/api/demo", undefined, { "x-judge-code": "judge-code-123" });
+    await w.call("POST", "/api/demo");
+    expect(inits).toEqual([true, false, false, true, true, false, false]);
+  });
+
   it("refuses a too-short sentence", async () => {
     const res = await workerHarness().call("POST", "/api/shows", { sentence: "hi" });
     expect(res.status).toBe(422);

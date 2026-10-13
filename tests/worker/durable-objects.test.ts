@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
+import { receiversFrom, demoSeeds } from "../../src/agent/demo";
 import { sha256Hex } from "../../src/agent/ids";
 import { TURN_CALL_BUDGET } from "../../src/agent/policy";
 import type { CampaignOp, CampaignReply } from "../../src/agent/dispatch";
@@ -310,5 +311,34 @@ describe("QuotaAgent", () => {
     const { ctx } = fakeCtx();
     const res = await new QuotaAgent(ctx).fetch(new Request("https://quota/op", { method: "POST", body: JSON.stringify({ op: "reserve", neurons: 1 }) }));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("CampaignAgent AI budget", () => {
+  /** A demo show asked for a pace check makes one model call, which reserves from the Quota DO: the reserve says whose budget. */
+  async function reserves(judge: boolean | undefined) {
+    const sent: unknown[] = [];
+    const env = {
+      ...ENV,
+      AI: { run: async () => ({ response: "{}" }) },
+      QUOTA: { idFromName: () => "q", get: () => ({ fetch: async (_u: string, init: { body: string }) => (sent.push(JSON.parse(init.body)), Response.json({ ok: true })) }) },
+    } as unknown as Env;
+    const { ctx } = fakeCtx();
+    const agent = new CampaignAgent(ctx, env, { clock: new TestClock(LAUNCH), paypal: () => new FakePayPal(new TestClock(LAUNCH)) });
+    const send = async (op: CampaignOp) => (await (await agent.fetch(new Request("https://do/op", { method: "POST", body: JSON.stringify(op) }))).json()) as CampaignReply;
+    const key = "k".repeat(43);
+    const [seed] = demoSeeds(receiversFrom({}));
+    expect(await send({ op: "demo_init", showId: "dabcdefghjka", seed, demoKeyHash: await sha256Hex(key), judge })).toMatchObject({ ok: true });
+    expect(await send({ op: "demo_pace", manageKey: key })).toMatchObject({ ok: true });
+    return sent.filter((o) => (o as { op: string }).op === "reserve");
+  }
+
+  it("reserves from the judge share for a judge show, and from the public share for any other", async () => {
+    const asJudge = await reserves(true);
+    expect(asJudge.length).toBeGreaterThan(0);
+    expect(asJudge.every((o) => (o as { judge: boolean }).judge === true)).toBe(true);
+    const asPublic = await reserves(undefined);
+    expect(asPublic.length).toBeGreaterThan(0);
+    expect(asPublic.every((o) => (o as { judge: boolean }).judge === false)).toBe(true);
   });
 });

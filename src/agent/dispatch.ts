@@ -8,7 +8,7 @@ import type { CampaignService } from "./service";
 
 /** The JSON messages the Worker sends to a campaign's Durable Object. */
 export type CampaignOp =
-  | { op: "init"; showId: string; signTokenHash: string }
+  | { op: "init"; showId: string; signTokenHash: string; judge?: boolean }
   | { op: "sign"; body: SignRequest }
   | { op: "public" }
   | { op: "order"; body: CreateOrderRequest }
@@ -19,7 +19,7 @@ export type CampaignOp =
   | { op: "decline"; manageKey: string | null; proposalId: string }
   | { op: "webhook"; event: PayPalLedgerEvent }
   | { op: "webhook_unreadable"; eventType: string }
-  | { op: "demo_init"; showId: string; seed: DemoSeed; demoKeyHash: string }
+  | { op: "demo_init"; showId: string; seed: DemoSeed; demoKeyHash: string; judge?: boolean }
   | { op: "demo_fans"; manageKey: string | null; count: number }
   | { op: "demo_ff"; manageKey: string | null; topUp: boolean }
   | { op: "demo_pace"; manageKey: string | null }

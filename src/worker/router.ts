@@ -237,7 +237,7 @@ const createShow: Handler = async (c) => {
   const suggestion = await draftFromSentence(poolOpen ? base : { ...base, ai: null }, body.sentence, now);
   const showId = newId("s", c.deps.random);
   const signToken = newSecret(c.deps.random);
-  const reply = await c.deps.campaigns.call(showId, { op: "init", showId, signTokenHash: await sha256Hex(signToken) });
+  const reply = await c.deps.campaigns.call(showId, { op: "init", showId, signTokenHash: await sha256Hex(signToken), judge });
   if (!reply.ok) return fromReply(reply);
   const draft = draftFields(suggestion.value, body, now);
   const preview = previewDraft(showId, draft, now);
@@ -376,11 +376,12 @@ async function newDemoCopy(c: Ctx): Promise<DemoResponse> {
   const demoId = newId("d", c.deps.random);
   const demoKey = newSecret(c.deps.random);
   const demoKeyHash = await sha256Hex(demoKey);
+  const judge = await isJudge(c);
   const shows: PublicShow[] = [];
   for (const seed of demoSeeds(c.deps.config.receivers)) {
     const showId = `${demoId}${seed.key}`;
     try {
-      const reply = await c.deps.campaigns.call(showId, { op: "demo_init", showId, seed, demoKeyHash });
+      const reply = await c.deps.campaigns.call(showId, { op: "demo_init", showId, seed, demoKeyHash, judge });
       if (!reply.ok) throw new HttpError(reply.status, reply.error.code, reply.error.message);
       shows.push(reply.data as PublicShow);
     } catch (e) {

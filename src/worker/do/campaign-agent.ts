@@ -69,11 +69,20 @@ export class CampaignAgent {
       store: this.store,
       paypal: this.makePort(config),
       clock: this.clock,
-      ai: { ai, budget: budgetPort(this.env) },
+      ai: { ai, budget: budgetPort(this.env, () => this.isJudgeShow()) },
       random: cryptoRandom,
       paypalClientId: config.clientId,
       card: SIM_CARD,
     });
+  }
+
+  /** The show was made through a judge link (read at each reserve; never throws, so a storage hiccup just means the public budget). */
+  private isJudgeShow(): boolean {
+    try {
+      return this.store?.getMeta("judge") === "1";
+    } catch {
+      return false;
+    }
   }
 
   /** One line per invocation for the free-tier budget (scripts/tail-report.ts sums them). Lower bound: storage.put isn't counted (setAlarm is skipped when unchanged). */

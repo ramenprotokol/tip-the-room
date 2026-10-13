@@ -2,6 +2,8 @@ import type { SqlDb } from "./sql";
 
 /** Workers AI free tier is 10,000 neurons/day; we stop at 8,000 to stay clear of it. */
 export const DAILY_NEURON_BUDGET = 8000;
+/** The public's share of that: the rest is kept for shows made through a judge link. */
+export const PUBLIC_NEURON_BUDGET = 5000;
 
 export function utcDay(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
@@ -64,17 +66,19 @@ export class Quota {
   }
 }
 
-export type QuotaOp = { op: "reserve"; neurons: number } | { op: "hit"; key: string; limit: number; windowMs: number } | { op: "used" };
+export type QuotaOp = { op: "reserve"; neurons: number; judge?: boolean } | { op: "hit"; key: string; limit: number; windowMs: number } | { op: "used"; judge?: boolean };
 
 export function quotaDispatch(q: Quota, op: QuotaOp, now: number): unknown {
   switch (op.op) {
     case "reserve":
-      return { ok: q.reserveNeurons(now, op.neurons) };
+      return { ok: q.reserveNeurons(now, op.neurons, op.judge === true ? DAILY_NEURON_BUDGET : PUBLIC_NEURON_BUDGET) };
     case "hit":
       return q.hit(op.key, op.limit, op.windowMs, now);
     case "used": {
+      // The view of one kind of visitor: the public one unless `judge`, so "resting" is true for the caller asking.
       const used = q.neuronsUsed(now);
-      return { used, limit: DAILY_NEURON_BUDGET, restingUntil: used >= DAILY_NEURON_BUDGET ? new Date(nextUtcMidnight(now)).toISOString() : null };
+      const limit = op.judge === true ? DAILY_NEURON_BUDGET : PUBLIC_NEURON_BUDGET;
+      return { used, limit, restingUntil: used >= limit ? new Date(nextUtcMidnight(now)).toISOString() : null };
     }
   }
 }

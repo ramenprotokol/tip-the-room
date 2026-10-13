@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAILY_NEURON_BUDGET, nextUtcMidnight, Quota, quotaDispatch, utcDay } from "../../src/agent/quota";
+import { DAILY_NEURON_BUDGET, nextUtcMidnight, PUBLIC_NEURON_BUDGET, Quota, quotaDispatch, utcDay } from "../../src/agent/quota";
 import { memoryDb } from "./sqlite";
 
 const T = Date.parse("2026-11-01T22:00:00Z");
@@ -42,6 +42,23 @@ describe("rate limits", () => {
     const q = quota();
     expect(quotaDispatch(q, { op: "reserve", neurons: 100 }, T)).toEqual({ ok: true });
     expect(quotaDispatch(q, { op: "hit", key: "k", limit: 1, windowMs: 1000 }, T)).toEqual({ ok: true, retryAfterSec: 0 });
-    expect(quotaDispatch(q, { op: "used" }, T)).toEqual({ used: 100, limit: DAILY_NEURON_BUDGET, restingUntil: null });
+    expect(quotaDispatch(q, { op: "used" }, T)).toEqual({ used: 100, limit: PUBLIC_NEURON_BUDGET, restingUntil: null });
+  });
+  it("lets the public use 5,000 of the 8,000 units and keeps the rest for judge links", () => {
+    const q = quota();
+    expect(quotaDispatch(q, { op: "reserve", neurons: 4900 }, T)).toEqual({ ok: true });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 150 }, T)).toEqual({ ok: false });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 100 }, T)).toEqual({ ok: true });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 1 }, T)).toEqual({ ok: false });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 150, judge: true }, T)).toEqual({ ok: true });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 2850, judge: true }, T)).toEqual({ ok: true });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 1, judge: true }, T)).toEqual({ ok: false });
+    expect(q.neuronsUsed(T)).toBe(DAILY_NEURON_BUDGET);
+  });
+  it("reports resting for the caller asking: the public at 5,000, judges at 8,000", () => {
+    const q = quota();
+    q.reserveNeurons(T, 5000);
+    expect(quotaDispatch(q, { op: "used" }, T)).toMatchObject({ used: 5000, limit: 5000, restingUntil: "2026-11-02T00:00:00.000Z" });
+    expect(quotaDispatch(q, { op: "used", judge: true }, T)).toMatchObject({ used: 5000, limit: 8000, restingUntil: null });
   });
 });

@@ -23,6 +23,23 @@ describe("init and sign", () => {
     await expect(h.svc.sign({ signToken: SIGN_TOKEN, draft: DRAFT })).rejects.toMatchObject({ status: 409 });
   });
 
+  it("remembers a judge show from creation, and nothing later can change it", async () => {
+    const judge = makeService();
+    judge.svc.ensureSchema();
+    judge.svc.init({ showId: SHOW, signTokenHash: await sha256Hex(SIGN_TOKEN), judge: true });
+    expect(judge.svc.isJudge()).toBe(true);
+    await judge.svc.sign({ signToken: SIGN_TOKEN, draft: DRAFT });
+    expect(judge.svc.isJudge()).toBe(true);
+    const plain = makeService();
+    plain.svc.ensureSchema();
+    plain.svc.init({ showId: SHOW, signTokenHash: await sha256Hex(SIGN_TOKEN) });
+    await plain.svc.sign({ signToken: SIGN_TOKEN, draft: DRAFT });
+    expect(plain.svc.isJudge()).toBe(false);
+    // A second init is refused, so a plain show can't be re-marked.
+    expect(() => plain.svc.init({ showId: SHOW, signTokenHash: "0".repeat(64), judge: true })).toThrow();
+    expect(plain.svc.isJudge()).toBe(false);
+  });
+
   it("refuses a wrong sign token", async () => {
     const h = makeService();
     h.svc.ensureSchema();

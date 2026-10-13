@@ -9,12 +9,16 @@ async function quotaCall<T>(env: Env, op: QuotaOp): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** Fails closed: if the budget can't be checked, the agent uses its templates. */
-export function budgetPort(env: Env): BudgetPort {
+/**
+ * Fails closed: if the budget can't be checked, the agent uses its templates. `judge` (read at each reserve, so a show can
+ * be marked after its port was built) lets the caller use the part of the daily budget kept for judge links.
+ */
+export function budgetPort(env: Env, judge: boolean | (() => boolean) = false): BudgetPort {
   return {
     async tryReserve(neurons: number): Promise<boolean> {
       try {
-        return (await quotaCall<{ ok: boolean }>(env, { op: "reserve", neurons })).ok === true;
+        const j = typeof judge === "function" ? judge() : judge;
+        return (await quotaCall<{ ok: boolean }>(env, { op: "reserve", neurons, judge: j })).ok === true;
       } catch {
         return false;
       }

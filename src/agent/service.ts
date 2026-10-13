@@ -95,6 +95,11 @@ export class CampaignService {
     return id;
   }
 
+  /** Made through a judge link: its AI calls may use the judge share of the daily budget. Set once, when the show is created. */
+  isJudge(): boolean {
+    return this.deps.store.getMeta("judge") === "1";
+  }
+
   kind(): "real" | "demo" {
     return this.deps.store.getMeta("kind") === "demo" ? "demo" : "real";
   }
@@ -116,12 +121,13 @@ export class CampaignService {
     return p.mandate;
   }
 
-  init(input: { showId: string; signTokenHash: string }): { showId: string } {
+  init(input: { showId: string; signTokenHash: string; judge?: boolean }): { showId: string } {
     const store = this.deps.store;
     if (store.getMeta("show_id")) throw new ServiceError(409, "conflict", "That show already exists.");
     store.transaction(() => {
       store.setMeta("show_id", input.showId);
       store.setMeta("kind", "real");
+      if (input.judge === true) store.setMeta("judge", "1");
       store.setMeta("sign_token_hash", input.signTokenHash);
       const at = this.deps.clock.now();
       store.setMeta("created_at", String(at));
@@ -699,7 +705,7 @@ export class CampaignService {
   }
 
   /** A judge's private demo show: signed at once with fictional rules, starting fans queued as real sandbox holds. */
-  async initDemo(input: { showId: string; seed: DemoSeed; demoKeyHash: string }): Promise<PublicShow> {
+  async initDemo(input: { showId: string; seed: DemoSeed; demoKeyHash: string; judge?: boolean }): Promise<PublicShow> {
     const store = this.deps.store;
     if (store.getMeta("show_id")) throw new ServiceError(409, "conflict", "That demo show already exists.");
     const real = this.deps.clock.now();
@@ -712,6 +718,7 @@ export class CampaignService {
     store.transaction(() => {
       store.setMeta("show_id", input.showId);
       store.setMeta("kind", "demo");
+      if (input.judge === true) store.setMeta("judge", "1");
       store.setMeta("manage_key_hash", input.demoKeyHash);
       store.setMeta("created_at", String(real));
       store.setMeta("expires_at", String(real + DEMO_TTL_MS));

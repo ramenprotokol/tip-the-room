@@ -30,10 +30,12 @@ function edgeCache(): EdgeCache | undefined {
 
 function routerDeps(env: Env, ctx?: { waitUntil(p: Promise<unknown>): void }): RouterDeps {
   const binding = env.AI;
+  const port = binding ? { run: (model: string, input: unknown) => binding.run(model, input) } : null;
   return {
     campaigns: campaigns(env),
     quota: quotaPort(env),
-    ai: { ai: binding ? { run: (model, input) => binding.run(model, input) } : null, budget: budgetPort(env) },
+    ai: { ai: port, budget: budgetPort(env) },
+    aiJudge: { ai: port, budget: budgetPort(env, true) },
     random: cryptoRandom,
     clock: systemClock,
     config: {
