@@ -129,6 +129,7 @@ function renderAsk() {
   if (ask?.proposalId !== p.proposalId) { approveBtn.reset(); $('[data-approve-label]').textContent = 'Hold to approve'; askSay(''); }
   ask = { proposalId: p.proposalId, option: main };
   segsInto($('#ask-explain'), askEmphasis(p.explanation));
+  const who = $('#ask-source'); who.hidden = PARITY; who.textContent = p.source === 'model' ? 'Written by the agent' : 'Standard wording';
   $('#ask-q b').textContent = question(main);
   $('#ask .why').textContent = why(main);
   for (const o of p.options) {

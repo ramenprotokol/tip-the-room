@@ -2,7 +2,7 @@
 // All run against the fake API; the new text is app-only, so the pixel-comparison runs (?e2e=parity) must not show it.
 import { expect, test, type Page } from "@playwright/test";
 import { apiError, installFakeApi, type FakeApi } from "./fake-api";
-import { DEMO_ID, DEMO_KEY, MANAGE_FRAMES, MAYA, MAYA_ID, MAYA_KEY, demoApi, manageApi, showOf, startApi } from "./fixtures";
+import { DEMO_ID, DEMO_KEY, MANAGE_FRAMES, MAYA, MAYA_ID, MAYA_KEY, START_CREATE, demoApi, manageApi, showOf, startApi } from "./fixtures";
 import { APP_BASE } from "./parity";
 
 const NOHOOKS = "http://127.0.0.1:5201/";
@@ -317,4 +317,53 @@ test.describe("a lasting pointer while a show's agent is asking the artist", () 
     await expect(page.locator("#show-b [data-ask-pointer]")).toBeHidden();
     await expect(page.locator("[data-judge-ask]")).toBeHidden();
   });
+});
+
+test.describe("who wrote it", () => {
+  const AI_LINE = "Drafted by AI (Cloudflare Workers AI). Code checked every amount against your sentence.";
+  const READER_LINE = "Filled in by the built-in reader.";
+  async function start(page: Page, api: FakeApi, query = "?e2e") {
+    await installFakeApi(page, api);
+    await page.goto(`${APP_BASE}start${query}`);
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+  }
+
+  test("the start page says AI wrote the draft when the server says so, and clears it on a new fill", async ({ page }) => {
+    let source: "model" | "template" = "model";
+    const base = startApi();
+    await start(page, (req) => (req.method === "POST" && req.path === "/api/shows" ? { status: 201, body: { ...START_CREATE, source } } : base(req)));
+    await expect(page.locator("#draft-source")).toBeHidden();
+    await page.click("#fill");
+    await expect(page.locator("#draft-source")).toHaveText(AI_LINE);
+    source = "template";
+    await page.click("#fill"); // the draft is untouched, so Fill it in again does not ask first
+    await expect(page.locator("#draft-source")).toHaveText(READER_LINE);
+  });
+
+  test("the start page says the built-in reader filled it in for a template or resting draft", async ({ page }) => {
+    for (const source of ["template", "resting"] as const) {
+      const base = startApi();
+      await start(page, (req) => (req.method === "POST" && req.path === "/api/shows" ? { status: 201, body: { ...START_CREATE, source } } : base(req)));
+      await page.click("#fill");
+      await expect(page.locator("#draft-source")).toHaveText(READER_LINE);
+    }
+  });
+
+  test("the start page keeps the label out of the pixel-comparison mode", async ({ page }) => {
+    await start(page, startApi(), "?e2e=parity");
+    await page.click("#fill");
+    await expect(page.locator("#draft")).toBeVisible();
+    await expect(page.locator("#draft-source")).toBeHidden();
+  });
+
+  for (const [source, label] of [["model", "Written by the agent"], ["template", "Standard wording"]] as const) {
+    test(`the show page's question card says "${label}" for a ${source} proposal`, async ({ page }) => {
+      const frame = { ...MANAGE_FRAMES.initial, proposals: MANAGE_FRAMES.initial.proposals.map((p) => ({ ...p, source })) };
+      await installFakeApi(page, manageApi([frame]));
+      await page.goto(`${APP_BASE}s/${MAYA_ID}/manage?e2e#${MAYA_KEY}`);
+      await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+      await expect(page.locator("#ask")).toBeVisible();
+      await expect(page.locator("#ask-source")).toHaveText(label);
+    });
+  }
 });

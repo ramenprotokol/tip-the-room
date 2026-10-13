@@ -51,11 +51,18 @@ function payRow(p: PayeeRow, i: number) {
   return li;
 }
 
+/** Says who wrote the draft: the model (every amount is checked against the sentence in code) or the built-in reader. Cleared when a new fill starts. */
+function sourceLine(source: CreateShowResponse['source'] | null) {
+  const p = $('#draft-source');
+  p.hidden = PARITY || source === null;
+  p.textContent = p.hidden ? '' : source === 'model' ? 'Drafted by AI (Cloudflare Workers AI). Code checked every amount against your sentence.' : 'Filled in by the built-in reader.';
+}
+
 async function fill() {
   if (signing || els.fill.disabled) return;
   if (D && edited && Date.now() > armed) { armed = Date.now() + 6000; els.fill.textContent = 'Replace your edits? Click again'; return; }
   armed = 0; edited = false;
-  els.fill.disabled = true; say('');
+  els.fill.disabled = true; say(''); sourceLine(null);
   await act(async () => {
     try {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -65,6 +72,7 @@ async function fill() {
       $('.field:has(#f-deadline) .hint').textContent = `Holds last up to 21 days, so keep it within 21 days of today, ${today(d.timeZone)}.`;
       els.paylist.textContent = ''; d.payees.forEach((p, i) => els.paylist.appendChild(payRow(p, i)));
       els.draft.hidden = false; enter(els.draft, 12, 500); els.fill.textContent = 'Fill it in again';
+      sourceLine(res.source);
       showProblems(res.problems.filter(x => !EMAIL_PROBLEM.test(x)));
       update(true);
     } catch (e) {
