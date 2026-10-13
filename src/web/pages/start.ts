@@ -5,7 +5,7 @@ import { $, Ticker, Snd, soundToggle, Placeholder, HoldButton, drawQR, copyText,
 import type { SignHost, SignView, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { CreateShowResponse, SignResponse } from "../../worker/api-types";
-import { API_BASE, HOOKS, PUBLIC_ORIGIN, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { rememberKey } from "../shared/keys";
 import { when } from "../shared/format";
@@ -82,6 +82,19 @@ for (const [id, k] of [['f-name', 'name'], ['f-room', 'room'], ['f-date', 'date'
   update();
 });
 
+/** A payee who gets money (or the artist) and has no usable PayPal email yet. */
+const needsEmail = (p: PayeeRow) => (p.amount > 0 || p.me) && !/^\S+@\S+\.\S+$/.test(p.email || '');
+/** Fills only the emails still missing (what the visitor typed stays), so a judge with no PayPal accounts can still sign. Sandbox only. */
+function useExampleEmails() {
+  if (!D) return;
+  D.payees.forEach((p, i) => {
+    if (!needsEmail(p)) return;
+    p.email = `${p.me ? 'artist' : p.role.toLowerCase()}@example.com`;
+    const input = document.querySelector<HTMLInputElement>('#mail-' + i); if (input) input.value = p.email;
+  });
+  edited = true; showProblems([]); update(true);
+}
+
 let debounce: ReturnType<typeof setTimeout> | undefined;
 function update(now = false) {
   if (!D) return;
@@ -98,8 +111,9 @@ function update(now = false) {
     li(`If fewer than ${target} fans join, every hold is cancelled and nobody pays.`),
     li('To change the deadline or the target, your agent asks you first.'),
   );
-  const missing = d.payees.filter(p => (p.amount > 0 || p.me) && !/^\S+@\S+\.\S+$/.test(p.email || '')).map(p => p.me ? 'you' : (p.who || p.role));
+  const missing = d.payees.filter(needsEmail).map(p => p.me ? 'you' : (p.who || p.role));
   els.sign.disabled = missing.length > 0 || target < 1 || signing;
+  $('#example-emails').hidden = PARITY || missing.length === 0;
   $('#sign-hint').textContent = missing.length ? `Add a PayPal email for ${missing.join(' and ')} to sign.` : 'Press and hold for 1.5 seconds. On a keyboard, hold Space or Enter.';
   const model: SignModel = { name: d.name || 'Your show', crest: d.room, target: Math.min(Math.max(target, 4), 80), seed: 31, yaw: .16, payees: paid.map((p): { label: string; amount: number } => ({ label: p.role, amount: p.amount })).concat([{ label: 'Artist', amount: me.amount || 0 }]) };
   clearTimeout(debounce);
@@ -138,6 +152,7 @@ function goLive(res: SignResponse) {
 }
 
 els.fill.addEventListener('click', () => { void fill(); });
+$('#use-example').addEventListener('click', useExampleEmails);
 $('#copy-share').addEventListener('click', () => copyText($('#share-url').textContent ?? '', $('[data-copied]')));
 $('#copy-manage').addEventListener('click', () => copyText($('#manage-url').textContent ?? '', $('[data-copied]')));
 const holdBtn = new HoldButton(els.sign, { ms: 1500, onDone: () => { $('[data-sign-label]').textContent = 'Signed'; void doSign(); } });

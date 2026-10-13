@@ -2,7 +2,7 @@
 // All run against the fake API; the new text is app-only, so the pixel-comparison runs (?e2e=parity) must not show it.
 import { expect, test, type Page } from "@playwright/test";
 import { apiError, installFakeApi, type FakeApi } from "./fake-api";
-import { DEMO_ID, DEMO_KEY, demoApi } from "./fixtures";
+import { DEMO_ID, DEMO_KEY, demoApi, startApi } from "./fixtures";
 import { APP_BASE } from "./parity";
 
 const NOHOOKS = "http://127.0.0.1:5201/";
@@ -184,4 +184,53 @@ test.describe("a clicked button reads Working… while its request is in flight"
       await expect(btn).toBeEnabled();
     });
   }
+});
+
+test.describe("Use example emails on the start page", () => {
+  const HINT = "No PayPal accounts handy? Example emails let you try signing. Sandbox only.";
+  const sign = (page: Page) => page.evaluate(() => (window as unknown as { __marquee: { sign(): void } }).__marquee.sign());
+  async function start(page: Page, query = "?e2e") {
+    const seen = await installFakeApi(page, startApi());
+    await page.goto(`${APP_BASE}start${query}`);
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    return seen;
+  }
+
+  test("is hidden until the draft needs emails, fills every missing one, and unlocks signing", async ({ page }) => {
+    const seen = await start(page);
+    await expect(page.locator("#example-emails")).toBeHidden();
+    await page.click("#fill");
+    await expect(page.locator("#draft")).toBeVisible();
+    await expect(page.locator("#sign")).toBeDisabled();
+    await expect(page.locator("#example-emails")).toBeVisible();
+    await expect(page.locator("#example-emails")).toContainText(HINT);
+    await page.click("#use-example");
+    await expect(page.locator("#mail-0")).toHaveValue("room@example.com");
+    await expect(page.locator("#mail-3")).toHaveValue("artist@example.com");
+    await expect(page.locator("#mail-1")).toHaveValue("");
+    await expect(page.locator("#sign")).toBeEnabled();
+    await expect(page.locator("#sign-hint")).toHaveText("Press and hold for 1.5 seconds. On a keyboard, hold Space or Enter.");
+    await expect(page.locator("#example-emails")).toBeHidden();
+    await sign(page);
+    await expect(page.locator("#live")).toBeVisible();
+    const body = seen.find((r) => r.path.endsWith("/sign"))?.body as { draft: { parties: { role: string; paypalEmail: string }[] } };
+    expect(body.draft.parties.map((p) => [p.role, p.paypalEmail])).toEqual([["room", "room@example.com"], ["artist", "artist@example.com"]]);
+  });
+
+  test("keeps an email the visitor already typed and fills only the others", async ({ page }) => {
+    await start(page);
+    await page.click("#fill");
+    await page.fill("#mail-3", "maya@band.test");
+    await expect(page.locator("#example-emails")).toBeVisible();
+    await page.click("#use-example");
+    await expect(page.locator("#mail-3")).toHaveValue("maya@band.test");
+    await expect(page.locator("#mail-0")).toHaveValue("room@example.com");
+    await expect(page.locator("#sign")).toBeEnabled();
+  });
+
+  test("does not show in the pixel-comparison mode", async ({ page }) => {
+    await start(page, "?e2e=parity");
+    await page.click("#fill");
+    await expect(page.locator("#example-emails")).toBeHidden();
+  });
 });
