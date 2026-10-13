@@ -62,7 +62,11 @@ const DRAFT_SCHEMA = {
 const DRAFT_SYSTEM =
   "You turn one sentence about a small live show into JSON. Use only facts in the sentence. " +
   "Money is in US dollars as plain numbers. Use 0 for a missing amount, and null for a missing showDate or ticketPriceDollars. " +
-  "showDate is YYYY-MM-DD. roomName is the venue. roomDollars is what the venue (cafe, bar, room) wants, openerDollars what the opener wants, hostDollars what a host wants. ticketPriceDollars is the price of one ticket, never a payout. artistMinimumDollars is what the artist says they need. hostDollars is only for a person the sentence calls a host or MC; \"I need $X\" or \"I want $X\" is artistMinimumDollars. Answer with JSON only.";
+  "showDate is YYYY-MM-DD. roomName is the venue. roomDollars is what the venue (cafe, bar, room) wants, openerDollars what the opener wants, hostDollars what a host wants. ticketPriceDollars is the price of one ticket, never a payout. artistMinimumDollars is what the artist says they need. hostDollars is only for a person the sentence calls a host or MC; \"I need $X\" or \"I want $X\" is artistMinimumDollars. " +
+  "This is only an example of the format, with made-up facts; use only facts from the real sentence. " +
+  "Example sentence: Folk night at The Attic on Mar 3, $12 tickets, the bar wants $90, the opener gets $40 and I need $150. " +
+  "Example answer: {\"showName\":\"Folk night\",\"roomName\":\"The Attic\",\"showDate\":\"2027-03-03\",\"ticketPriceDollars\":12,\"roomDollars\":90,\"openerDollars\":40,\"hostDollars\":0,\"artistMinimumDollars\":150}. " +
+  "Answer with JSON only.";
 
 /** Longest sentence any draft path looks at. Slicing first keeps every regex input small. */
 export const MAX_SENTENCE = 500;
@@ -176,7 +180,7 @@ export function templateDraft(sentence: string, now: number): DraftSuggestion {
 }
 
 export async function draftFromSentence(deps: AiDeps, sentence: string, now: number): Promise<AiResult<DraftSuggestion>> {
-  const answer = await askModel(deps, MODELS.small, {
+  const answer = await askModel(deps, MODELS.big, {
     messages: [
       { role: "system", content: DRAFT_SYSTEM },
       { role: "user", content: `Today is ${new Date(now).toISOString().slice(0, 10)}. Sentence: ${sentence.slice(0, MAX_SENTENCE)}` },

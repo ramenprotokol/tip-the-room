@@ -65,13 +65,13 @@ describe("sentence → draft", () => {
     expect(r.source).toBe("template");
     expect(b.used()).toBe(0);
   });
-  it("uses the model's answer when it passes the schema check, and charges the small model's estimate", async () => {
+  it("uses the model's answer when it passes the schema check, and charges the larger model's estimate", async () => {
     const ai = new FakeAi([json(valid)]);
     const b = fakeBudget();
     const r = await draftFromSentence({ ai, budget: b.port }, SENTENCE, NOW);
     expect(r).toEqual({ source: "model", value: { showName: "Acoustic set", roomName: "Lucky's Café", showDate: "2026-11-20", ticketPrice: 1500, room: 10000, opener: 0, host: 0, artistMinimum: 20000 } });
-    expect(ai.calls[0].model).toBe(MODELS.small);
-    expect(b.used()).toBe(NEURON_ESTIMATE[MODELS.small]);
+    expect(ai.calls[0].model).toBe(MODELS.big);
+    expect(b.used()).toBe(NEURON_ESTIMATE[MODELS.big]);
   });
   it("accepts an answer that is already an object", async () => {
     const r = await draftFromSentence({ ai: new FakeAi([{ response: valid }]), budget: fakeBudget().port }, SENTENCE, NOW);
@@ -120,6 +120,26 @@ describe("sentence → draft", () => {
       templateDraft(s, NOW);
       expect(performance.now() - t0).toBeLessThan(50);
     }
+  });
+});
+
+describe("drafts on the larger model", () => {
+  const BLUE = "Jazz night in the Blue Heron Tavern basement on Dec 5, tickets are $25, the tavern wants $150, my drummer Sam opens for $120 and I need at least $300.";
+  const blue = { showName: "Jazz night", roomName: "Blue Heron Tavern", showDate: "2026-12-05", ticketPriceDollars: 25, roomDollars: 150, openerDollars: 120, hostDollars: 0, artistMinimumDollars: 300 };
+  it("accepts a correct answer for a sentence with a venue and an opener, from the big model", async () => {
+    const ai = new FakeAi([json(blue)]);
+    const r = await draftFromSentence({ ai, budget: fakeBudget().port }, BLUE, NOW);
+    expect(r).toEqual({ source: "model", value: { showName: "Jazz night", roomName: "Blue Heron Tavern", showDate: "2026-12-05", ticketPrice: 2500, room: 15000, opener: 12000, host: 0, artistMinimum: 30000 } });
+    expect(ai.calls[0].model).toBe(MODELS.big);
+    expect(ai.calls[0].input.temperature).toBe(0);
+  });
+  it("gives the model one worked example with different facts, and says to use only the real sentence", async () => {
+    const ai = new FakeAi([json(blue)]);
+    await draftFromSentence({ ai, budget: fakeBudget().port }, BLUE, NOW);
+    const system = ai.calls[0].input.messages[0].content;
+    expect(system).toContain("Folk night at The Attic");
+    expect(system).toContain("only an example");
+    expect(system).toContain("use only facts from the real sentence");
   });
 });
 
