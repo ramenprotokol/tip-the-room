@@ -23,6 +23,7 @@ export type CampaignOp =
   | { op: "demo_fans"; manageKey: string | null; count: number }
   | { op: "demo_ff"; manageKey: string | null; topUp: boolean }
   | { op: "demo_pace"; manageKey: string | null }
+  | { op: "demo_check"; manageKey: string | null }
   | { op: "demo_retire"; manageKey: string | null };
 
 export type CampaignReply = { ok: true; data: unknown } | { ok: false; status: number; error: ApiError["error"] };
@@ -81,6 +82,9 @@ async function run(service: CampaignService, op: CampaignOp): Promise<unknown> {
     case "demo_ff":
       await service.checkKey(op.manageKey);
       return service.fastForward(op.topUp);
+    case "demo_check":
+      await service.checkKey(op.manageKey);
+      return service.demoCheck();
     case "demo_retire":
       await service.checkKey(op.manageKey);
       return service.retire();

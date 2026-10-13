@@ -726,6 +726,12 @@ export class CampaignService {
     if (this.kind() !== "demo") throw new ServiceError(404, "not_found", "Simulated fans and demo controls exist only in the demo.");
   }
 
+  /** Read-only: is this a demo show, and is the key right (the key is checked by the caller). Writes nothing. */
+  demoCheck(): { ok: true } {
+    this.requireDemo();
+    return { ok: true };
+  }
+
   /** Simulated fans ever queued for this show (any outcome). Retries (-r1) are the same fan. This is the hard cap's counter. */
   private simsUsed(): number {
     return this.deps.store.jobs().filter((j) => j.kind === "sim_hold" && !j.target.endsWith("-r1")).length;

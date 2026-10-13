@@ -60,6 +60,8 @@ export const LIMITS = {
   order: { limit: 30, windowMs: HOUR },
   manage: { limit: 1500, windowMs: HOUR },
   demo: { limit: 12, windowMs: HOUR },
+  /** Public pool only: one visitor can't take more than a fifth of the day's copies. */
+  demoDay: { limit: 10, windowMs: 24 * HOUR },
   demoJudge: { limit: 12, windowMs: HOUR },
   demoJudgeGlobal: { limit: DEMO_JUDGE_COPIES_PER_DAY, windowMs: 24 * HOUR },
   demoFans: { limit: 12, windowMs: HOUR },
@@ -192,6 +194,7 @@ async function demoCopyLimits(c: Ctx): Promise<void> {
     return;
   }
   await limit(c, "demo");
+  await limit(c, "demoDay");
   await limit(c, "demoGlobal", "all");
 }
 
@@ -409,10 +412,18 @@ const demoPace: Handler = async (c) => {
   return json(200, res);
 };
 
-/** Both limits are checked BEFORE the old copy is retired, so a refused reset never leaves the visitor with no demo. */
+/**
+ * The key is checked first (read-only), so a wrong key spends no quota. Both limits are checked BEFORE the old copy is
+ * retired, so a refused reset never leaves the visitor with no demo.
+ */
 const demoReset: Handler = async (c) => {
+  const ids = demoShowIds(demoParam(c));
+  for (const id of ids) {
+    const r = await c.deps.campaigns.call(id, { op: "demo_check", manageKey: manageKey(c) });
+    if (!r.ok && r.status !== 404) return fromReply(r);
+  }
   await demoCopyLimits(c);
-  for (const id of demoShowIds(demoParam(c))) {
+  for (const id of ids) {
     const r = await c.deps.campaigns.call(id, { op: "demo_retire", manageKey: manageKey(c) });
     // 404 means that show is already gone (a copy older than 24 h is deleted): carry on to a fresh copy.
     if (!r.ok && r.status !== 404) return fromReply(r);

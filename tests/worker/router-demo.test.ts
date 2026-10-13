@@ -100,6 +100,33 @@ describe("demo routes", () => {
     expect(d.shows[0].version).toMatch(/^e\d+\.l\d+$/);
   });
 
+  it("reset with a wrong key spends no quota, and the real key still works afterwards", async () => {
+    const w = workerHarness();
+    const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+    for (let i = 0; i < LIMITS.demo.limit + 3; i++) expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": "k".repeat(43) })).status).toBe(403);
+    expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": d.demoKey })).status).toBe(201);
+  });
+
+  it("a wrong key is refused even when the first show is already gone", async () => {
+    const w = workerHarness();
+    const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+    w.shows.delete(`${d.demoId}a`);
+    expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": "k".repeat(43) })).status).toBe(403);
+  });
+
+  it("a visitor gets 10 public copies a day, then 429; another visitor and the judge pool are unaffected", async () => {
+    const w = workerHarness({ judgeCode: "judge-code-123" });
+    for (let i = 0; i < LIMITS.demoDay.limit; i++) {
+      expect((await w.call("POST", "/api/demo")).status).toBe(201);
+      if (i % 5 === 4) w.clock.t += HOUR; // stay inside the hourly cap of 12
+    }
+    expect((await w.call("POST", "/api/demo")).status).toBe(429);
+    expect((await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": "10.1.1.1" })).status).toBe(201);
+    expect((await w.call("POST", "/api/demo", undefined, { "x-judge-code": "judge-code-123" })).status).toBe(201);
+    w.clock.t += 24 * HOUR;
+    expect((await w.call("POST", "/api/demo")).status).toBe(201);
+  });
+
   it("a refused reset (rate limit) leaves the old copy alone", async () => {
     const w = workerHarness();
     const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
@@ -110,7 +137,7 @@ describe("demo routes", () => {
 
   it("limits demo copies per visitor and answers 404 for a bad demo id", async () => {
     const w = workerHarness();
-    for (let i = 0; i < LIMITS.demo.limit; i++) expect((await w.call("POST", "/api/demo")).status).toBe(201);
+    for (let i = 0; i < LIMITS.demoDay.limit; i++) expect((await w.call("POST", "/api/demo")).status).toBe(201);
     expect((await w.call("POST", "/api/demo")).status).toBe(429);
     expect((await w.call("POST", "/api/demo/NOPE/fast-forward")).status).toBe(404);
     expect((await w.call("POST", "/api/demo/dabcdefghjk/fast-forward", undefined, { "x-manage-key": "x".repeat(43) })).status).toBe(404);
@@ -145,7 +172,7 @@ describe("demo routes", () => {
 
   it("a judge code skips the visitor limit and draws from its own daily pool", async () => {
     const w = workerHarness({ judgeCode: "judge-code-123" });
-    for (let i = 0; i < LIMITS.demo.limit; i += 1) expect((await w.call("POST", "/api/demo")).status).toBe(201);
+    for (let i = 0; i < LIMITS.demoDay.limit; i += 1) expect((await w.call("POST", "/api/demo")).status).toBe(201);
     expect((await w.call("POST", "/api/demo")).status).toBe(429);
     expect((await w.call("POST", "/api/demo", undefined, { "x-judge-code": "judge-code-123" })).status).toBe(201);
     expect((await w.call("POST", "/api/demo", undefined, { "x-judge-code": "wrong-code-123" })).status).toBe(429);
