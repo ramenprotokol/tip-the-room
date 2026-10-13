@@ -132,3 +132,56 @@ test.describe("the setup line", () => {
     await expect(page.locator("#setup")).toBeHidden();
   });
 });
+
+test.describe("a clicked button reads Working… while its request is in flight", () => {
+  /** Holds the answer to requests matching `glob` until `release()`, then passes them on to the fake API (or `reply`). */
+  async function hold(page: Page, glob: string, reply?: { status: number; body: unknown }) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    await page.route(glob, async (route) => {
+      await gate;
+      if (reply) await route.fulfill({ status: reply.status, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(reply.body) });
+      else await route.fallback();
+    });
+    return release;
+  }
+  const cases: [string, string, string, string][] = [
+    ["Add 5 fans", "#show-b [data-act=add]", "**/api/demo/*/fans", "Add 5 fans"],
+    ["Skip to the deadline", "#show-a [data-act=ff]", "**/api/demo/*/fast-forward", "Skip to the deadline"],
+    ["Start over", "#show-b [data-act=reset]", "**/api/demo/*/reset", "Start over"],
+    ["Check pace now", "#pace", "**/api/demo/*/pace", "Check pace now"],
+  ];
+  for (const [name, button, glob, label] of cases) {
+    test(`${name}: Working… from the click, label back afterwards`, async ({ page }) => {
+      await open(page);
+      const release = await hold(page, glob);
+      const btn = page.locator(button);
+      await btn.click();
+      await expect(btn).toHaveText("Working…");
+      await expect(btn).toHaveAttribute("aria-busy", "true");
+      // Every other control waits, and none of them says Working….
+      for (const other of ["#show-a [data-act=add]", "#show-b [data-act=ff]", "#pace"].filter((o) => o !== button)) {
+        await expect(page.locator(other)).toBeDisabled();
+        await expect(page.locator(other)).not.toHaveText("Working…");
+      }
+      release();
+      await expect(btn).toHaveText(label, { timeout: 10_000 });
+      await expect(btn).not.toHaveAttribute("aria-busy", "true");
+    });
+  }
+
+  for (const [name, button, glob, label] of cases) {
+    test(`${name}: after an error the label comes back and the error is shown`, async ({ page }) => {
+      await open(page);
+      const release = await hold(page, glob, { status: 429, body: { error: { code: "rate_limited", message: "Too many tries. Please wait a moment and try again." } } });
+      const btn = page.locator(button);
+      await btn.click();
+      await expect(btn).toHaveText("Working…");
+      release();
+      await expect(page.locator("[data-judge-msg]")).toHaveText("Too many tries. Please wait a moment and try again.");
+      await expect(btn).toHaveText(label);
+      await expect(btn).not.toHaveAttribute("aria-busy", "true");
+      await expect(btn).toBeEnabled();
+    });
+  }
+});

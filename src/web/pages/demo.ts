@@ -47,7 +47,7 @@ class ShowCtl {
     this.bAdd = $<HTMLButtonElement>('[data-act=add]', el); this.bFF = $<HTMLButtonElement>('[data-act=ff]', el);
     this.bAdd.addEventListener('click', () => { void this.addClicked(); });
     this.bFF.addEventListener('click', () => { void this.ffClicked(); });
-    this.bReset = $<HTMLButtonElement>('[data-act=reset]', el); this.bReset.addEventListener('click', () => { void resetDemo(); });
+    this.bReset = $<HTMLButtonElement>('[data-act=reset]', el); this.bReset.addEventListener('click', () => { void resetDemo(this.bReset); });
   }
   get name() { return this.show?.showName ?? ''; }
   get target() { return this.show?.threshold ?? 1; }
@@ -120,7 +120,7 @@ class ShowCtl {
   }
   buttons() {
     const open = this.phase === 'open' || this.phase === 'tipped', canAdd = open && !this.busy, left = this.target - this.fans;
-    this.bAdd.disabled = !canAdd || inflight; this.bAdd.textContent = !open || this.tipped || left >= 5 || left <= 0 ? 'Add 5 fans' : `Add ${left} fan${left === 1 ? '' : 's'}`;
+    this.bAdd.disabled = !canAdd || inflight; this.bAdd.textContent = working === this.bAdd ? 'Working…' : !open || this.tipped || left >= 5 || left <= 0 ? 'Add 5 fans' : `Add ${left} fan${left === 1 ? '' : 's'}`;
     this.bFF.disabled = !open || this.busy || inflight;
     this.bReset.disabled = inflight;
   }
@@ -266,24 +266,33 @@ class ShowCtl {
   async addClicked(count = this.addCount()) {
     if (!demo || !(this.phase === 'open' || this.phase === 'tipped') || this.busy) return;
     const d = demo;
-    await solo(async () => { const r = await api.demoFans(d.demoId, d.demoKey, { show: this.key, count }); await applyShow(this, r.show); });
+    await solo(this.bAdd, async () => { const r = await api.demoFans(d.demoId, d.demoKey, { show: this.key, count }); await applyShow(this, r.show); });
   }
   async ffClicked() {
     if (!demo || !(this.phase === 'open' || this.phase === 'tipped') || this.busy) return;
     const d = demo;
-    const ok = await solo(async () => { const r = await api.demoFastForward(d.demoId, d.demoKey, this.key); await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]); });
+    const ok = await solo(this.bFF, async () => { const r = await api.demoFastForward(d.demoId, d.demoKey, this.key); await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]); });
     // The skip moves both shows, whichever card's button was pressed: say so, and what to do next.
     if (ok) judgeMsg('Both sample shows have reached their deadlines. Press Start over for a fresh pair (you need one to try the checkout).');
   }
 }
 
+/** The button whose request is in flight: it reads "Working…" until the request ends, however many times the buttons are redrawn. */
+let working: HTMLButtonElement | null = null;
 /** Every demo button (both shows, Start over, Check pace now) runs one at a time; the rest stay disabled until it ends. Errors show as a plain line. */
-async function solo(fn: () => Promise<void>): Promise<boolean> {
+async function solo(btn: HTMLButtonElement | null, fn: () => Promise<void>): Promise<boolean> {
   if (inflight) return false;
-  inflight = true; lock();
+  const label = btn?.textContent ?? '';
+  inflight = true; working = btn;
+  if (btn) { btn.textContent = 'Working…'; btn.setAttribute('aria-busy', 'true'); }
+  lock();
   try { await act(fn); return true; }
   catch (e) { failed(e); return false; }
-  finally { inflight = false; lock(); }
+  finally {
+    inflight = false; working = null;
+    if (btn) { btn.removeAttribute('aria-busy'); btn.textContent = label; }
+    lock();
+  }
 }
 function lock() { ctls.forEach(c => c.buttons()); $<HTMLButtonElement>('#pace').disabled = inflight; }
 
@@ -330,9 +339,9 @@ function start(r: DemoResponse) {
 /** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
 async function begin(r: DemoResponse) { start(r); filling = true; setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
 async function freshCopy(msg: string) { await begin(await api.createDemo()); judgeMsg(msg); }
-async function resetDemo() {
+async function resetDemo(btn: HTMLButtonElement | null = null) {
   const d = demo; if (!d) return;
-  await solo(async () => {
+  await solo(btn, async () => {
     try { await begin(await api.demoReset(d.demoId, d.demoKey)); judgeMsg('A fresh pair of sample shows is ready.'); }
     catch (e) { if (e instanceof ApiFailure && (e.status === 404 || e.status === 403)) { await freshCopy('That demo copy had ended, so here is a fresh pair of sample shows.'); return; } throw e; }
   });
@@ -340,7 +349,7 @@ async function resetDemo() {
 async function checkPace() {
   const d = demo; if (!d) return;
   if (![A, B].some(c => c.show?.state === 'live')) { judgeMsg('Neither show is still waiting for fans, so there’s no pace to check. Press Start over for a fresh pair.'); return; }
-  await solo(async () => {
+  await solo($<HTMLButtonElement>('#pace'), async () => {
     const r = await api.demoPace(d.demoId, d.demoKey);
     await Promise.all([applyShow(A, r.shows[0]), applyShow(B, r.shows[1])]);
     const behind = [A, B].filter(c => c.openProposals > 0).map(c => c.name);
@@ -396,7 +405,7 @@ async function poll() {
         if (e instanceof ApiFailure && e.status === 404) {
           // The server forgot this copy. Start a new one, but back off after a refusal (429) instead of asking again every 4 s.
           if (Date.now() < retryAt) return;
-          await solo(async () => {
+          await solo(null, async () => {
             try { await freshCopy('That demo copy has ended, so here is a fresh pair of sample shows.'); }
             catch (err) { retryAt = Date.now() + (err instanceof ApiFailure && err.status === 429 ? 60_000 : 30_000); throw err; }
           });
@@ -424,7 +433,7 @@ if (HOOKS) addEventListener('keydown', e => {
   if (k === 't') { if (A.show && A.phase === 'open' && !A.tipped) void A.addClicked(Math.max(1, Math.min(20, A.show.fans.more))); e.preventDefault(); }
   else if (k === 'p') { void A.ffClicked(); e.preventDefault(); }
   else if (k === 'm') { void B.ffClicked(); e.preventDefault(); }
-  else if (k === 'r') { void resetDemo(); e.preventDefault(); }
+  else if (k === 'r') { void resetDemo(A.bReset); e.preventDefault(); }
 });
 const hooks: DemoHooks = { page: 'demo', ctls, views: [], host: null, ready: false, get pending() { return pendingCount(); } };
 if (HOOKS) window.__marquee = hooks;

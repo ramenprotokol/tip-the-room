@@ -134,6 +134,7 @@ main{padding:0 var(--gutter) 28px}
 .btn-ghost{border-color:transparent;text-decoration:underline;text-underline-offset:4px;padding:0 12px}
 .btn-ghost:hover{background:var(--paper-3);color:var(--ink)}
 .btn[disabled]{opacity:.4;cursor:not-allowed}
+.btn[aria-busy=true][disabled]{opacity:1;cursor:progress}
 .btn[disabled]:hover{background:transparent;color:var(--ink)}
 .btn-red[disabled]:hover{background:var(--red);color:#FFF8EE}
 .btn-big{min-height:56px;padding:0 26px;font-size:18px}
