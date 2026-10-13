@@ -72,6 +72,8 @@ export const LIMITS = {
   demo: { limit: 12, windowMs: HOUR },
   /** Public pool only: one visitor can't take more than a fifth of the day's copies. */
   demoDay: { limit: 10, windowMs: 24 * HOUR },
+  /** Reset attempts per visitor, right or wrong key: bounds the Durable Object work a wrong key costs, apart from the copy pools. */
+  demoResetTry: { limit: 60, windowMs: HOUR },
   demoJudge: { limit: 12, windowMs: HOUR },
   demoJudgeGlobal: { limit: DEMO_JUDGE_COPIES_PER_DAY, windowMs: 24 * HOUR },
   demoFans: { limit: 12, windowMs: HOUR },
@@ -452,6 +454,7 @@ const demoPace: Handler = async (c) => {
  * retired, so a refused reset never leaves the visitor with no demo.
  */
 const demoReset: Handler = async (c) => {
+  await limit(c, "demoResetTry");
   const ids = demoShowIds(demoParam(c));
   for (const id of ids) {
     const r = await c.deps.campaigns.call(id, { op: "demo_check", manageKey: manageKey(c) });

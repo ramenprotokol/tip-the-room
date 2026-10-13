@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DemoFansResponse, DemoPaceResponse, DemoResponse, ManageView } from "../../src/worker/api-types";
 import { LIMITS } from "../../src/worker/router";
 import { workerHarness } from "./harness";
@@ -105,6 +105,18 @@ describe("demo routes", () => {
     const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
     for (let i = 0; i < LIMITS.demo.limit + 3; i++) expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": "k".repeat(43) })).status).toBe(403);
     expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": d.demoKey })).status).toBe(201);
+  });
+
+  it("caps reset attempts at 60 an hour per visitor, wrong key or not, without touching any show after that", async () => {
+    const w = workerHarness();
+    const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+    const wrong = { "x-manage-key": "k".repeat(43) };
+    for (let i = 0; i < LIMITS.demoResetTry.limit; i++) expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, wrong)).status).toBe(403);
+    const calls = vi.spyOn(w.deps.campaigns, "call");
+    const res = await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, wrong);
+    expect(res.status).toBe(429);
+    expect(calls).not.toHaveBeenCalled();
+    expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { ...wrong, "cf-connecting-ip": "10.8.8.8" })).status).toBe(403);
   });
 
   it("a wrong key is refused even when the first show is already gone", async () => {
