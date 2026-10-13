@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AuthorizeResponse, CreateOrderResponse, CreateShowResponse, ManageView, PublicShow, SignResponse } from "../../src/worker/api-types";
 import { LIMITS, PUBLIC_SHOW_CACHE_SECONDS, READ_LIMIT, route, type EdgeCache } from "../../src/worker/router";
+import { FakeAi, json } from "../agent/fake-ai";
 import { workerHarness } from "./harness";
 
 const SENTENCE = "Acoustic set at Lucky's Café, Nov 20, $15 tickets, café wants $100, I need $200";
@@ -129,6 +130,54 @@ describe("router", () => {
     expect(show.status).toBe(200);
     expect(text).not.toContain("@");
     expect((JSON.parse(text) as PublicShow).threshold).toBe(21);
+  });
+
+  it("caps new shows at 300 a day across everyone", async () => {
+    const w = workerHarness();
+    let last = 201;
+    for (let i = 0; i <= LIMITS.createShowGlobal.limit; i++) last = (await w.call("POST", "/api/shows", { sentence: SENTENCE }, { "cf-connecting-ip": `10.${i >> 8}.${i & 255}.1` })).status;
+    expect(last).toBe(429);
+  });
+
+  describe("the model's daily pool of drafts", () => {
+    const answer = { showName: "Acoustic set", roomName: "Lucky's Café", showDate: "2026-11-20", ticketPriceDollars: 15, roomDollars: 100, openerDollars: 0, hostDollars: 0, artistMinimumDollars: 200 };
+    const withAi = (judgeCode?: string) => {
+      const w = workerHarness({ judgeCode });
+      const everyone = new FakeAi();
+      const judges = new FakeAi();
+      const feed = (ai: FakeAi) => Object.assign(ai, { run: async (m: never, i: never) => (ai.calls.push({ model: m, input: i }), json(answer)) });
+      w.deps.ai = { ai: feed(everyone), budget: { tryReserve: async () => true } };
+      w.deps.aiJudge = { ai: feed(judges), budget: { tryReserve: async () => true } };
+      return { w, everyone, judges };
+    };
+    const draft = async (w: ReturnType<typeof workerHarness>, i: number, headers: Record<string, string> = {}) => w.call("POST", "/api/shows", { sentence: SENTENCE }, { "cf-connecting-ip": `10.0.${i}.1`, ...headers });
+
+    it("is 30 a day for the public; the 31st is drafted by the built-in parser, not refused", async () => {
+      const { w, everyone } = withAi();
+      for (let i = 0; i < LIMITS.draftAi.limit; i++) expect(((await (await draft(w, i)).json()) as CreateShowResponse).source).toBe("model");
+      const after = await draft(w, 99);
+      expect(after.status).toBe(201);
+      expect(((await after.json()) as CreateShowResponse).source).toBe("template");
+      expect(everyone.calls).toHaveLength(LIMITS.draftAi.limit);
+    });
+
+    it("gives judge links their own pool and their own AI port", async () => {
+      const { w, everyone, judges } = withAi("judge-code-123");
+      for (let i = 0; i < LIMITS.draftAi.limit + 1; i++) await draft(w, i);
+      const j = await draft(w, 200, { "x-judge-code": "judge-code-123" });
+      expect(((await j.json()) as CreateShowResponse).source).toBe("model");
+      expect(judges.calls).toHaveLength(1);
+      expect(everyone.calls).toHaveLength(LIMITS.draftAi.limit);
+      const wrong = await draft(w, 201, { "x-judge-code": "wrong-code-123" });
+      expect(((await wrong.json()) as CreateShowResponse).source).toBe("template");
+    });
+
+    it("is not spent by a refused request", async () => {
+      const { w, everyone } = withAi();
+      for (let i = 0; i < LIMITS.draftAi.limit + 5; i++) expect((await w.call("POST", "/api/shows", { sentence: "hi" }, { "cf-connecting-ip": `10.0.${i}.1` })).status).toBe(422);
+      expect(((await (await draft(w, 250)).json()) as CreateShowResponse).source).toBe("model");
+      expect(everyone.calls).toHaveLength(1);
+    });
   });
 
   it("refuses a too-short sentence", async () => {

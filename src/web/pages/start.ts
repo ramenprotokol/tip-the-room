@@ -5,7 +5,7 @@ import { $, Ticker, Snd, soundToggle, Placeholder, HoldButton, drawQR, copyText,
 import type { SignHost, SignView, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { CreateShowResponse, SignResponse } from "../../worker/api-types";
-import { API_BASE, HOOKS, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
+import { API_BASE, HOOKS, PUBLIC_ORIGIN, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { rememberKey } from "../shared/keys";
 import { when } from "../shared/format";
@@ -13,7 +13,7 @@ import { dollarsOf, fromDraft, SAFE_PATH, targetOf, toDraftFields, type Draft, t
 
 removeRefOnly();
 markBooted();
-const api = apiClient(API_BASE);
+const api = apiClient(API_BASE, undefined, { judgeCode });
 const els = { sentence: $<HTMLTextAreaElement>('#sentence'), draft: $('#draft'), live: $('#live'), paylist: $('#paylist'), rules: $('#rules'), sign: $<HTMLButtonElement>('#sign'), target: $('[data-target-sentence]'), split: $('[data-split]'), stage: $('[data-stage]'), msg: $('[data-start-msg]'), problems: $('#problems'), fill: $<HTMLButtonElement>('#fill') };
 const ph = new Placeholder($('[data-ph]'), { name: 'Your show', target: 20 });
 let D: Draft | null = null, created: CreateShowResponse | null = null, view: SignView | null = null, signing = false;

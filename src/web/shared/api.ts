@@ -33,7 +33,7 @@ export async function act<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export interface ClientOptions {
-  /** The judge code from the visitor's link, sent on demo create/reset only. */
+  /** The judge code from the visitor's link, sent on create show and demo create/reset only. */
   judgeCode?: () => string | null;
   timeoutMs?: number;
 }
@@ -101,7 +101,7 @@ export function apiClient(base: string, fetchFn: FetchLike = (input, init) => fe
   const show = (id: string) => `/api/shows/${seg(id)}`;
   const demo = (id: string) => `/api/demo/${seg(id)}`;
   return {
-    createShow: (b) => run("POST", "/api/shows", b),
+    createShow: (b) => run("POST", "/api/shows", b, undefined, judge()),
     sign: (id, b) => run("POST", `${show(id)}/sign`, b),
     getShow: (id) => run("GET", show(id)),
     createOrder: (id, b) => run("POST", `${show(id)}/orders`, b),

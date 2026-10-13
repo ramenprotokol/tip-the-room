@@ -31,6 +31,8 @@ export interface RouterDeps {
   campaigns: CampaignsPort;
   quota: QuotaPort;
   ai: AiDeps;
+  /** The draft's AI with the judge-link share of the daily budget. Absent: `ai` serves everyone. */
+  aiJudge?: AiDeps;
   random: Random;
   clock: Clock;
   config: RouterConfig;
@@ -56,6 +58,11 @@ const HOUR = 60 * 60 * 1000;
 /** Spec 8: per-visitor limits (fixed windows) plus a global cap on new demo copies. */
 export const LIMITS = {
   createShow: { limit: 10, windowMs: HOUR },
+  /** All new shows, public and judge: stops a crowd of addresses from making thousands of empty shows. */
+  createShowGlobal: { limit: 300, windowMs: 24 * HOUR },
+  /** Drafts written by the model per day. Past this, "Start a show" still works from the built-in parser. */
+  draftAi: { limit: 30, windowMs: 24 * HOUR },
+  draftAiJudge: { limit: 30, windowMs: 24 * HOUR },
   sign: { limit: 20, windowMs: HOUR },
   order: { limit: 30, windowMs: HOUR },
   manage: { limit: 1500, windowMs: HOUR },
@@ -150,10 +157,19 @@ async function visitor(c: Ctx): Promise<string> {
   return (await sha256Hex(`${c.deps.config.rateSalt}|${visitorNet(ip)}`)).slice(0, 24);
 }
 
-async function limit(c: Ctx, name: LimitName, scope?: string): Promise<void> {
+async function hit(c: Ctx, name: LimitName, scope?: string) {
   const l = LIMITS[name];
-  const r = await c.deps.quota.hit(`${name}:${scope ?? (await visitor(c))}`, l.limit, l.windowMs);
+  return c.deps.quota.hit(`${name}:${scope ?? (await visitor(c))}`, l.limit, l.windowMs);
+}
+
+async function limit(c: Ctx, name: LimitName, scope?: string): Promise<void> {
+  const r = await hit(c, name, scope);
   if (!r.ok) throw new HttpError(429, "rate_limited", "Too many tries. Please wait a moment and try again.", r.retryAfterSec);
+}
+
+/** Like `limit`, but answers true/false instead of refusing: for a pool whose exhaustion has a fallback. */
+async function tryLimit(c: Ctx, name: LimitName, scope?: string): Promise<boolean> {
+  return (await hit(c, name, scope)).ok;
 }
 
 /**
@@ -212,8 +228,13 @@ const createShow: Handler = async (c) => {
   if (!body || typeof body.sentence !== "string" || body.sentence.trim().length < 5 || body.sentence.length > 500) {
     throw new HttpError(422, "invalid", "Describe the show in one sentence (5 to 500 characters).");
   }
+  await limit(c, "createShowGlobal", "all");
   const now = c.deps.clock.now();
-  const suggestion = await draftFromSentence(c.deps.ai, body.sentence, now);
+  // The model drafts from a small daily pool (judge links have their own). Past it, the built-in parser drafts, same as with no AI.
+  const judge = await isJudge(c);
+  const poolOpen = await tryLimit(c, judge ? "draftAiJudge" : "draftAi", "all");
+  const base = judge ? (c.deps.aiJudge ?? c.deps.ai) : c.deps.ai;
+  const suggestion = await draftFromSentence(poolOpen ? base : { ...base, ai: null }, body.sentence, now);
   const showId = newId("s", c.deps.random);
   const signToken = newSecret(c.deps.random);
   const reply = await c.deps.campaigns.call(showId, { op: "init", showId, signTokenHash: await sha256Hex(signToken) });
