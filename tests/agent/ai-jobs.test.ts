@@ -208,6 +208,31 @@ describe("no jargon in model text", () => {
   });
 });
 
+describe("no links, markup or handles in model text", () => {
+  const links = ["Visit https://evil.example now.", "See www.evil.example for more.", "Join at evil.com/win today.", "Mail me at bob@evil.example", "Pay at pay-me.io please.", "Use <b>bold</b> words.", "Go to site.org/now or else.", "Read more: HTTP://x.example."];
+  it("falls back to the template for a pace note that carries one", async () => {
+    for (const extra of links) {
+      const text = `You have 8 of 20 fans and 3 days left. ${extra}`;
+      const r = await paceNote({ ai: new FakeAi([json({ text, recommend: "extend" })]), budget: fakeBudget().port }, facts);
+      expect(r.source, extra).toBe("template");
+    }
+  });
+  it("falls back to the template for a settlement note that carries one", async () => {
+    for (const extra of links) {
+      const text = `The show happened with 21 fans, and Lucky's Café was paid $100 for the night. ${extra}`;
+      const r = await settlementNote({ ai: new FakeAi([json({ text })]), budget: fakeBudget().port }, note);
+      expect(r, extra).toEqual({ source: "template", value: templateNote(note) });
+    }
+  });
+  it("still accepts ordinary sentences with money and full stops", async () => {
+    const pace = await paceNote({ ai: new FakeAi([json({ text: "You have 8 of 20 fans and 3 days left. Extending 7 days gives fans more time.", recommend: "extend" })]), budget: fakeBudget().port }, facts);
+    expect(pace.source).toBe("model");
+    const text = "The show happened with 21 fans, and Lucky's Café was paid $100.00 for the night. Thank you, everyone.";
+    const r = await settlementNote({ ai: new FakeAi([json({ text })]), budget: fakeBudget().port }, note);
+    expect(r).toEqual({ source: "model", value: text });
+  });
+});
+
 describe("settlement note", () => {
   it("requires the party's real amount when the note says paid", async () => {
     const r = await settlementNote({ ai: new FakeAi([json({ text: "The show happened with 21 fans, and Lucky's Café was paid $15 for the night." })]), budget: fakeBudget().port }, note);

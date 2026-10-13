@@ -67,6 +67,8 @@ const DRAFT_SYSTEM =
 /** Longest sentence any draft path looks at. Slicing first keeps every regex input small. */
 export const MAX_SENTENCE = 500;
 const JARGON = /authori[sz]|captur|void|payout batch|sender_|mandate/i;
+/** A link, markup or a handle in the model's text: nothing a note here needs, and a way for an abuser to publish their own words or URL. */
+const LINKISH = /http|www\.|[<>@]|\b[a-z0-9-]+\.(?:com|net|org|io|co|me|us|app|dev|xyz|biz|info|ly|gg)\b/i;
 /** Wording the pace prompt no longer asks for; seeing it means the model is talking about the artist, not to them. */
 const STALE_WORDING = /on hold|the artist/i;
 
@@ -210,7 +212,7 @@ export function parsePaceNote(raw: unknown, f: PaceFacts): PaceNote | null {
   if (typeof r.text !== "string" || r.text.trim().length < 10 || r.text.length > 400) return null;
   const ids: string[] = ["wait", ...f.options.map((o) => o.id)];
   if (typeof r.recommend !== "string" || !ids.includes(r.recommend)) return null;
-  if (JARGON.test(r.text) || STALE_WORDING.test(r.text) || !numbersOk(r.text, paceAllowed(f))) return null;
+  if (JARGON.test(r.text) || LINKISH.test(r.text) || STALE_WORDING.test(r.text) || !numbersOk(r.text, paceAllowed(f))) return null;
   return { text: r.text.trim(), recommend: r.recommend as ProposalOptionId | "wait" };
 }
 
@@ -275,7 +277,7 @@ export function parseNote(raw: unknown, f: NoteFacts): string | null {
   const text = (raw as Record<string, unknown>).text;
   if (typeof text !== "string" || text.trim().length < 20 || text.length > 400) return null;
   const allowed = new Set([String(f.fans), ...moneyForms(f.amountCents), ...moneyForms(f.ticketPriceCents), ...digitsIn(f.showName, f.label)]);
-  if (JARGON.test(text) || !numbersOk(text, allowed)) return null;
+  if (JARGON.test(text) || LINKISH.test(text) || !numbersOk(text, allowed)) return null;
   if (f.outcome === "paid" && /\bpaid\b/i.test(text) && !digitsIn(text).some((d) => moneyForms(f.amountCents).includes(d))) return null;
   return text.trim();
 }
