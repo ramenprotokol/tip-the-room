@@ -40,7 +40,7 @@ export interface PayPalLedgerEvent {
   at: number;
 }
 
-const SIG_HEADERS = ["paypal-auth-algo", "paypal-cert-url", "paypal-transmission-id", "paypal-transmission-sig", "paypal-transmission-time"] as const;
+export const SIG_HEADERS = ["paypal-auth-algo", "paypal-cert-url", "paypal-transmission-id", "paypal-transmission-sig", "paypal-transmission-time"] as const;
 
 function isPayPalCertUrl(u: string): boolean {
   try {

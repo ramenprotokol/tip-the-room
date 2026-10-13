@@ -9,6 +9,15 @@ import { LAUNCH, seqRandom, TestClock } from "../agent/fixtures";
 import { makeService } from "../agent/harness";
 import { memoryDb } from "../agent/sqlite";
 
+/** The five headers PayPal signs a webhook delivery with. The router refuses a delivery without them; tests may blank one. */
+export const SIGNED_BY_PAYPAL: Record<string, string> = {
+  "paypal-auth-algo": "SHA256withRSA",
+  "paypal-cert-url": "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-1",
+  "paypal-transmission-id": "tx-1",
+  "paypal-transmission-sig": "sig-1",
+  "paypal-transmission-time": "2026-11-01T00:00:00Z",
+};
+
 export interface WorkerHarnessOptions {
   webhookId?: string | null;
   judgeCode?: string | null;
@@ -48,7 +57,7 @@ export function workerHarness(opts: WorkerHarnessOptions = {}) {
     route(
       new Request(`http://api.test${path}`, {
         method,
-        headers: { "content-type": "application/json", ...headers },
+        headers: { "content-type": "application/json", ...(path === "/api/webhooks/paypal" ? SIGNED_BY_PAYPAL : {}), ...headers },
         body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
       }),
       deps,

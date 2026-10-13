@@ -7,7 +7,7 @@ import { demoSeeds, type Receivers } from "../agent/demo";
 import { demoShowIds, isDemoId, isShowId, newId, newSecret, sameHex, sha256Hex, showIdFromRef, visitorNet, type Clock, type Random } from "../agent/ids";
 import { DEMO_COPIES_PER_DAY, DEMO_JUDGE_COPIES_PER_DAY, DEMO_TTL_MS } from "../agent/policy";
 import type { QuotaPort } from "../agent/quota";
-import { isKnownEventType, mapWebhookEvent, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
+import { isKnownEventType, mapWebhookEvent, SIG_HEADERS, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
 import { JUDGE_CODE_HEADER, MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoPaceResponse, type DemoResponse, type ErrorCode, type HealthResponse, type PublicShow, type SetupReport } from "./api-types";
 
 export interface CampaignsPort {
@@ -79,6 +79,8 @@ export const LIMITS = {
   demoGlobal: { limit: DEMO_COPIES_PER_DAY, windowMs: 24 * HOUR },
   /** Webhook signature checks cost a PayPal call each, so they are capped per visitor and overall. PayPal sends from a few IPs and retries a 429. */
   webhookVisitor: { limit: 1000, windowMs: HOUR },
+  /** Per show, so one forger naming one show can't reach the shared bucket. */
+  webhookShow: { limit: 200, windowMs: HOUR },
   webhookGlobal: { limit: 2000, windowMs: HOUR },
 } as const;
 type LimitName = keyof typeof LIMITS;
@@ -335,7 +337,14 @@ const paypalWebhook: Handler = async (c) => {
     return json(200, { ignored: true });
   }
   if (!parsed || typeof parsed !== "object" || !isKnownEventType(parsed.event_type) || !showIdFromResource(parsed)) return json(200, { ignored: true });
+  // Cheapest checks first, so a forger spends their own bucket, then one show's, before the shared one: no signature headers,
+  // no quota; an unknown show is acknowledged; only then the global cap and the PayPal call.
+  if (SIG_HEADERS.some((h) => !c.req.headers.get(h))) return json(400, errorBody("bad_request", "The signature check failed."));
   await limit(c, "webhookVisitor");
+  const named = showIdFromResource(parsed) as string;
+  const exists = await c.deps.campaigns.call(named, { op: "public" });
+  if (!exists.ok) return exists.status === 404 ? json(200, { ignored: true }) : json(500, errorBody("internal", "Couldn't record that message yet. Please retry."));
+  await limit(c, "webhookShow", named);
   await limit(c, "webhookGlobal", "all");
   let genuine: boolean;
   try {

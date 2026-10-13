@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuthorizeResponse, CreateOrderResponse, CreateShowResponse, ManageView, PublicShow, SignResponse } from "../../src/worker/api-types";
 import { LIMITS, PUBLIC_SHOW_CACHE_SECONDS, READ_LIMIT, route, type EdgeCache } from "../../src/worker/router";
 import { FakeAi, json } from "../agent/fake-ai";
-import { workerHarness } from "./harness";
+import { sha256Hex } from "../../src/agent/ids";
+import { SIGNED_BY_PAYPAL, workerHarness } from "./harness";
 
 const SENTENCE = "Acoustic set at Lucky's Café, Nov 20, $15 tickets, café wants $100, I need $200";
 
@@ -320,14 +321,15 @@ describe("PayPal webhooks", () => {
   });
 
   it("are refused when the signature check fails, and 502 when PayPal can't be asked", async () => {
-    expect((await workerHarness({ webhookId: "WH-ID", verify: async () => false }).call("POST", "/api/webhooks/paypal", event("sabcdefghjk"))).status).toBe(400);
+    const bad = workerHarness({ webhookId: "WH-ID", verify: async () => false });
+    expect((await bad.call("POST", "/api/webhooks/paypal", event((await createAndSign(bad)).c.showId))).status).toBe(400);
     const down = workerHarness({
       webhookId: "WH-ID",
       verify: async () => {
         throw new Error("network");
       },
     });
-    expect((await down.call("POST", "/api/webhooks/paypal", event("sabcdefghjk"))).status).toBe(502);
+    expect((await down.call("POST", "/api/webhooks/paypal", event((await createAndSign(down)).c.showId))).status).toBe(502);
   });
 
   it("route a verified event to its show by custom_id, once", async () => {
@@ -363,7 +365,8 @@ describe("PayPal webhooks, edge cases", () => {
         throw new RangeError("PAYPAL_WEBHOOK_ID is not set");
       },
     });
-    const res = await w.call("POST", "/api/webhooks/paypal", { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", resource: { custom_id: "sabcdefghjk:p1" } });
+    const { c } = await createAndSign(w);
+    const res = await w.call("POST", "/api/webhooks/paypal", { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", resource: { custom_id: `${c.showId}:p1` } });
     expect(res.status).toBe(403);
     expect(await res.text()).not.toContain("PAYPAL_WEBHOOK_ID");
   });
@@ -375,7 +378,8 @@ describe("PayPal webhooks, edge cases", () => {
         throw new Error("secret-detail-from-paypal");
       },
     });
-    const res = await w.call("POST", "/api/webhooks/paypal", { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", resource: { custom_id: "sabcdefghjk:p1" } });
+    const { c } = await createAndSign(w);
+    const res = await w.call("POST", "/api/webhooks/paypal", { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", resource: { custom_id: `${c.showId}:p1` } });
     expect(res.status).toBe(502);
     expect(await res.text()).not.toContain("secret-detail");
   });
@@ -411,8 +415,8 @@ describe("PayPal webhooks, edge cases", () => {
 });
 
 describe("PayPal webhooks, verification is pre-filtered and rate limited", () => {
-  const known = { id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", create_time: "2026-11-01T00:00:00Z", resource: { id: "C1", custom_id: "sabcdefghjk:p1", amount: { currency_code: "USD", value: "15.00" } } };
-  const counting = () => {
+  const knownFor = (showId: string) => ({ id: "WH-1", event_type: "PAYMENT.CAPTURE.COMPLETED", create_time: "2026-11-01T00:00:00Z", resource: { id: "C1", custom_id: `${showId}:p1`, amount: { currency_code: "USD", value: "15.00" } } });
+  const counting = async () => {
     const calls = { n: 0 };
     const w = workerHarness({
       webhookId: "WH-ID",
@@ -421,11 +425,12 @@ describe("PayPal webhooks, verification is pre-filtered and rate limited", () =>
         return true;
       },
     });
-    return { w, calls };
+    const { c } = await createAndSign(w);
+    return { w, calls, known: knownFor(c.showId) };
   };
 
   it("answer 200 with no PayPal call for junk, unknown types, and events with no valid show id", async () => {
-    const { w, calls } = counting();
+    const { w, calls, known } = await counting();
     const junk = ["not json at all", "null", "42", "[]", "{}"];
     for (const body of junk) expect((await w.call("POST", "/api/webhooks/paypal", body)).status).toBe(200);
     expect((await w.call("POST", "/api/webhooks/paypal", { ...known, event_type: "CHECKOUT.ORDER.APPROVED" })).status).toBe(200);
@@ -435,25 +440,61 @@ describe("PayPal webhooks, verification is pre-filtered and rate limited", () =>
   });
 
   it("verify a valid known event as before", async () => {
-    const { w, calls } = counting();
+    const { w, calls, known } = await counting();
     expect((await w.call("POST", "/api/webhooks/paypal", known)).status).toBe(200);
     expect(calls.n).toBe(1);
   });
 
   it("answer 429 with no PayPal call once a visitor passes the verification limit", async () => {
-    const { w, calls } = counting();
-    for (let i = 0; i < LIMITS.webhookVisitor.limit; i++) expect((await w.call("POST", "/api/webhooks/paypal", known)).status).toBe(200);
-    const res = await w.call("POST", "/api/webhooks/paypal", known);
-    expect(res.status).toBe(429);
-    expect(calls.n).toBe(LIMITS.webhookVisitor.limit);
+    const { w, calls, known } = await counting();
+    const visitor = (await sha256Hex("test-salt|local")).slice(0, 24);
+    for (let i = 0; i < LIMITS.webhookVisitor.limit; i++) await w.deps.quota.hit(`webhookVisitor:${visitor}`, LIMITS.webhookVisitor.limit, LIMITS.webhookVisitor.windowMs);
+    expect((await w.call("POST", "/api/webhooks/paypal", known)).status).toBe(429);
+    expect(calls.n).toBe(0);
     // Junk is still cheap to answer and never counts against the limit.
     expect((await w.call("POST", "/api/webhooks/paypal", "junk")).status).toBe(200);
     // Another visitor is unaffected.
     expect((await w.call("POST", "/api/webhooks/paypal", known, { "cf-connecting-ip": "203.0.113.9" })).status).toBe(200);
   });
 
+  it("refuse a delivery missing any of PayPal's signature headers, spending no quota and making no PayPal call", async () => {
+    const { w, calls, known } = await counting();
+    for (const header of Object.keys(SIGNED_BY_PAYPAL)) {
+      const res = await w.call("POST", "/api/webhooks/paypal", known, { [header]: "" });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: { message: "The signature check failed." } });
+    }
+    for (let i = 0; i < LIMITS.webhookVisitor.limit + 5; i++) expect((await w.call("POST", "/api/webhooks/paypal", known, { "paypal-transmission-sig": "" })).status).toBe(400);
+    expect(calls.n).toBe(0);
+    // The visitor bucket is untouched, and so is the shared one.
+    for (let i = 0; i < LIMITS.webhookGlobal.limit; i++) expect((await w.deps.quota.hit("webhookGlobal:all", LIMITS.webhookGlobal.limit, LIMITS.webhookGlobal.windowMs)).ok).toBe(true);
+    expect((await w.call("POST", "/api/webhooks/paypal", known)).status).toBe(429);
+  });
+
+  it("acknowledge an event for a show that doesn't exist without a PayPal call or touching the shared bucket", async () => {
+    const { w, calls } = await counting();
+    const ghost = knownFor("sabcdefghjk");
+    for (let i = 0; i < 50; i++) expect(await (await w.call("POST", "/api/webhooks/paypal", ghost)).json()).toEqual({ ignored: true });
+    expect(calls.n).toBe(0);
+    for (let i = 0; i < LIMITS.webhookGlobal.limit; i++) expect((await w.deps.quota.hit("webhookGlobal:all", LIMITS.webhookGlobal.limit, LIMITS.webhookGlobal.windowMs)).ok).toBe(true);
+  });
+
+  it("cap verification per show: a forger naming one show is stopped there, before the shared bucket, and other shows still verify", async () => {
+    const { w, calls, known } = await counting();
+    const other = knownFor((await createAndSign(w)).c.showId);
+    for (let i = 0; i < LIMITS.webhookShow.limit; i++) expect((await w.call("POST", "/api/webhooks/paypal", known)).status).toBe(200);
+    expect((await w.call("POST", "/api/webhooks/paypal", known)).status).toBe(429);
+    expect(calls.n).toBe(LIMITS.webhookShow.limit);
+    expect((await w.call("POST", "/api/webhooks/paypal", other, { "cf-connecting-ip": "203.0.113.9" })).status).toBe(200);
+    expect(calls.n).toBe(LIMITS.webhookShow.limit + 1);
+    // Only the verified calls reached the shared bucket.
+    let spent = 0;
+    while ((await w.deps.quota.hit("webhookGlobal:all", LIMITS.webhookGlobal.limit, LIMITS.webhookGlobal.windowMs)).ok) spent += 1;
+    expect(spent).toBe(LIMITS.webhookGlobal.limit - calls.n);
+  });
+
   it("answer 429 with no PayPal call once the global verification cap is spent", async () => {
-    const { w, calls } = counting();
+    const { w, calls, known } = await counting();
     for (let i = 0; i < LIMITS.webhookGlobal.limit; i++) await w.deps.quota.hit("webhookGlobal:all", LIMITS.webhookGlobal.limit, LIMITS.webhookGlobal.windowMs);
     const res = await w.call("POST", "/api/webhooks/paypal", known);
     expect(res.status).toBe(429);
