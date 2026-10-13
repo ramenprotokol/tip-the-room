@@ -197,3 +197,15 @@ test("without a build-time client id the PayPal button uses the one the API send
   await expect(page.locator("#pp-slot")).toHaveClass(/is-rendered/);
   expect(await page.evaluate(() => (window as unknown as { __ppClientId: string }).__ppClientId)).toBe("api-client");
 });
+
+test("while PayPal's checkout loads the slot says so, and not the reference's placeholder words", async ({ page }) => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  await page.route(SDK, async (r) => { await gate; await r.fulfill({ contentType: "application/javascript", body: STUB }); });
+  await installFakeApi(page, pledgeApi());
+  await page.goto(`${APP_BASE}s/${MAYA_ID}?e2e&paypal=test-client`, { waitUntil: "commit" }); // the held SDK script would block the load event
+  await expect(page.locator("#pp-slot")).toHaveText("Loading PayPal checkout…");
+  release();
+  await expect(page.locator("#pp-slot")).toHaveClass(/is-rendered/);
+  await expect(page.locator("#pp-slot")).not.toContainText("Loading PayPal checkout");
+});

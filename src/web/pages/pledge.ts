@@ -151,6 +151,7 @@ function mountButton() {
   if (st.phase === 'closed') return;
   const id = paypalClientId(show?.paypalClientId ?? "");
   if (!id) { if (!HOOKS) el.slot.textContent = 'Pledging isn’t switched on for this site yet.'; return; }
+  if (!PARITY) el.slot.textContent = 'Loading PayPal checkout…'; // the approved picture keeps the reference's placeholder words
   mountPayPalButton(el.slot, id, { canStart: () => flow.canStart(), createOrder: () => flow.createOrder(), onApprove: (orderId) => flow.approve(orderId), onCancel: () => flow.cancel(), onError: (err) => flow.error(err) })
     .catch(() => { el.slot.textContent = 'PayPal couldn’t load. Refresh the page to try again.'; });
 }
