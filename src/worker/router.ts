@@ -58,8 +58,9 @@ const HOUR = 60 * 60 * 1000;
 /** Spec 8: per-visitor limits (fixed windows) plus a global cap on new demo copies. */
 export const LIMITS = {
   createShow: { limit: 10, windowMs: HOUR },
-  /** All new shows, public and judge: stops a crowd of addresses from making thousands of empty shows. */
+  /** New shows per day, public pool and judge pool apart: a crowd of addresses can't lock judge links out. */
   createShowGlobal: { limit: 300, windowMs: 24 * HOUR },
+  createShowGlobalJudge: { limit: 100, windowMs: 24 * HOUR },
   /** Drafts written by the model per day. Past this, "Start a show" still works from the built-in parser. */
   draftAi: { limit: 30, windowMs: 24 * HOUR },
   draftAiJudge: { limit: 30, windowMs: 24 * HOUR },
@@ -232,10 +233,10 @@ const createShow: Handler = async (c) => {
   if (!body || typeof body.sentence !== "string" || body.sentence.trim().length < 5 || body.sentence.length > 500) {
     throw new HttpError(422, "invalid", "Describe the show in one sentence (5 to 500 characters).");
   }
-  await limit(c, "createShowGlobal", "all");
+  const judge = await isJudge(c);
+  await limit(c, judge ? "createShowGlobalJudge" : "createShowGlobal", "all");
   const now = c.deps.clock.now();
   // The model drafts from a small daily pool (judge links have their own). Past it, the built-in parser drafts, same as with no AI.
-  const judge = await isJudge(c);
   const poolOpen = await tryLimit(c, judge ? "draftAiJudge" : "draftAi", "all");
   const base = judge ? (c.deps.aiJudge ?? c.deps.ai) : c.deps.ai;
   const suggestion = await draftFromSentence(poolOpen ? base : { ...base, ai: null }, body.sentence, now);

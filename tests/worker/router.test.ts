@@ -140,6 +140,17 @@ describe("router", () => {
     expect(last).toBe(429);
   });
 
+  it("keeps a judge pool of new shows: a full public pool locks out the public, not a judge link", async () => {
+    const w = workerHarness({ judgeCode: "judge-code-123" });
+    for (let i = 0; i < LIMITS.createShowGlobal.limit; i++) await w.deps.quota.hit("createShowGlobal:all", LIMITS.createShowGlobal.limit, LIMITS.createShowGlobal.windowMs);
+    expect((await w.call("POST", "/api/shows", { sentence: SENTENCE })).status).toBe(429);
+    expect((await w.call("POST", "/api/shows", { sentence: SENTENCE }, { "x-judge-code": "wrong-code-123" })).status).toBe(429);
+    expect((await w.call("POST", "/api/shows", { sentence: SENTENCE }, { "x-judge-code": "judge-code-123" })).status).toBe(201);
+    let last = 201;
+    for (let i = 0; i < LIMITS.createShowGlobalJudge.limit; i++) last = (await w.call("POST", "/api/shows", { sentence: SENTENCE }, { "x-judge-code": "judge-code-123", "cf-connecting-ip": `10.7.${i}.1` })).status;
+    expect(last).toBe(429);
+  });
+
   describe("the model's daily pool of drafts", () => {
     const answer = { showName: "Acoustic set", roomName: "Lucky's Café", showDate: "2026-11-20", ticketPriceDollars: 15, roomDollars: 100, openerDollars: 0, hostDollars: 0, artistMinimumDollars: 200 };
     const withAi = (judgeCode?: string) => {
