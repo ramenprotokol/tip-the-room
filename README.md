@@ -6,13 +6,9 @@ Tip the Room is a settlement agent for small DIY shows: house concerts, record-s
 
 Built for the PayPal AI Hackathon (2026) by Ramen Protocol. **PayPal sandbox only: no real money moves.**
 
-- **Try it:** {{SITE_ORIGIN}} (no sign-up)
-- **Video (captions, no voice):** {{VIDEO_URL}}
-- **Sandbox buyer for the PayPal popup (play money):**
-
-  | Email | Password |
-  |---|---|
-  | `{{BUYER_EMAIL}}` | `{{BUYER_PASSWORD}}` |
+- **Try it:** https://tip-the-room.pages.dev (no sign-up)
+- **Video (narrated, with captions, 2:44):** {{VIDEO_URL}}
+- **Sandbox login for the PayPal popup (play money):** shown on the site in the "For judges" box, with Copy buttons.
 
 ## Why
 
@@ -23,16 +19,18 @@ Built for the PayPal AI Hackathon (2026) by Ramen Protocol. **PayPal sandbox onl
 
 ## What a judge can do (about 5 minutes)
 
-1. Open the site. You get your own private copy of two sample shows (fictional artists and rooms). Their starting fans are real PayPal sandbox holds; the agent seats them a few at a time, so the signs fill over a few minutes.
-2. **Hold a spot on show A** with the real PayPal sandbox popup, using the sandbox buyer above (if its login stops working, tell us in the Devpost comments; we keep a spare). Your bulb lights; the ledger says "on hold", not charged.
-3. **Check pace now**: show B is behind, so the agent proposes a fix (extend the deadline or lower the target) and waits for the artist. Open B's show page to approve or say not now.
-4. **Add fans**, then **Skip to the deadline**: show A tips, every hold is charged and one PayPal payout batch pays the room, the opener and the artist; show B misses and every hold is cancelled.
-5. Open **A's show page**: the settlement ledger (AG Grid: sort, filter, CSV) lists every hold, charge, cancellation and payout with its PayPal sandbox id, and the agent log shows what the agent saw, what it did and which signed rule allowed it.
-6. **Start a show** yourself: one sentence, Workers AI drafts it, code computes the fan target, you hold to sign the money rules and get a share link and QR code.
+Open the site. You get your own private copy of two sample shows (fictional artists and rooms). Their starting fans are real PayPal sandbox holds; the agent seats them a few at a time, so the signs fill over about a minute. The "For judges" box on the page lists these steps:
+
+1. **Hold a spot on Juniper Vale** with the real PayPal sandbox popup, using the sandbox login in the box. Your bulb lights; the ledger says "on hold", not charged.
+2. **Check pace now.** It jumps both shows forward in time so the agent checks whether fans are joining fast enough. If a show is behind (Marlow Finch is), the agent proposes a fix (lower the target) and waits for the artist; a pointer on the card links to that show's page, where you approve or say not now. The button unlocks once the starting fans are seated, about a minute.
+3. **Skip to the deadline.** It ends both shows: Juniper Vale fills up, every hold is charged and one PayPal payout batch pays the room, the opener and the artist; Marlow Finch ends as it stands, and short of its target every hold is cancelled.
+4. **Start your own show.** Type one sentence, the AI drafts it, code computes the fan target and checks every amount against your sentence, and you hold to sign the money rules. "Use example emails" fills the payee emails if you have no sandbox accounts to hand. You get a share link and QR code.
+
+Then open **Juniper Vale's show page**: the settlement ledger (AG Grid: sort, filter, CSV) lists every hold, charge, cancellation and payout with its PayPal sandbox id, and the agent log shows what the agent saw, what it did and which signed rule allowed it.
 
 ## How it works
 
-- **The model proposes, the mandate decides.** Every money action (capture, void, payout, refund) passes a plain-code guard that checks it against the frozen, hashed mandate the artist signed. The model writes drafts, explanations and notes; it never moves money, and no money step depends on it being available (templates take over when the daily AI budget is spent).
+- **The model proposes, the mandate decides.** Every money action (capture, void, payout, refund) passes a plain-code guard that checks it against the frozen, hashed mandate the artist signed. The model writes drafts, explanations and notes; it never moves money, and no money step depends on it being available. Code checks what the model wrote (every amount in a draft against the sentence, the numbers in an explanation against its own figures), and a built-in template takes over when a check fails or the daily AI budget is spent.
 - **Charging happens at tipping, which can be after day 3.** PayPal holds are valid for 29 days, but PayPal only guarantees the funds for the first 3 ([PayPal: authorize and capture later](https://developer.paypal.com/docs/checkout/standard/customize/authorization/)). A show is charged when it tips, so a late capture can fail; that is recorded as a failed charge, and reauthorizing is not relied on. The 21-day campaign cap is our own design choice, to stay well inside the 29 days. Payouts go out at the deadline in one batch.
 - **Every money call is idempotent** (`PayPal-Request-Id`, a deterministic payout `sender_batch_id`), and the runtime reconciles with PayPal (GET) before retrying anything whose answer was lost.
 
@@ -40,7 +38,7 @@ Built for the PayPal AI Hackathon (2026) by Ramen Protocol. **PayPal sandbox onl
 
 - **PayPal (sandbox):** JS SDK v6 button; Orders v2 (`intent: AUTHORIZE`); Payments v2 authorizations (authorize, capture, void, get); captures (refund); Payouts v1 (one batch per show); Webhooks with signature verification.
 - **PayPal Agent Toolkit:** evaluated (`@paypal/agent-toolkit` 1.11.0). It bundles on Cloudflare Workers but its OAuth step fails there (`Unsupported cache mode: default`), so the verdict was NO-GO and the agent's tools are thin wrappers over a small REST client in `src/paypal/` with the same mandate guard. Details: [`docs/superpowers/spikes/2026-10-05-paypal-sandbox.md`](docs/superpowers/spikes/2026-10-05-paypal-sandbox.md).
-- **Cloudflare Workers AI:** `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (pace proposals, settlement notes) and `@cf/meta/llama-3.2-3b-instruct` (sentence to draft), JSON mode, with a hard daily neuron budget (the [free allocation](https://developers.cloudflare.com/workers-ai/platform/pricing/) is 10,000 neurons a day).
+- **Cloudflare Workers AI:** `@cf/meta/llama-3.3-70b-instruct-fp8-fast` for all three jobs (sentence to draft, pace proposals, settlement notes), JSON mode, with a hard daily budget of 8,000 neurons (the [free allocation](https://developers.cloudflare.com/workers-ai/platform/pricing/) is 10,000 a day). The 3B model is still named in the code but no call uses it.
 - **Cloudflare Workers + Durable Objects** (one SQLite-backed object per show, alarms for pace checks and deadlines; [free-plan limits](https://developers.cloudflare.com/durable-objects/platform/pricing/)) and **Cloudflare Pages** for the site.
 - **AG Grid Community** for the settlement ledger; **three.js** and **GSAP** for the marquee signs; TypeScript, Vite, Vitest, Playwright.
 - **Qloo-free:** this entry uses no Qloo data or API, and no taste or recommendation data of any kind.
@@ -69,13 +67,13 @@ Real artists would be onboarded through PayPal's multiparty platform, so money g
 ## Known limits
 
 - **Sandbox only.** Fictional shows; play money.
-- **Demo capacity.** Each visitor gets a private demo copy that lasts 24 hours. Copies are capped per visitor (12 an hour) and per day for the public; judges with the judge link have a reserved daily pool. Heavy public traffic can use up the public pool for the day.
-- **Read limit.** Show reads are limited per visitor, using a counter held in memory in each Worker isolate, so the cap is per isolate and resets when the isolate restarts. An edge cache (3 seconds) is configured on public show reads; whether it takes effect on the hosting domain is unverified, and its effect will be measured at launch. Heavy traffic can use up the free daily quota, and the site stops answering until the daily reset.
+- **Demo capacity.** Each visitor gets a private demo copy that lasts 24 hours. Copies are capped at 12 an hour and 25 a day per visitor, and 50 a day for everyone together. Heavy public traffic can use up the day's copies.
+- **Read limit.** Show reads are limited per visitor, using a counter held in memory in each Worker isolate, so the cap is per isolate and resets when the isolate restarts. An edge cache (3 seconds) is configured on public show reads; we have not measured whether it takes effect on the hosting domain. Heavy traffic can use up the free daily quota, and the site stops answering until the daily reset.
 - **Agent toolkit: NO-GO on Workers.** The PayPal Agent Toolkit does not run its OAuth step on Cloudflare Workers, so this project calls PayPal's REST API directly (see Tools used).
-- **Reauthorizing holds is unverified.** On the sandbox account used, card holds offer no reauthorize link, and a reauthorize on day 0 is refused. We did not verify the day 4 to day 29 reauthorize path, so a hold near expiry is voided and replaced with a fresh hold.
-- **Payouts to the example receivers stay pending.** The sample shows pay example receivers. Payouts to them stay pending until real sandbox personal accounts are set as the payees.
-- **Webhooks** are capped per sender; PayPal retries refused deliveries for days, and no money step depends on a webhook (the agent reads PayPal itself).
-- **Calling off** is only possible after a show tips (fans are refunded); a show that hasn't tipped simply misses at its deadline.
+- **Reauthorizing holds is unverified.** On the sandbox account used, card holds offer no reauthorize link, and a reauthorize on day 0 is refused. We did not verify the day 4 to day 29 reauthorize path. Real fans' holds are not renewed: a show is charged when it tips, within the 21-day campaign cap. Only the demo's simulated fans get a fresh hold in place of one near expiry.
+- **Demo payouts need sandbox receivers.** The sample shows pay three sandbox personal accounts set as receivers (the live site has them configured). With none set, the shows pay example addresses and those payouts stay pending.
+- **Webhooks** are capped per sender (1,000 an hour), per show (200 an hour) and overall (2,000 an hour); PayPal retries refused deliveries for days, and no money step depends on a webhook (the agent reads PayPal itself).
+- **Calling off** is only possible after a show tips and before its deadline (fans are refunded); a show that hasn't tipped simply misses at its deadline.
 
 ## Build log
 
