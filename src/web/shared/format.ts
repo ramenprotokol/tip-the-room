@@ -2,7 +2,7 @@
 import type { CampaignState } from "../../core/campaign";
 import { RULES } from "../../core/rules";
 import type { Role } from "../../core/split";
-import type { AgentLogDto, PublicParty } from "../../worker/api-types";
+import type { AgentLogDto, PublicParty, PublicShow } from "../../worker/api-types";
 
 export const toMs = (v: string | number): number => (typeof v === "number" ? v : Date.parse(v));
 
@@ -208,6 +208,16 @@ export function payState(parties: { payoutStatus: string }[]): PayState {
   if (parties.some((p) => p.payoutStatus === "failed")) return "failed";
   if (payoutsConfirmed(parties)) return "confirmed";
   return parties.some((p) => p.payoutStatus === "planned") ? "planned" : "waiting";
+}
+
+/**
+ * The fans the show's page counts. Live, tipped and paid shows: those on hold or charged. A show that ended without paying
+ * out (missed: every hold released; called off after the tip: every charge refunded) has none held or charged any more, so
+ * the count is everyone who had joined. Reading only `committed` after a reload gave "0 of 25 fans".
+ */
+export function fansShown(s: Pick<PublicShow, "state" | "fans">): number {
+  const end = endOf(s.state);
+  return end === "missed" || end === "cancelled" ? s.fans.committed + s.fans.released + s.fans.refunded : s.fans.committed;
 }
 
 /** The show's own clock: the server's `now` plus the time since it arrived. */

@@ -350,3 +350,68 @@ test.describe("a calm confirmation once the artist has approved a change", () =>
     await expect(step2(page)).toBeHidden();
   });
 });
+
+test.describe("a show that ended without paying out keeps its fan count after a reload", () => {
+  const MARLOW = { showId: `${DEMO_ID}b`, showName: "Marlow Finch", roomName: "Elm St house", showDate: "2026-11-22", price: 1200, threshold: 28, deadline: Date.UTC(2026, 10, 20, 18), launchedAt: Date.UTC(2026, 10, 15, 12), now: Date.UTC(2026, 10, 20, 18, 5), split: [{ role: "room" as const, label: "Elm St house", fixedCents: 6000, minimumCents: null }, { role: "opener" as const, label: "The opener", fixedCents: 4000, minimumCents: null }, { role: "artist" as const, label: "Marlow Finch", fixedCents: null, minimumCents: 22000 }] };
+  /** The demo fake with show B replaced by an ended show the way the server reports it: nothing held or charged any more. */
+  function endedApi(state: "missed" | "cancelled", extra: Partial<PublicShow["fans"]> = {}): FakeApi {
+    const base = demoApi();
+    const ended = { ...showOf(MARLOW, { fans: 19, state, threshold: 25, version: 9 }) };
+    ended.fans = { ...ended.fans, ...extra };
+    return (req) => {
+      if (req.method === "GET" && req.path === `/api/shows/${MARLOW.showId}`) return { body: ended };
+      if (req.method === "GET" && req.path === `/api/shows/${MARLOW.showId}/manage`) { const v = base(req); return v && { ...v, body: { ...(v.body as ManageView), show: ended, version: ended.version } }; }
+      return base(req);
+    };
+  }
+  const saved = (page: Page) => page.addInitScript((v) => localStorage.setItem("ttr:demo", JSON.stringify(v)), { demoId: DEMO_ID, demoKey: "demo-key-fixture", expiresAt: Date.now() + 86_400_000 });
+  const b = (page: Page, sel: string) => page.locator(`#show-b ${sel}`);
+
+  test("home page: a missed show reads 19 of 25 fans, 6 short, $228 released back to 19 fans", async ({ page }) => {
+    await saved(page);
+    await open(page, endedApi("missed"), "?e2e=quiet");
+    await expect(b(page, "[data-fans] .sr")).toHaveText("19");
+    await expect(b(page, "[data-of]")).toHaveText("of 25 fans");
+    await expect(b(page, "[data-fans-sub]")).toHaveText("Called off · 6 short");
+    await expect(b(page, "[data-money-sub]")).toHaveText("$228 released back to 19 fans · nobody paid");
+  });
+
+  test("home page: a show called off after the tip keeps its count and its refund wording", async ({ page }) => {
+    await saved(page);
+    await open(page, endedApi("cancelled", { refunded: 19, charged: 0, released: 0 }), "?e2e=quiet");
+    await expect(b(page, "[data-fans] .sr")).toHaveText("19");
+    await expect(b(page, "[data-fans-sub]")).toHaveText("Called off · refunding");
+    await expect(b(page, "[data-money-sub]")).toHaveText("Called off. Every fan who was charged is getting $12 back.");
+  });
+
+  test("home page: a refund still in progress counts the charged and the refunded together", async ({ page }) => {
+    await saved(page);
+    await open(page, endedApi("cancelled", { refunded: 14, charged: 5, committed: 5, released: 0 }), "?e2e=quiet");
+    await expect(b(page, "[data-fans] .sr")).toHaveText("19");
+  });
+
+  test("home page: live, tipped and paid shows are unchanged", async ({ page }) => {
+    await saved(page);
+    await open(page, demoApi(), "?e2e=quiet");
+    await expect(page.locator("#show-a [data-fans] .sr")).toHaveText("29");
+    await expect(page.locator("#show-b [data-fans] .sr")).toHaveText("19");
+    await expect(page.locator("#show-a [data-fans-sub]")).toHaveText("5 more to make it happen");
+  });
+
+  test("the artist's show page and the fan page read the same for a missed show", async ({ page }) => {
+    const ended = showOf({ ...MAYA, showId: MAYA_ID }, { fans: 12, state: "missed", threshold: 21, version: 9 });
+    expect(ended.fans.committed).toBe(0);
+    await installFakeApi(page, manageApi([{ ...MANAGE_FRAMES.initial, show: ended, version: ended.version, proposals: [] }]));
+    await page.goto(`${APP_BASE}s/${MAYA_ID}/manage?e2e#${MAYA_KEY}`);
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await expect(page.locator("[data-fans] .sr")).toHaveText("12");
+    await expect(page.locator("[data-fans-sub]")).toHaveText("Called off · 9 short");
+    await expect(page.locator("[data-sentence]")).toContainText("Called off. Every hold was cancel");
+    const fan = await page.context().newPage();
+    await installFakeApi(fan, pledgeApi({ show: ended }));
+    await fan.goto(`${APP_BASE}s/${MAYA_ID}?e2e`);
+    await expect(fan.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await expect(fan.locator("[data-fans] .sr")).toHaveText("12");
+    await expect(fan.locator("[data-fans-sub]")).toHaveText("Called off · 9 short");
+  });
+});

@@ -10,7 +10,7 @@ import type { AgentLogDto, ManageView, ProposalDto, PublicShow } from "../../wor
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, planSplit, restingLine, payoutsConfirmed, PAYOUT_TAG, PLATE_WORD, payoutSignsWords, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
+import { aiResting, andList, askEmphasis, dayLabel, fansShown, dollars, emphasis, endOf, fineLine, money2, planSplit, restingLine, payoutsConfirmed, PAYOUT_TAG, PLATE_WORD, payoutSignsWords, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
 import { dismiss, forgetKey, isDismissed, recallKey, rememberKey, showIdFromPath, takeKeyFromHash } from "../shared/keys";
 import type { LedgerGrid } from "../shared/ledger";
 const ledgerModule = import("../shared/ledger"); // AG Grid is the biggest chunk: start fetching it now, in parallel with the API
@@ -235,7 +235,7 @@ function miss() {
 /** A page opened after things happened shows the current state at once, without replaying beats. */
 function jumpTo(s: PublicShow) {
   const end = endOf(s.state);
-  st = { phase: end === 'live' ? 'open' : end === 'tipped' ? 'tipped' : end === 'paid' ? 'paid' : 'released', tipped: end === 'tipped' || end === 'paid' || end === 'cancelled', fans: s.fans.committed, remain: remainSec(s.deadline, clock), busy: false, ffRaf: 0 };
+  st = { phase: end === 'live' ? 'open' : end === 'tipped' ? 'tipped' : end === 'paid' ? 'paid' : 'released', tipped: end === 'tipped' || end === 'paid' || end === 'cancelled', fans: fansShown(s), remain: remainSec(s.deadline, clock), busy: false, ffRaf: 0 };
   el.clock.classList.toggle('zero', st.phase === 'paid' || st.phase === 'released');
   const fixed = fixedParties(), artist = s.split.find(p => p.role === 'artist');
   if (st.phase === 'paid') { const a = paidAmounts(); payout?.set(a, confirmed() ? a.map(() => 'Paid') : payTags(), a.map(() => 'paid'), payNote(a)); }

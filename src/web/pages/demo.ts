@@ -10,7 +10,7 @@ import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } f
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, PAYOUT_TAG, PLATE_WORD, payState, payoutSignsWords, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
+import { aiResting, andList, dayLabel, fansShown, dollars, emphasis, endOf, fineLine, payoutsConfirmed, PAYOUT_TAG, PLATE_WORD, payState, payoutSignsWords, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
@@ -101,7 +101,7 @@ class ShowCtl {
   }
   jumpTo(s: PublicShow) {
     const end = endOf(s.state);
-    this.fans = s.fans.committed; this.tipped = end === 'tipped' || end === 'paid' || end === 'cancelled';
+    this.fans = fansShown(s); this.tipped = end === 'tipped' || end === 'paid' || end === 'cancelled';
     this.phase = end === 'live' ? 'open' : end === 'tipped' ? 'tipped' : end === 'paid' ? 'paid' : 'released';
     this.remain = remainSec(s.deadline, this.clock);
     this.renderMoney(true); this.odoFans.set(this.fans, true);
@@ -436,7 +436,7 @@ function credsBox() {
 }
 let retryAt = 0, lastChangeAt = Date.now();
 /** A passive watcher must not see the demo freeze: keep going while a copy is still seating fans or settling, and for a while after its last change. */
-const settling = () => Date.now() - lastChangeAt < IDLE_MS || ctls.some(c => c.busy || c.phase === 'ff' || c.phase === 'paying' || (c.show !== null && c.fans !== c.show.fans.committed));
+const settling = () => Date.now() - lastChangeAt < IDLE_MS || ctls.some(c => c.busy || c.phase === 'ff' || c.phase === 'paying' || (c.show !== null && c.fans !== fansShown(c.show)));
 function pausedLine(paused: boolean) { const p = $('#paused'); p.hidden = PARITY || !paused; p.textContent = p.hidden ? '' : 'Paused · tap or move the mouse to keep watching'; }
 async function poll() {
   if (!demo || document.hidden || inflight) return;

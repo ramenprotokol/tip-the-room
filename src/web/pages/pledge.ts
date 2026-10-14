@@ -9,7 +9,7 @@ import type { MarqueeHooks } from "../shared/hooks";
 import type { AuthorizeResponse, PublicShow } from "../../worker/api-types";
 import { API_BASE, HOOKS, PARITY, markBooted, markReady, paypalClientId, removeRefOnly } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { dayLabel, dollars, endOf, planSplit, remainSec, ROLE_WORD, ShowClock, when } from "../shared/format";
+import { dayLabel, dollars, endOf, fansShown, planSplit, remainSec, ROLE_WORD, ShowClock, when } from "../shared/format";
 import { showIdFromPath } from "../shared/keys";
 import { cleanInitials, noMemory, PledgeFlow, sessionMemory, type PledgeEvent } from "../shared/pledge-flow";
 import { mountPayPalButton } from "../shared/paypal";
@@ -169,7 +169,7 @@ async function boot(): Promise<void> {
   catch (e) { notice(e instanceof ApiFailure && e.status !== 404 ? e.message : NO_SHOW); el.card.hidden = true; return; }
   show = s; clock = new ShowClock(s.now);
   const e = endOf(s.state);
-  st.fans = s.fans.committed; st.phase = e === 'live' ? 'held' : e === 'tipped' ? 'tipped' : 'closed';
+  st.fans = fansShown(s); st.phase = e === 'live' ? 'held' : e === 'tipped' ? 'tipped' : 'closed';
   texts(s);
   ph = new Placeholder($('[data-ph]'), { name: s.showName, target: s.threshold });
   if (st.phase === 'tipped') setStatus(el.status, 'tipped', 'It’s on!', '· everyone’s charged', true);

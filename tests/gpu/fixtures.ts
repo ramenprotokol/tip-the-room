@@ -54,7 +54,8 @@ export function showOf(b: ShowBase, s: ShowState): PublicShow {
     threshold,
     deadline: iso(s.deadline ?? b.deadline),
     launchedAt: iso(b.launchedAt),
-    fans: { committed: n, held: count("held"), charged: count("charged"), released: count("released"), refunded: count("refunded"), failed: 0, more: Math.max(0, threshold - n) },
+    // As the server reports it: after a miss or a call-off nothing is held or charged any more, so `committed` is 0.
+    fans: { committed: status === "released" || status === "refunded" ? 0 : n, held: count("held"), charged: count("charged"), released: count("released"), refunded: count("refunded"), failed: 0, more: Math.max(0, threshold - (status === "released" || status === "refunded" ? 0 : n)) },
     money: { heldCents: count("held") * b.price, chargedCents: count("charged") * b.price },
     bulbs: Array.from({ length: n }, (_, i) => ({ initials: s.tag && s.tag.at === i ? s.tag.initials : INITIALS[i % INITIALS.length], status })),
     split: b.split,
