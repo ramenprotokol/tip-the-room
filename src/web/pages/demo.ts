@@ -3,14 +3,14 @@ import "../shared/styles.css";
 import "../shared/boot.css";
 import { IDLE_MS, watchIdle } from "../shared/idle";
 import { compareVersion } from "../shared/version";
-import { $, REDUCED, Ticker, copyText, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
+import { $, REDUCED, Ticker, copyText, legendPayouts, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, setStatus, countdownHTML, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, PAYOUT_TAG, payState, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
+import { aiResting, andList, dayLabel, dollars, emphasis, endOf, fineLine, payoutsConfirmed, PAYOUT_TAG, PLATE_WORD, payState, payoutSignsWords, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
 
 removeRefOnly();
@@ -62,7 +62,16 @@ class ShowCtl {
   payFansSub(): string { return ({ confirmed: 'Everyone’s paid', failed: 'A payout didn’t go through', planned: 'Paying everyone', funds: 'Paying everyone · waiting on PayPal', waiting: 'Payouts sent' } as const)[payState(this.parties)]; }
   visual(): { phase: Phase; fans: number } { const p = this.phase; return { phase: p === 'paying' || p === 'paid' ? 'paid' : p === 'missing' || p === 'released' ? 'released' : this.tipped ? 'tipped' : 'held', fans: this.fans }; }
   splitOf(fans: number): number[] { return this.show ? planSplit(this.show.split, fans * this.cents).map(c => c / 100) : []; }
-  payees(): Payee[] { const a = this.splitOf(Math.max(this.fans, this.target)); return (this.show?.split ?? []).map((p, i) => ({ label: ROLE_WORD[p.role], amount: a[i] })); }
+  payees(): Payee[] { const a = this.splitOf(Math.max(this.fans, this.target)); return (this.show?.split ?? []).map((p, i) => ({ label: ROLE_WORD[p.role], amount: a[i], word: PARITY ? undefined : this.plateWord(p.role) })); }
+  /** The word on a payee's plate: that payee's own payout state, the same one the strip's tag and the card use. Before any view has arrived, the card's own "Payouts sent". */
+  plateWord(role: string): string { const p = this.parties.find(x => x.role === role); return p ? PLATE_WORD[p.payoutStatus] : this.parties.length ? PLATE_WORD.none : PLATE_WORD.pending; }
+  /** The payout box with the final amounts, per-party tags and note at once (a page opened, or a view arriving, after the payout started). */
+  fillStrip() {
+    if (this.key !== 'a' || !payout || !this.show) return;
+    const amts = this.paidAmounts(), split = this.show.split;
+    const tags = this.confirmed ? amts.map(() => 'Paid') : this.parties.length ? this.parties.map(p => PAYOUT_TAG[p.payoutStatus]) : amts.map(() => PAYOUT_TAG.pending);
+    payout.set(amts, tags, amts.map(() => 'paid'), `One PayPal payout, in money-rule order: ${split.map((p, i) => `${p.label} ${usd(amts[i])}`).join(' · ')}.`);
+  }
   paidAmounts(): number[] { const ps = this.parties; return ps.length && ps.every(p => p.payoutCents !== null) ? ps.map(p => (p.payoutCents ?? 0) / 100) : this.splitOf(this.fans); }
   model(): SignModel { return { name: this.name, crest: this.look.crest, target: this.target, seed: this.look.seed, yaw: this.look.yaw, payees: this.payees() }; }
   attach(host: SignHost) {
@@ -101,7 +110,7 @@ class ShowCtl {
     this.moneySub.textContent = this.phase === 'paid' ? this.payMoneySub() : this.phase === 'released' ? (this.refunded ? this.refundSub() : `${usd(this.fans * this.cents / 100)} released back to ${this.fans} fans · nobody paid`) : this.tipped ? `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}` : 'Nobody pays unless it happens.';
     this.setStatus(this.phase === 'open' ? 'held' : this.phase === 'tipped' ? 'tipped' : this.phase === 'paid' ? this.payKey : this.refunded ? 'refunding' : 'released', true);
     this.renderClock(); this.renderFans(); this.buttons(); this.ph?.update(this.visual().phase, this.fans); this.label();
-    if (this.key === 'a' && payout) payout.reset();
+    if (this.key === 'a' && payout) { if (this.phase === 'paid' && !PARITY) this.fillStrip(); else payout.reset(); }
   }
   setStatus(k: StatusKey, instant?: boolean) {
     const roles = andList((this.show?.split ?? []).map(p => ROLE_WORD[p.role].toLowerCase()));
@@ -127,7 +136,7 @@ class ShowCtl {
   }
   label() {
     const v = this.visual(), t = this.target;
-    const txt = v.phase === 'paid' ? 'fully lit, with payout signs hanging below: everyone has been paid'
+    const txt = v.phase === 'paid' ? `fully lit, with payout signs hanging below: ${PARITY ? 'everyone has been paid' : payoutSignsWords(payState(this.parties))}`
       : v.phase === 'tipped' ? `fully lit: the show reached ${t} fans and everyone was charged`
       : v.phase === 'released' ? (this.refunded ? 'dark: the show was called off and every fan who was charged is being refunded' : 'dark: the show was called off, every hold was cancelled, the board reads CALLED OFF, $0 CHARGED')
       : `${this.fans} of ${t} border bulbs screwed in and glowing dimly: fans on hold, nobody charged`;
@@ -151,6 +160,7 @@ class ShowCtl {
     this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length; renderAsks();
     for (const e of [...v.log].reverse()) if (e.seq > this.lastSeq) { this.queue.push(e); this.lastSeq = e.seq; }
     if (this.phase === 'paid') { this.setStatus(this.payKey, true); this.renderFans(); this.moneySub.textContent = this.payMoneySub(); }
+    if (!PARITY) { this.view?.setPlateWords(this.payees().map(p => p.word)); if (this.phase === 'paid') { this.fillStrip(); this.label(); } }
     if (instant) this.flush(null, true); else this.step();
   }
   flush(rule: RuleId | null, instant = false) {
@@ -442,6 +452,7 @@ soundToggle($('#sound'));
 // New real-site pointers (app-only: the pixel-comparison page never shows them). The T/P/M/R key hints only work in test builds.
 if (!PARITY) document.querySelectorAll<HTMLElement>('#hdr-links, [data-both-note], #agent-note').forEach(n => { n.hidden = false; });
 if (!HOOKS) $('.keys').hidden = true;
+if (!PARITY) legendPayouts(); // the plates say PAYING, SENT or PAID per payee, so the legend can't say everyone's paid
 $('#pace').addEventListener('click', () => { void checkPace(); });
 // t/p/m/r are the reference's test keys: dev and test builds only. The real site has the visible buttons.
 if (HOOKS) addEventListener('keydown', e => {

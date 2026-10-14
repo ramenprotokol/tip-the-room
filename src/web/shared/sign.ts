@@ -29,7 +29,8 @@ type Val<T> = { value: T };
 type RGB = number[];
 export type Phase = 'held' | 'tipped' | 'paid' | 'released';
 export type AnimKind = 'pledge' | 'tip' | 'bonus' | 'payout' | 'miss' | 'lap' | 'reduced';
-export interface Payee { label: string; amount: number }
+/** `word` is what the brass plate says after the label once the payout sign has dropped; absent means PAID (the reference's picture). */
+export interface Payee { label: string; amount: number; word?: string }
 export interface SignModel { name: string; crest?: string; target: number; seed?: number; yaw?: number; payees?: Payee[] }
 export interface SignOpts {
   state?: () => { phase: Phase; fans: number };
@@ -48,7 +49,7 @@ type Mats = {
 type Small = {
   g: THREE.Group; yF: number; lat: THREE.InstancedMesh; em: Float32Array; aux: Float32Array; pos: Float32Array; cells: number; cols: number; rows: number;
   amtCells: number[]; rods: THREE.Mesh[]; sh: THREE.Mesh; meshes: THREE.Mesh[]; plateMat: THREE.MeshStandardMaterial; texA: THREE.CanvasTexture; texB: THREE.CanvasTexture;
-  drop: number; isPaid: boolean;
+  drop: number; isPaid: boolean; word: string; label: string;
 };
 type AmtCell = { k: number; ci: number; x: number; y: number; z: number };
 type SparkU = {
@@ -130,12 +131,12 @@ function canvasTex(w: number, h: number, draw: (x: CanvasRenderingContext2D, w: 
   const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d')!, w, h);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
-function brassPlate(text: string, paid: boolean) {
+function brassPlate(text: string, word: string | null) {
   return canvasTex(512, 112, (x, w, h) => {
     const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#EBCB82'); g.addColorStop(.45, '#C99F4B'); g.addColorStop(1, '#9C752B');
     x.fillStyle = g; x.fillRect(0, 0, w, h); x.strokeStyle = 'rgba(70,45,10,.55)'; x.lineWidth = 5; x.strokeRect(8, 8, w - 16, h - 16);
     let size = 66; x.textBaseline = 'middle'; x.textAlign = 'left';
-    const t2 = paid ? '  PAID' : '';
+    const t2 = word ? `  ${word}` : '';
     const fit = () => { x.font = `800 ${size}px ${FONT}`; if ('letterSpacing' in x) x.letterSpacing = `${size * .1}px`; return x.measureText(text).width + (t2 ? x.measureText(t2).width : 0); };
     while (fit() > w - 40 && size > 30) size -= 2;
     const w1 = x.measureText(text).width, w2 = t2 ? x.measureText(t2).width : 0, x0 = (w - w1 - w2) / 2;
@@ -549,6 +550,14 @@ export class SignView {
   }
   /* payout signs hang under the main sign on brass rods; 2–4 of them */
   setPayouts(payees: Payee[]) { this.model = { ...this.model, payees }; if (this.root) { this.buildSmalls(payees); this.warm = true; this.dirty = true; } }
+  /** Repaints the words on the payout plates (PAYING, SENT, PAID, FAILED) without rebuilding the signs or replaying the drop. */
+  setPlateWords(words: (string | undefined)[]) {
+    this.model = { ...this.model, payees: (this.model.payees ?? []).map((p, i) => ({ ...p, word: words[i] })) };
+    this.smalls.forEach((s, k) => {
+      const w = words[k] ?? 'PAID'; if (w === s.word) return;
+      s.texB.dispose(); s.texB = brassPlate(s.label.toUpperCase(), w); s.word = w; this.warm = true; this.dirty = true;
+    });
+  }
   buildSmalls(payees: Payee[]) {
     for (const s of this.smalls || []) { this.root.remove(s.g); s.rods.forEach(r => this.root.remove(r)); disposeTree(s.g); }
     const rm = new Set(this.smalls.flatMap(s => [...s.meshes, ...s.rods])); this.boardMeshes = this.boardMeshes.filter(m => !rm.has(m));
@@ -561,9 +570,9 @@ export class SignView {
     const texts = payees.map(p => `$${Math.round(p.amount)}`);
     let rows = 10; const colsFor = (rws: number) => { const iw = w - .1, ih = S.h - .12, lw = iw - .03, lh = ih - S.plateH - .04; return Math.floor(lw / (lh / rws)); };
     while (rows < 14 && texts.some(t => pxWidth(t) > colsFor(rows))) rows++;
-    payees.forEach((p, k) => this.buildSmall(k, p.label, texts[k], (k - (n - 1) / 2) * (w + gapX), w, rows));
+    payees.forEach((p, k) => this.buildSmall(k, p.label, texts[k], (k - (n - 1) / 2) * (w + gapX), w, rows, p.word ?? 'PAID'));
   }
-  buildSmall(k: number, label: string, amtText: string, x: number, w: number, rows: number) {
+  buildSmall(k: number, label: string, amtText: string, x: number, w: number, rows: number, word = 'PAID') {
     const L = this.L, S = L.small, M = this.M, root = this.root, before = this.boardMeshes.length;
     const g = new THREE.Group(); root.add(g);
     const yF = -L.H / 2 - S.gap - S.h / 2; g.position.set(x, yF, 0); g.visible = false;
@@ -573,7 +582,7 @@ export class SignView {
     board(ringGeo(w - .022, S.h - .022, .03, w - .056, S.h - .056, .02, .006, .006), M.brass).position.z = fz - .006;
     board(ringGeo(iw + .04, ih + .04, .025, iw + .004, ih + .004, .01, .01, .008), M.brass).position.z = fz - .004;
     board(new THREE.PlaneGeometry(iw + .01, ih + .01), M.panel).position.z = fz + .002;
-    const texA = brassPlate(label.toUpperCase(), false), texB = brassPlate(label.toUpperCase(), true);
+    const texA = brassPlate(label.toUpperCase(), null), texB = brassPlate(label.toUpperCase(), word);
     const plateMat = new THREE.MeshStandardMaterial({ map: texA, metalness: .7, roughness: .34 });
     board(new THREE.PlaneGeometry(iw - .02, S.plateH), plateMat).position.set(0, ih / 2 - S.plateH / 2 - .01, fz + .004);
     const lw = iw - .03, lh = ih - S.plateH - .04, cy = -ih / 2 + lh / 2 + .012;
@@ -592,7 +601,7 @@ export class SignView {
     const rods = [-1, 1].map(s => { const rod = this.board(new THREE.CylinderGeometry(.011, .011, 1, 10), M.brass); rod.position.set(x + s * (w / 2 - .14), 0, 0); rod.visible = false; return rod; });
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(w + .5, S.h + .5), M.shadow); sh.position.set(.06, -.1, -S.d / 2 - .03); g.add(sh); this.shadows.push(sh);
     const meshes = this.boardMeshes.slice(before).filter(m => !rods.includes(m));
-    this.smalls.push({ g, yF, lat, em, aux, pos, cells, cols, rows, amtCells, rods, sh, meshes, plateMat, texA, texB, drop: 0, isPaid: false });
+    this.smalls.push({ g, yF, lat, em, aux, pos, cells, cols, rows, amtCells, rods, sh, meshes, plateMat, texA, texB, drop: 0, isPaid: false, word, label });
   }
   quadGeo(count: number) { const g = new THREE.InstancedBufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0], 3)); g.setIndex([0, 1, 2, 0, 2, 3]); g.instanceCount = count; return g; }
   buildFx() {

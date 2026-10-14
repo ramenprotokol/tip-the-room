@@ -78,10 +78,13 @@ function texts(s: PublicShow) {
   document.querySelector('meta[name="description"]')?.setAttribute('content', `Hold a spot at ${s.showName}, ${s.roomName}. PayPal holds ${p} and you’re only charged if the show happens.`);
 }
 
+/** The fan page only knows the show's state, not each payout, and it never says "confirmed": PAYING until the payout is sent, then SENT (the card says "Payouts sent"). */
+const fanPlateWord = (s: PublicShow) => s.state === 'paying_out' ? 'PAYING' : 'SENT';
+
 /** The sign for a show: also used again when the artist changes the target or the deadline. */
 function signModel(s: PublicShow): SignModel {
   const amounts = planSplit(s.split, Math.max(st.fans, s.threshold) * s.ticketPriceCents);
-  return { name: s.showName, crest: s.roomName.toUpperCase(), target: s.threshold, seed: SEED, yaw: YAW, payees: s.split.map((p, i) => ({ label: ROLE_WORD[p.role], amount: amounts[i] / 100 })) };
+  return { name: s.showName, crest: s.roomName.toUpperCase(), target: s.threshold, seed: SEED, yaw: YAW, payees: s.split.map((p, i) => ({ label: ROLE_WORD[p.role], amount: amounts[i] / 100, word: PARITY ? undefined : fanPlateWord(s) })) };
 }
 
 function notice(text: string) {
@@ -186,7 +189,7 @@ async function poll() {
   const termsChanged = s.threshold !== show.threshold || s.deadline !== show.deadline;
   show = s; clock?.sync(s.now);
   const e = endOf(s.state);
-  if (e !== 'live' && e !== 'tipped') { st.phase = 'closed'; closedState(s); render(); view?.reset(); return; }
+  if (e !== 'live' && e !== 'tipped') { st.phase = 'closed'; closedState(s); render(); if (!PARITY) view?.setPlateWords(s.split.map(() => fanPlateWord(s))); view?.reset(); return; }
   st.fans = s.fans.committed;
   if (termsChanged) { texts(s); const m = signModel(s); ph?.setModel(m); view?.setModel(m); view?.reset(); }
   if (wasLive && e === 'tipped') {

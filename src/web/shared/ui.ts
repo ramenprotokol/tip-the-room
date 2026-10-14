@@ -295,6 +295,12 @@ export class HoldButton {
   }
 }
 
+/** The key's "Signs drop below" line says what the plates say per payee (PAYING, SENT, PAID), not that everyone is paid. Real pages only. */
+export function legendPayouts() {
+  const text = document.querySelector('.key .sw-paid')?.parentElement?.lastChild;
+  if (text && text.nodeType === 3) text.textContent = 'Signs drop below = the payouts';
+}
+
 /* ---------------- clipboard ---------------- */
 export async function copyText(text: string, statusEl?: HTMLElement | null) {
   let ok = false;

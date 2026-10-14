@@ -3,14 +3,14 @@ import "../shared/styles.css";
 import "../shared/boot.css";
 import { watchIdle } from "../shared/idle";
 import { compareVersion } from "../shared/version";
-import { $, REDUCED, Ticker, Cues, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, HoldButton, setStatus, countdownHTML, drawQR, copyText, usd, clamp, pad2 } from "../shared/ui";
+import { $, REDUCED, Ticker, Cues, legendPayouts, Odo, Snd, soundToggle, AgentLog, PayoutStrip, Placeholder, HoldButton, setStatus, countdownHTML, drawQR, copyText, usd, clamp, pad2 } from "../shared/ui";
 import type { SignHost, SignView, Phase, SignModel } from "../shared/sign";
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, ManageView, ProposalDto, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
 import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
-import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, planSplit, restingLine, payoutsConfirmed, PAYOUT_TAG, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
+import { aiResting, andList, askEmphasis, dayLabel, dollars, emphasis, endOf, fineLine, money2, planSplit, restingLine, payoutsConfirmed, PAYOUT_TAG, PLATE_WORD, payoutSignsWords, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
 import { dismiss, forgetKey, isDismissed, recallKey, rememberKey, showIdFromPath, takeKeyFromHash } from "../shared/keys";
 import type { LedgerGrid } from "../shared/ledger";
 const ledgerModule = import("../shared/ledger"); // AG Grid is the biggest chunk: start fetching it now, in parallel with the API
@@ -65,7 +65,9 @@ function paidSentence(a: number[]): string {
 const cancelled = () => mv?.show.state === 'cancelled';
 const visual = (): { phase: Phase; fans: number } => ({ phase: st.phase === 'paying' || st.phase === 'paid' ? 'paid' : st.phase === 'missing' || st.phase === 'released' ? 'released' : st.tipped ? 'tipped' : 'held', fans: st.fans });
 const splitOf = (fans: number) => planSplit(show().split, fans * priceCents()).map(c => c / 100);
-const payees = () => { const a = splitOf(Math.max(st.fans, target())); return show().split.map((p, i) => ({ label: PAYEE[p.role], amount: a[i] })); };
+/** The plate word for a payee: that payee's own payout state (the strip's tag and the card use it too); before any answer, "Payouts sent". */
+const plateWord = (role: string) => { const ps = mv?.parties ?? [], p = ps.find(x => x.role === role); return p ? PLATE_WORD[p.payoutStatus] : ps.length ? PLATE_WORD.none : PLATE_WORD.pending; };
+const payees = () => { const a = splitOf(Math.max(st.fans, target())); return show().split.map((p, i) => ({ label: PAYEE[p.role], amount: a[i], word: PARITY ? undefined : plateWord(p.role) })); };
 const paidAmounts = () => { const parties = mv?.parties ?? []; return parties.length && parties.every(p => p.payoutCents !== null) ? parties.map(p => (p.payoutCents ?? 0) / 100) : splitOf(st.fans); };
 const live = () => st.phase === 'open' || st.phase === 'tipped' || st.phase === 'tipping';
 
@@ -95,7 +97,7 @@ function render(instant = false) {
     : `${fans} fans are on hold. ${t - fans} more by ${dl} and it’s on. Nobody has been charged.`;
   if (live()) st.remain = remainSec(s.deadline, clock);
   el.dl.textContent = `Deadline · ${dl}`; el.clock.innerHTML = countdownHTML(st.remain);
-  el.stage.setAttribute('aria-label', `Your marquee sign: ${v === 'paid' ? 'fully lit, with payout signs hanging below' : v === 'tipped' ? 'fully lit, the show is on' : v === 'released' ? 'dark, it reads CALLED OFF, $0 CHARGED' : `${fans} of ${t} bulbs glowing dimly, fans on hold`}.`);
+  el.stage.setAttribute('aria-label', `Your marquee sign: ${v === 'paid' ? `fully lit, with payout signs hanging below${PARITY ? '' : `: ${payoutSignsWords(payState())}`}` : v === 'tipped' ? 'fully lit, the show is on' : v === 'released' ? 'dark, it reads CALLED OFF, $0 CHARGED' : `${fans} of ${t} bulbs glowing dimly, fans on hold`}.`);
   ph?.update(v, fans);
 }
 
@@ -245,6 +247,8 @@ function apply(v: ManageView) {
   const prev = mv; mv = v; clock?.sync(v.now);
   // The artist changed the target or the deadline (or someone did from another tab): refresh the words, the sign and the 3D view.
   if (prev && (prev.show.threshold !== v.show.threshold || prev.show.deadline !== v.show.deadline)) { texts(v.show); ph?.setModel({ name: v.show.showName, target: v.show.threshold }); view?.setModel(model()); }
+  // The payouts' states may have changed: repaint the plates (no replay of the drop) and the box.
+  if (!PARITY) { view?.setPlateWords(payees().map(p => p.word)); if (st.phase === 'paid') { const a = paidAmounts(); payout?.set(a, confirmed() ? a.map(() => 'Paid') : payTags(), a.map(() => 'paid'), payNote(a)); } }
   takeLog(v);
   grid?.setRows(v.ledger);
   renderAsk(); renderAttention(); renderCallOff(); renderNotes(v); renderResting(v);
@@ -345,6 +349,7 @@ $('#csv').addEventListener('click', () => grid?.csv(`tip-the-room-${showId ?? 's
 setInterval(() => { if (mv && live()) { st.remain = remainSec(show().deadline, clock); el.clock.innerHTML = countdownHTML(st.remain); } }, 1000);
 if (!PARITY) setInterval(() => { if (!mv || !showId || document.hidden || idle.idle()) return; api.getShow(showId).then(s => (mv && compareVersion(s.version, mv.version) > 0 ? refresh() : undefined)).catch(() => undefined); }, 5000);
 soundToggle($('#sound'));
+if (!PARITY) legendPayouts(); // the plates say PAYING, SENT or PAID per payee
 
 interface ManageHooks extends MarqueeHooks { readonly state: ManageState; addFans(max?: number): void; skip(): void; reset(): void; approve(): void; decline(): void; holdTo(p: number): void }
 // A real show has no "add fans" or "skip": in test runs these fetch the next scripted answer from the fake API.
