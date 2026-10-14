@@ -37,7 +37,7 @@ class ShowCtl {
   key: Key; look: Look; el: HTMLElement; stage: HTMLElement; tipEl: HTMLElement; status: HTMLElement; clockEl: HTMLElement; fansSub: HTMLElement; of: HTMLElement; moneySub: HTMLElement;
   odoFans: Odo; odoHeld: Odo; odoCharged: Odo; bAdd: HTMLButtonElement; bFF: HTMLButtonElement; bReset: HTMLButtonElement;
   ph: Placeholder | null = null; cues = new Cues(); view: SignView | null = null;
-  show: PublicShow | null = null; parties: ManageParty[] = []; openProposals = 0; clock: ShowClock | null = null; queue: AgentLogDto[] = []; lastSeq = 0; resting = false; viewVersion: string | null = null; viewP: Promise<void> | null = null;
+  show: PublicShow | null = null; parties: ManageParty[] = []; openProposals = 0; approvedLabel: string | null = null; clock: ShowClock | null = null; queue: AgentLogDto[] = []; lastSeq = 0; resting = false; viewVersion: string | null = null; viewP: Promise<void> | null = null;
   phase: CtlPhase = 'open'; tipped = false; fans = 0; remain = 0; busy = false; ffRaf = 0;
   constructor(key: Key) {
     this.key = key; this.look = LOOK[key]; const el = this.el = $('#show-' + key);
@@ -82,7 +82,7 @@ class ShowCtl {
   /** A new copy of the show (first load or Start over): texts from data, then the current state at once. */
   load(s: PublicShow) {
     this.cues.clear(); cancelAnimationFrame(this.ffRaf);
-    this.show = s; this.parties = []; this.openProposals = 0; this.queue = []; this.lastSeq = 0; this.viewVersion = null; this.clock = new ShowClock(s.now); this.busy = false;
+    this.show = s; this.parties = []; this.openProposals = 0; this.approvedLabel = null; this.queue = []; this.lastSeq = 0; this.viewVersion = null; this.clock = new ShowClock(s.now); this.busy = false;
     this.texts(s);
     if (this.ph) this.ph.setModel({ name: s.showName, target: s.threshold }); else this.ph = new Placeholder($('[data-ph]', this.el), { name: s.showName, target: s.threshold });
     if (this.key === 'a') payout ??= new PayoutStrip($('#payout'), s.split.map(p => ({ label: ROLE_WORD[p.role], who: p.label })));
@@ -157,7 +157,10 @@ class ShowCtl {
   }
   takeView(v: ManageView, instant = false) {
     this.resting = aiResting(v.log); showResting();
-    this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length; renderAsks();
+    this.parties = v.parties; this.openProposals = v.proposals.filter(p => !p.approved).length;
+    // The newest answered proposal (the list is newest first), unless a newer question is still open.
+    const answered = v.proposals.find(p => p.approved); this.approvedLabel = this.openProposals === 0 && answered ? answered.options.find(o => o.id === answered.approved)?.label ?? null : null;
+    renderAsks();
     for (const e of [...v.log].reverse()) if (e.seq > this.lastSeq) { this.queue.push(e); this.lastSeq = e.seq; }
     if (this.phase === 'paid') { this.setStatus(this.payKey, true); this.renderFans(); this.moneySub.textContent = this.payMoneySub(); }
     if (!PARITY) { this.view?.setPlateWords(this.payees().map(p => p.word)); if (this.phase === 'paid') { this.fillStrip(); this.label(); } }
@@ -367,6 +370,12 @@ function renderAsks() {
     const row = document.createElement('span'), t = document.createElement('b'), a = document.createElement('a');
     a.className = 'btn btn-red'; row.append(t, ' ', a); pointer(c, t, a); here.append(row);
   }
+  // A calm confirmation once the artist has answered (an open question wins): driven by the view, so it survives a reload.
+  const done = (c: ShowCtl) => !PARITY && !!c.show && c.approvedLabel !== null && c.openProposals === 0;
+  const doneText = (c: ShowCtl) => `The artist approved “${c.approvedLabel}”. ${c.name}’s agent applied it.`;
+  for (const c of ctls) { const p = $('[data-ask-done]', c.el); p.hidden = !done(c); p.textContent = done(c) ? doneText(c) : ''; }
+  const doneHere = $('[data-judge-done]'), shown = ctls.filter(done); doneHere.textContent = ''; doneHere.hidden = shown.length === 0;
+  for (const c of shown) { const p = document.createElement('span'); p.className = 'ask-done'; p.textContent = doneText(c); doneHere.append(p); }
 }
 function start(r: DemoResponse) {
   lastChangeAt = Date.now();

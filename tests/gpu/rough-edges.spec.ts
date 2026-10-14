@@ -264,3 +264,89 @@ test.describe("Check pace now waits for the starting fans", () => {
     await expect(hint(page)).toBeHidden();
   });
 });
+
+test.describe("a calm confirmation once the artist has approved a change", () => {
+  const B_ID = `${DEMO_ID}b`;
+  const CONFIRM = "The artist approved “Extend 7 days”. Marlow Finch’s agent applied it.";
+  type Mode = "none" | "open" | "approved" | "openOverOlderApproved";
+  /** What show B's view says about its proposals; the demo fake supplies the real question after Check pace now. */
+  function modeApi(state: { mode: Mode }): FakeApi {
+    const base = demoApi();
+    return (req) => {
+      const r = base(req);
+      if (!r || req.method !== "GET" || state.mode === "none") return r;
+      if (req.path === `/api/shows/${B_ID}`) return { ...r, body: { ...(r.body as PublicShow), version: `e${70 + state.mode.length}.l${70 + state.mode.length}` } }; // the poll sees a newer show
+      if (req.path !== `/api/shows/${B_ID}/manage`) return r;
+      const body = structuredClone(r.body) as ManageView;
+      const q = body.proposals[0];
+      if (!q) return r; // no question yet
+      if (state.mode === "approved") q.approved = "extend";
+      if (state.mode === "openOverOlderApproved") body.proposals.push({ ...q, proposalId: "older", approved: "extend" });
+      body.version = `e${70 + state.mode.length}.l${70 + state.mode.length}`;
+      body.show.version = body.version;
+      return { ...r, body };
+    };
+  }
+  const card = (page: Page) => page.locator("#show-b [data-ask-done]");
+  const step2 = (page: Page) => page.locator("#judge [data-judge-done]");
+  const red = (page: Page) => page.locator("#show-b [data-ask-pointer]");
+  async function askAndReload(page: Page, state: { mode: Mode }, mode: Mode) {
+    await open(page, modeApi(state));
+    await page.locator("#pace").click();
+    await expect(red(page)).toBeVisible();
+    state.mode = mode;
+    await page.reload();
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+  }
+
+  test("approved: the confirmation is on the card and in step 2, live and after a reload, and the red pointer is gone", async ({ page }) => {
+    const state = { mode: "none" as Mode };
+    await open(page, modeApi(state));
+    await page.locator("#pace").click();
+    await expect(red(page)).toBeVisible();
+    await expect(card(page)).toBeHidden();
+    state.mode = "approved";
+    await expect(card(page)).toHaveText(CONFIRM, { timeout: 25_000 });
+    await expect(step2(page)).toContainText(CONFIRM);
+    await expect(red(page)).toBeHidden();
+    await expect(page.locator("#show-a [data-ask-done]")).toBeHidden();
+    await page.reload();
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await expect(card(page)).toHaveText(CONFIRM);
+    await expect(step2(page)).toContainText(CONFIRM);
+    await expect(red(page)).toBeHidden();
+  });
+
+  test("an open question shows the red pointer and no confirmation", async ({ page }) => {
+    await open(page, modeApi({ mode: "open" }));
+    await page.locator("#pace").click();
+    await expect(red(page)).toBeVisible();
+    await expect(card(page)).toBeHidden();
+    await expect(step2(page)).toBeHidden();
+  });
+
+  test("an open question wins over an older approved one", async ({ page }) => {
+    const state = { mode: "none" as Mode };
+    await askAndReload(page, state, "openOverOlderApproved");
+    await expect(red(page)).toBeVisible();
+    await expect(card(page)).toBeHidden();
+    await expect(step2(page)).toBeHidden();
+  });
+
+  test("with no question at all neither shows", async ({ page }) => {
+    await open(page, demoApi());
+    await expect(red(page)).toBeHidden();
+    await expect(card(page)).toBeHidden();
+    await expect(step2(page)).toBeHidden();
+    await expect(page.locator("#show-a [data-ask-done]")).toBeHidden();
+  });
+
+  test("not in the pixel-comparison mode", async ({ page }) => {
+    const state = { mode: "approved" as Mode };
+    await open(page, modeApi(state), "?e2e=parity");
+    await page.locator("#pace").click();
+    await expect(page.locator("[data-judge-msg]")).toContainText("The agent checked the pace.");
+    await expect(card(page)).toBeHidden();
+    await expect(step2(page)).toBeHidden();
+  });
+});
