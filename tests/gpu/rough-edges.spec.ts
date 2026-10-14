@@ -145,3 +145,50 @@ test.describe("the same words on the artist's page and the fan page", () => {
     });
   }
 });
+
+test.describe("the home feed shows the artist's approval", () => {
+  const B_ID = `${DEMO_ID}b`;
+  const LINE = "The artist approved \"Extend 7 days\". The artist approved this extension.";
+  /** After "Check pace now" show B has a question; `state.approved` is the artist answering it on the show page. */
+  function approvingApi() {
+    const state = { approved: false };
+    const base = demoApi();
+    const api: FakeApi = (req) => {
+      const r = base(req);
+      if (!state.approved || !r || req.method !== "GET" || !(req.path === `/api/shows/${B_ID}` || req.path === `/api/shows/${B_ID}/manage`)) return r;
+      const body = structuredClone(r.body) as PublicShow & ManageView;
+      const show = req.path.endsWith("/manage") ? body.show : body;
+      show.version = "e90.l90";
+      if (req.path.endsWith("/manage")) {
+        body.version = "e90.l90";
+        body.log.unshift({ seq: 90, at: Date.UTC(2026, 10, 17, 9, 0), saw: "19 of 28 fans", did: LINE, rule: "rule-5-ask-first", requestId: null, resultId: null, source: "template" });
+        body.proposals.forEach((p) => { p.approved = "extend"; });
+      }
+      return { ...r, body };
+    };
+    return { api, state };
+  }
+  const feed = (page: Page) => page.locator("#log li");
+
+  test("appears live, while the page is open, once the artist has answered", async ({ page }) => {
+    const { api, state } = approvingApi();
+    await open(page, api);
+    await page.locator("#pace").click();
+    await expect(page.locator("#show-b [data-ask-pointer]")).toBeVisible();
+    state.approved = true;
+    await expect(feed(page).filter({ hasText: LINE })).toHaveCount(1, { timeout: 25_000 });
+    await expect(page.locator("#show-b [data-ask-pointer]")).toBeHidden();
+  });
+
+  test("is still there after a reload", async ({ page }) => {
+    const { api, state } = approvingApi();
+    await open(page, api);
+    await page.locator("#pace").click();
+    await expect(page.locator("#show-b [data-ask-pointer]")).toBeVisible();
+    state.approved = true;
+    await page.reload();
+    await expect(page.locator("body")).toHaveAttribute("data-ready", "1", { timeout: 20_000 });
+    await expect(feed(page).filter({ hasText: LINE })).toHaveCount(1);
+    await expect(page.locator("#log li").filter({ hasText: "Proposed: Extend 7 days" })).toHaveCount(1);
+  });
+});
