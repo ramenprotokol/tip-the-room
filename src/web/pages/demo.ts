@@ -305,7 +305,13 @@ async function solo(btn: HTMLButtonElement | null, fn: () => Promise<void>): Pro
     lock();
   }
 }
-function lock() { ctls.forEach(c => c.buttons()); $<HTMLButtonElement>('#pace').disabled = inflight; }
+function lock() { ctls.forEach(c => c.buttons()); paceLock(); }
+/** The one place that decides whether Check pace now is usable: not while another action runs, and not while the starting fans are still being seated. */
+function paceLock() {
+  const waiting = filling && !PARITY;
+  $<HTMLButtonElement>('#pace').disabled = inflight || waiting;
+  $('#pace-hint').hidden = !waiting;
+}
 
 function showResting() { const p = $('#resting'); p.hidden = PARITY || !ctls.some(c => c.resting); p.textContent = p.hidden ? '' : restingLine(Date.now(), ctls.find(c => c.resting)?.show?.timeZone); }
 function pullView(c: ShowCtl, instant = false): Promise<void> {
@@ -323,10 +329,13 @@ async function applyShow(c: ShowCtl, s: PublicShow) { c.apply(s); setupLine(); a
 
 /** The starting fans of each sample show (src/agent/demo.ts). A fresh copy is "filling" until both are seated, or a show moves on. */
 const START_FANS = { a: 29, b: 19 };
-let filling = false;
+let filling = false, fillingSince = 0;
+/** However the fan counts read, a copy stops "filling" this long after it started, so Check pace now can never stay locked. */
+const FILLING_MAX_MS = 180_000;
 function setupLine() {
-  if (filling && (!A.show || !B.show || A.show.state !== 'live' || B.show.state !== 'live' || (A.show.fans.committed >= START_FANS.a && B.show.fans.committed >= START_FANS.b))) filling = false;
+  if (filling && (!A.show || !B.show || A.show.state !== 'live' || B.show.state !== 'live' || (A.show.fans.committed >= START_FANS.a && B.show.fans.committed >= START_FANS.b) || Date.now() - fillingSince >= FILLING_MAX_MS)) filling = false;
   $('#setup').hidden = PARITY || !filling;
+  paceLock();
 }
 
 function summary() {
@@ -365,7 +374,7 @@ function start(r: DemoResponse) {
   log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links(); renderAsks();
 }
 /** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
-async function begin(r: DemoResponse) { start(r); filling = true; setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
+async function begin(r: DemoResponse) { start(r); filling = true; fillingSince = Date.now(); setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
 async function freshCopy(msg: string) { await begin(await api.createDemo()); judgeMsg(msg); }
 async function resetDemo(btn: HTMLButtonElement | null = null) {
   const d = demo; if (!d) return;
@@ -448,6 +457,7 @@ interface DemoHooks extends MarqueeHooks { ctls: ShowCtl[]; host: SignHost | nul
 const A = new ShowCtl('a'), B = new ShowCtl('b'), ctls = [A, B];
 setInterval(() => ctls.forEach(c => { if ((c.phase === 'open' || c.phase === 'tipped' || c.phase === 'tipping') && c.show) { c.remain = remainSec(c.show.deadline, c.clock); c.renderClock(); } }), 1000);
 if (!QUIET) setInterval(() => { void poll(); }, 4000);
+setInterval(() => { if (filling) setupLine(); }, 1000); // the 3-minute limit needs no new data to take effect
 soundToggle($('#sound'));
 // New real-site pointers (app-only: the pixel-comparison page never shows them). The T/P/M/R key hints only work in test builds.
 if (!PARITY) document.querySelectorAll<HTMLElement>('#hdr-links, [data-both-note], #agent-note').forEach(n => { n.hidden = false; });

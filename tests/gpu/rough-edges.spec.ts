@@ -192,3 +192,75 @@ test.describe("the home feed shows the artist's approval", () => {
     await expect(page.locator("#log li").filter({ hasText: "Proposed: Extend 7 days" })).toHaveCount(1);
   });
 });
+
+test.describe("Check pace now waits for the starting fans", () => {
+  const HINT = "Ready once the starting fans are seated (about a minute).";
+  /** A fresh copy that starts with few fans seated. `seated.now` is the server finishing the job: later answers carry the full starting fans. */
+  function fillingApi(seated = { now: false }): FakeApi {
+    const base = demoApi();
+    return (req) => {
+      const r = base(req);
+      if (!r || seated.now) return r;
+      const isDemo = req.method === "POST" && (req.path === "/api/demo" || req.path.endsWith("/reset"));
+      const isShow = req.method === "GET" && /^\/api\/shows\/dparityfixt[ab]$/.test(req.path);
+      if (!isDemo && !isShow) return r;
+      const body = structuredClone(r.body) as { shows?: PublicShow[] } & PublicShow;
+      const few = (s: PublicShow) => { s.fans.committed = s.showId.endsWith("a") ? 10 : 4; s.version = "e0.l0"; };
+      if (isDemo) body.shows!.forEach(few); else few(body);
+      return { ...r, body };
+    };
+  }
+  const pace = (page: Page) => page.locator("#pace");
+  const hint = (page: Page) => page.locator("#pace-hint");
+
+  test("is disabled with its hint while the shows fill, and enabled once both reach their starting fans", async ({ page }) => {
+    const seated = { now: false };
+    await open(page, fillingApi(seated), "");
+    await expect(page.locator("#setup")).toBeVisible();
+    await expect(pace(page)).toBeDisabled();
+    await expect(hint(page)).toHaveText(HINT);
+    await expect(hint(page)).toBeVisible();
+    seated.now = true;
+    await expect(pace(page)).toBeEnabled({ timeout: 25_000 });
+    await expect(hint(page)).toBeHidden();
+    await expect(page.locator("#setup")).toBeHidden();
+    await pace(page).click();
+    await expect(page.locator("[data-judge-msg]")).toContainText("The agent checked the pace.");
+  });
+
+  test("unlocks by itself after 3 minutes, however many fans are seated", async ({ page }) => {
+    await page.clock.install();
+    await open(page, fillingApi(), "?e2e=quiet");
+    await expect(pace(page)).toBeDisabled();
+    await page.clock.fastForward(170_000);
+    await expect(pace(page)).toBeDisabled();
+    await page.clock.fastForward(15_000);
+    await expect(pace(page)).toBeEnabled();
+    await expect(hint(page)).toBeHidden();
+    await expect(page.locator("#setup")).toBeHidden();
+  });
+
+  test("a reused, already-seated copy never locks it", async ({ page }) => {
+    await page.addInitScript((v) => { if (!localStorage.getItem("ttr:demo")) localStorage.setItem("ttr:demo", JSON.stringify(v)); }, { demoId: DEMO_ID, demoKey: "demo-key-fixture", expiresAt: Date.now() + 86_400_000 });
+    await open(page, fillingApi());
+    await expect(pace(page)).toBeEnabled();
+    await expect(hint(page)).toBeHidden();
+  });
+
+  test("Start over locks it again for the new copy, and the label comes back after Working…", async ({ page }) => {
+    const seated = { now: true };
+    await open(page, fillingApi(seated), "?e2e=quiet");
+    await expect(pace(page)).toBeEnabled();
+    seated.now = false;
+    await page.locator("#show-a [data-act=reset]").click();
+    await expect(pace(page)).toBeDisabled();
+    await expect(pace(page)).toHaveText("Check pace now");
+    await expect(hint(page)).toBeVisible();
+  });
+
+  test("the hint and the lock are off in the pixel-comparison mode", async ({ page }) => {
+    await open(page, fillingApi(), "?e2e=parity");
+    await expect(pace(page)).toBeEnabled();
+    await expect(hint(page)).toBeHidden();
+  });
+});
