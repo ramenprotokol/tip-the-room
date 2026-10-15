@@ -4,7 +4,7 @@
 
 **Tagline (60 chars max):** Nobody's charged unless the show happens.
 
-**Links:** Demo https://tip-the-room.pages.dev · Video {{VIDEO_URL}} · Code https://github.com/ramenprotokol/tip-the-room
+**Links:** Demo https://tip-the-room.pages.dev · Video https://youtu.be/g3QXUhDtc4Y · Code https://github.com/ramenprotokol/tip-the-room
 
 ## Inspiration
 Small shows die on risk: someone fronts the room fee and nobody knows if 15 or 50 people will come. Side Door, which had been behind about 3,300 shows connecting touring artists with DIY venues since 2017, closed at the end of 2025 (Exclaim!, Nov 4, 2025: https://exclaim.ca/music/article/dan-mangan-s-side-door-concert-company-is-shutting-down). In a 2024 survey of 1,700 artists, 72% said they were making no profit from their tours (Pirate: https://pirate.com/en/blog/touring-fees-survey/). "Only happens if enough people commit" already works for film screenings: on Gathr, an event that misses its threshold by the deadline is cancelled at no cost to the host (https://support.gathr.com/how-to-host-a-theatrical-on-demand-film-screening). We wanted that for gigs, with an agent that settles the money itself.

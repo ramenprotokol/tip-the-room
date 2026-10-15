@@ -7,7 +7,7 @@ Tip the Room is a settlement agent for small DIY shows: house concerts, record-s
 Built for the PayPal AI Hackathon (2026) by Ramen Protocol. **PayPal sandbox only: no real money moves.**
 
 - **Try it:** https://tip-the-room.pages.dev (no sign-up)
-- **Video (narrated, with captions, 2:44):** {{VIDEO_URL}}
+- **Video (narrated, with captions, 2:44):** https://youtu.be/g3QXUhDtc4Y
 - **Sandbox login for the PayPal popup (play money):** shown on the site in the "For judges" box, with Copy buttons.
 
 ## Why
