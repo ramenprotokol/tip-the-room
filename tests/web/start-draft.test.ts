@@ -24,7 +24,7 @@ describe("start draft", () => {
     expect(parseDeadline("Thu Nov 12, 6:00pm", 2026, "UTC")).toBe("2026-11-12T18:00:00.000Z");
     expect(parseDeadline("Nov 12", 2026, "UTC")).toBe("2026-11-12T18:00:00.000Z");
     expect(parseDeadline("Nov 12, 9:30am", 2026, "UTC")).toBe("2026-11-12T09:30:00.000Z");
-    expect(parseDeadline("Thu Nov 12, 6:00pm", 2026, "America/Vancouver")).toBe("2026-11-13T02:00:00.000Z");
+    expect(parseDeadline("Thu Nov 12, 6:00pm", 2026, "America/Los_Angeles")).toBe("2026-11-13T02:00:00.000Z");
     expect(parseDeadline("whenever", 2026, "UTC")).toBeNull();
   });
 

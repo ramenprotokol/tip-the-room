@@ -7,14 +7,36 @@ import type { AiSource, ProposalOptionId } from "../agent/events";
 
 export const MANAGE_KEY_HEADER = "x-manage-key";
 
-/** Judges' links carry ?judge=<code>; the page sends it on demo create/reset only. */
+/** Judges type their code into the For judges box (never a URL). The page sends it on judge check, create show and demo create/reset only. */
 export const JUDGE_CODE_HEADER = "x-judge-code";
+
+/** POST /api/judge/check, with the code in the x-judge-code header. A wrong code is a 403 ApiError, never this. */
+export interface JudgeCheckResponse {
+  ok: true;
+  /** The judges-only sandbox buyer login, or null when the owner has not set one (the page then keeps the public one). */
+  buyer: { email: string; password: string } | null;
+  demoCopiesPerDay: number;
+}
+
+/** POST /api/shows/:id/ask-ledger (manage key required). */
+export interface AskLedgerRequest {
+  question: string;
+  /** The ledger's own `who` values, so the keyword matcher can match a name. Optional. */
+  names?: string[];
+}
+export interface AskLedgerResponse {
+  /** A filter-and-sort spec that already passed the allowlist check, or null when nothing in the question could be turned into one. */
+  spec: unknown;
+  source: "model" | "keywords";
+}
 
 /** What /api/health says about the live setup. Booleans and the PUBLIC PayPal client id only, never a secret. */
 export interface SetupReport {
   rateSalt: boolean;
   webhook: boolean;
   judgeCode: boolean;
+  /** The judges-only sandbox buyer is set (both email and password). */
+  judgeBuyer: boolean;
   receivers: boolean;
   paypalClientId: string | null;
 }
@@ -151,8 +173,13 @@ export interface AuthorizeResponse {
 
 export type LedgerStatus = "On hold" | "Charged" | "Paid" | "Cancelled" | "Refunded" | "Failed" | "Pending" | "Sent" | "Info";
 
+/** What a ledger row is, so the totals count each fan once (a held fan has a hold row, and a charged one also has a charge row). */
+export type LedgerRowKind = "hold" | "charge" | "release" | "refund" | "payout" | "info";
+
 export interface LedgerRowDto {
   seq: number;
+  /** Absent on rows from an older server: the page then counts nothing from that row. */
+  kind?: LedgerRowKind;
   at: number;
   what: string;
   who: string;
@@ -160,6 +187,27 @@ export interface LedgerRowDto {
   /** PayPal id (small print "PayPal ref" column). */
   ref: string | null;
   status: LedgerStatus;
+}
+
+/** One payee in a payout batch (the second grid). */
+export interface PayoutItemDto {
+  role: Role;
+  label: string;
+  amountCents: Cents;
+  /** PayPal's payout_item_id, once PayPal has reported the item. */
+  payoutItemId: string | null;
+  transactionId: string | null;
+  status: LedgerStatus;
+}
+
+export interface PayoutBatchDto {
+  /** PayPal's payout_batch_id; null until PayPal has answered. */
+  batchId: string | null;
+  senderBatchId: string;
+  status: string;
+  /** The one allowed second try. */
+  retry: boolean;
+  items: PayoutItemDto[];
 }
 
 export interface AgentLogDto {
@@ -208,6 +256,8 @@ export interface NoteDto {
 export interface ManageView {
   show: PublicShow;
   ledger: LedgerRowDto[];
+  /** Payout batches sent for this show (usually one), for the payout grid. */
+  payouts: PayoutBatchDto[];
   log: AgentLogDto[];
   proposals: ProposalDto[];
   parties: ManageParty[];

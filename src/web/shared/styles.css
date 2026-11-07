@@ -169,6 +169,37 @@ main{padding:0 var(--gutter) 28px}
 .log .w-paid{color:var(--mint-ink);font-weight:600}
 .log .w-rel{color:var(--lilac-ink);font-weight:600}
 .log .w-ask{color:var(--brass-ink);font-weight:600}
+/* Decisions strip (app-only): the agent's real decisions, newest first, above the full log */
+.decisions{margin:14px 0 20px;border:1.5px solid var(--ink);border-radius:14px;background:var(--paper-2);padding:14px 16px 6px}
+.decisions-title{margin:0 0 6px;font:800 20px/1.1 var(--f-sign);letter-spacing:.06em;text-transform:uppercase;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px}
+.decisions-title span{font:500 14px/1.3 var(--f-ui);letter-spacing:0;text-transform:none;color:var(--ink-3)}
+.decisions-empty{margin:4px 0 10px;font:400 15px/1.45 var(--f-ui);color:var(--ink-2)}
+.decisions-list{list-style:none;margin:0;padding:0}
+.decisions-list li{display:grid;grid-template-columns:104px 1fr;gap:4px 14px;padding:10px 0;border-top:1px dashed var(--rule)}
+.decisions-list li:first-child{border-top:0}
+.d-kind{align-self:start;justify-self:start;font:600 12px/1 var(--f-mono);letter-spacing:.07em;text-transform:uppercase;padding:6px 8px;border-radius:4px;background:var(--paper-3);color:var(--ink)}
+.decisions-list li[data-kind=proposed] .d-kind{background:#F1E3C2;color:var(--brass-ink)}
+.decisions-list li[data-kind=approved] .d-kind,.decisions-list li[data-kind=paid] .d-kind{background:var(--mint-soft);color:var(--mint-ink)}
+.decisions-list li[data-kind=tipped] .d-kind,.decisions-list li[data-kind=charged] .d-kind{background:var(--bulb);color:var(--held)}
+.decisions-list li[data-kind=missed] .d-kind,.decisions-list li[data-kind=cancelled] .d-kind,.decisions-list li[data-kind=calledoff] .d-kind{background:var(--lilac-soft);color:var(--lilac-ink)}
+.d-text{display:block;font:500 16px/1.45 var(--f-ui)}
+.d-meta{display:block;margin-top:2px;font:400 13px/1.45 var(--f-mono);color:var(--ink-3)}
+.d-rule{color:var(--ink);font-weight:600}
+.latest{margin:12px 0 0;font:400 15px/1.45 var(--f-ui);color:var(--ink-2)}
+.latest b{color:var(--ink)}
+.latest a{white-space:nowrap}
+.log-title{margin:0 0 4px;font:800 16px/1.1 var(--f-sign);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+/* Per-fan lines folded into one row that opens on click */
+.log li.fold{display:block;padding:0}
+.fold details{margin:0}
+.fold summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:20px 1fr auto;gap:4px 10px;align-items:baseline;padding:10px 0;font:500 16px/1.45 var(--f-ui)}
+.fold summary::-webkit-details-marker{display:none}
+.fold-mark::before{content:"+";font:600 16px/1 var(--f-mono);color:var(--ink-3)}
+.fold details[open] .fold-mark::before{content:"–"}
+.fold-hint{font:500 13px/1.4 var(--f-mono);color:var(--ink-3);text-decoration:underline;text-underline-offset:3px}
+.fold details[open] .fold-hint{display:none}
+.fold-lines{padding:0 0 6px 30px}
+@media (max-width:520px){.decisions-list li{grid-template-columns:1fr}.fold summary{grid-template-columns:20px 1fr}.fold-hint{grid-column:2}.fold-lines{padding-left:0}}
 .money-rules{margin:12px 0 0;padding:0;list-style:none;font:400 16px/1.45 var(--f-ui);color:var(--ink-2);display:grid;gap:4px}
 .money-rules b{font:600 13px/1 var(--f-mono);color:var(--ink);background:var(--paper-3);padding:2px 6px;border-radius:4px;margin-right:6px}
 
@@ -377,3 +408,29 @@ main{padding:0 var(--gutter) 28px}
 .cred .cred-l{flex:none;width:76px;font:500 12px/1 var(--f-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
 .cred code{user-select:all;flex:0 1 auto;min-width:0;overflow-wrap:anywhere;font:500 16px/1.3 var(--f-mono);padding:8px 12px;border:1.5px solid var(--ink);border-radius:10px;background:var(--paper)}
 .cred .btn{min-height:36px;font-size:14px}
+
+/* ---------- Ledger extras: search, status chips, totals block, Ask the ledger, payout grid, judge pass ---------- */
+.ledger-grid.has-totals{height:660px}
+.ledger-bar{display:grid;gap:12px;margin:0 0 14px}
+.ledger-search{width:100%;min-height:44px;padding:8px 14px;border:1.5px solid var(--ink);border-radius:10px;background:#FBF8F2;font:500 16px/1.3 var(--f-ui);color:var(--ink)}
+.ledger-search::placeholder{color:#6B6157}
+.ledger-search:focus-visible,.chip:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.ledger-chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{appearance:none;min-height:40px;padding:0 16px;border-radius:999px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);font:600 15px/1 var(--f-ui);cursor:pointer}
+.chip:hover{background:var(--paper-3)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.ledger-ask-wrap{display:grid;gap:6px}
+.ledger-ask-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ledger-ask-row .ledger-search{flex:1 1 280px;width:auto}
+.ledger-ask-row .ask-go{border:1.5px solid var(--ink);text-decoration:none}
+.ledger-say{margin:0;min-height:1.4em;font:400 15px/1.4 var(--f-ui);color:var(--ink-3)}
+.ledger-grid .ag-row.ledger-total{background:#E9E1D1;font-weight:600}
+.ledger-grid .ag-row.ledger-total.ag-row-first{border-top:1.5px solid var(--ink)}
+.ledger-grid .ledger-total .ag-cell,.ledger-grid .ledger-total .ag-cell-first-right-pinned{background:#E9E1D1;font-weight:600}
+.batch-head{margin:0 0 10px;font:500 14px/1.4 var(--f-mono);color:var(--ink-2);overflow-wrap:anywhere}
+.payout-grid{height:auto;min-height:150px}
+.judge-pass-box{display:grid;gap:8px}
+.judge-pass-box p{margin:0}
+.judge-pass{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.judge-pass-input{flex:1 1 260px;min-height:44px;padding:8px 12px;border:1.5px solid var(--ink);border-radius:10px;background:#FBF8F2;font:500 15px/1.3 var(--f-mono);color:var(--ink)}
+.cap-notice{padding:12px 14px;border:1.5px solid var(--ink);border-radius:14px;background:var(--bulb);font:500 16px/1.45 var(--f-ui);color:var(--ink)}

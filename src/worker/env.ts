@@ -18,4 +18,6 @@ export interface Env {
   ALLOWED_ORIGINS?: string;
   RATE_SALT?: string;
   JUDGE_CODE?: string;
+  JUDGE_BUYER_EMAIL?: string;
+  JUDGE_BUYER_PASSWORD?: string;
 }

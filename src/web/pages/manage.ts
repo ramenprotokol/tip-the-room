@@ -12,7 +12,9 @@ import { API_BASE, HOOKS, PARITY, PUBLIC_ORIGIN, markBooted, markReady, removeRe
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { aiResting, andList, askEmphasis, dayLabel, fansShown, dollars, emphasis, endOf, fineLine, money2, planSplit, restingLine, payoutsConfirmed, PAYOUT_TAG, PLATE_WORD, payoutSignsWords, payState as payStateOf, type PayState, remainSec, ShowClock, when, type Seg } from "../shared/format";
 import { dismiss, forgetKey, isDismissed, recallKey, rememberKey, showIdFromPath, takeKeyFromHash } from "../shared/keys";
-import type { LedgerGrid } from "../shared/ledger";
+import type { LedgerGrid, PayoutGrid } from "../shared/ledger";
+import { batchHeading } from "../shared/ledger-logic";
+import { StoryLog } from "../shared/agent-story-dom";
 const ledgerModule = import("../shared/ledger"); // AG Grid is the biggest chunk: start fetching it now, in parallel with the API
 
 removeRefOnly();
@@ -33,12 +35,14 @@ type MPhase = 'open' | 'tipping' | 'tipped' | 'ff' | 'paying' | 'paid' | 'missin
 interface ManageState { phase: MPhase; tipped: boolean; fans: number; remain: number; busy: boolean; ffRaf: number }
 type Option = ProposalDto['options'][number];
 let st: ManageState = { phase: 'open', tipped: false, fans: 0, remain: 0, busy: false, ffRaf: 0 };
-let mv: ManageView | null = null, clock: ShowClock | null = null, ph: Placeholder | null = null, view: SignView | null = null, payout: PayoutStrip | null = null, grid: LedgerGrid | null = null;
+let mv: ManageView | null = null, clock: ShowClock | null = null, ph: Placeholder | null = null, view: SignView | null = null, payout: PayoutStrip | null = null, grid: LedgerGrid | null = null, payoutGrid: PayoutGrid | null = null;
 const queue: AgentLogDto[] = [];
 let lastSeq = 0, ask: { proposalId: string; option: Option } | null = null;
 const el = { stage: $('[data-stage]'), status: $('[data-status]'), sentence: $('[data-sentence]'), clock: $('[data-clock]'), dl: $('[data-deadline-label]'), sub: $('[data-fans-sub]'), of: $('[data-of]'), ask: $('#ask'), askAlt: $('#ask-alt'), askMsg: $('[data-ask-msg]'), notice: $('#manage-notice'), attention: $('#attention'), calloff: $('#calloff'), calloffMsg: $('[data-calloff-msg]') };
 const odoFans = new Odo($('[data-fans]')), odoHeld = new Odo($('[data-held]')), odoCharged = new Odo($('[data-charged]'));
 const log = new AgentLog($('#log')), cues = new Cues();
+/** Per-fan lines fold into one row each, and the agent's real decisions are pinned above the log. */
+const story = new StoryLog(log, $('#decisions'), { name: () => mv?.show.showName ?? '', multi: false, fold: !PARITY, time: (at) => when(at, tz(), 'log') });
 Ticker.lamp(el.status);
 
 type StatusKey = 'held' | 'tipped' | 'paying' | 'funds' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
@@ -75,7 +79,7 @@ function segsInto(node: HTMLElement, segs: Seg[]) {
   node.textContent = '';
   for (const s of segs) { if (!s.cls) { node.append(s.text); continue; } const e = document.createElement(s.cls === 'b' ? 'b' : 'span'); if (s.cls !== 'b') e.className = s.cls; e.textContent = s.text; node.append(e); }
 }
-function addLog(e: AgentLogDto, instant = false) { log.addSegs({ time: when(e.at, tz(), 'log'), segs: emphasis(e.did), fine: fineLine(e), instant }); }
+function addLog(e: AgentLogDto, instant = false) { story.add({ ...e, tag: 'm' }, (into, x) => into.addSegs({ time: when(x.at, tz(), 'log'), segs: emphasis(x.did), fine: fineLine(x), instant })); }
 /** Reveals queued log lines up to the last one for `rule` (null: all of them). */
 function flush(rule: RuleId | null, instant = false) {
   let upto = -1; queue.forEach((e, i) => { if (rule === null || e.rule === rule) upto = i; });
@@ -243,6 +247,14 @@ function jumpTo(s: PublicShow) {
   say(st.phase === 'open' ? 'held' : st.phase === 'tipped' ? 'tipped' : st.phase === 'paid' ? (s.state === 'paying_out' ? (payState() === 'funds' ? 'funds' : 'paying') : payKey()) : cancelled() ? 'refunding' : 'released', true);
 }
 
+/** The second grid: the payout batch(es) PayPal was sent, with the batch id above it. Hidden for a show that ended with nothing paid. */
+function renderBatch(v: ManageView) {
+  if (!payoutGrid) return;
+  const batches = v.payouts ?? [];
+  $('#payout-block').hidden = batches.length === 0 && (v.show.state === 'missed' || v.show.state === 'cancelled');
+  $('[data-batch-head]').textContent = batchHeading(batches);
+  payoutGrid.setBatches(batches);
+}
 function apply(v: ManageView) {
   const prev = mv; mv = v; clock?.sync(v.now);
   // The artist changed the target or the deadline (or someone did from another tab): refresh the words, the sign and the 3D view.
@@ -250,7 +262,7 @@ function apply(v: ManageView) {
   // The payouts' states may have changed: repaint the plates (no replay of the drop) and the box.
   if (!PARITY) { view?.setPlateWords(payees().map(p => p.word)); if (st.phase === 'paid') { const a = paidAmounts(); payout?.set(a, confirmed() ? a.map(() => 'Paid') : payTags(), a.map(() => 'paid'), payNote(a)); } }
   takeLog(v);
-  grid?.setRows(v.ledger);
+  grid?.setRows(v.ledger); renderBatch(v);
   renderAsk(); renderAttention(); renderCallOff(); renderNotes(v); renderResting(v);
   step();
   render();
@@ -329,10 +341,15 @@ async function boot() {
   payout = new PayoutStrip($('#payout'), s.split.map(p => ({ label: PAYEE[p.role], who: p.role === 'artist' ? `You (${p.label})` : p.label })));
   const fixed = fixedParties();
   payout.idle(fixed.length ? `Paid at the deadline once the show is on: ${fixed.map(p => p.label).join(', then ')} first, then you get the rest.` : 'Paid at the deadline once the show is on: you get everything collected.');
-  try { const { LedgerGrid } = await ledgerModule; grid = new LedgerGrid($('#ledger'), tz); grid.setRows(v.ledger); }
+  try {
+    const { LedgerGrid, PayoutGrid } = await ledgerModule;
+    grid = new LedgerGrid($('#ledger'), tz, { extras: !PARITY, ask: (question) => api.askLedger(sid, key ?? '', question) });
+    grid.setRows(v.ledger);
+    if (!PARITY) { payoutGrid = new PayoutGrid($('#payout-grid')); renderBatch(v); }
+  }
   catch { $('[data-note]').textContent = 'The ledger couldn’t load. Refresh the page to try again.'; }
   // Parity runs keep the reference's exact note text (a fixture-mode text); real pages say what the grid can do.
-  if (!PARITY) { $('[data-note]').textContent = 'Newest first. Sort or filter any column.'; $('#csv').hidden = false; }
+  if (!PARITY) { document.querySelectorAll<HTMLElement>('#decisions, .log-title').forEach(n => { n.hidden = false; }); $('[data-note]').textContent = 'Newest first. Sort or filter any column.'; $('#csv').hidden = false; }
   const share = `${PUBLIC_ORIGIN}${v.sharePath || `/s/${showId}`}`;
   $('#share-url').textContent = share; drawQR($<HTMLCanvasElement>('#qr'), share, { scale: 4, margin: 3 });
   takeLog(v); flush(null, true);
@@ -346,6 +363,7 @@ const calloffBtn = new HoldButton($<HTMLButtonElement>('#calloff-btn'), { ms: 15
 $('#decline').addEventListener('click', () => { void declineNow(); });
 $('#copy').addEventListener('click', () => copyText($('#share-url').textContent ?? '', $('[data-copied]')));
 $('#csv').addEventListener('click', () => grid?.csv(`tip-the-room-${showId ?? 'show'}.csv`));
+$('#payout-csv').addEventListener('click', () => payoutGrid?.csv(`tip-the-room-${showId ?? 'show'}-payouts.csv`));
 setInterval(() => { if (mv && live()) { st.remain = remainSec(show().deadline, clock); el.clock.innerHTML = countdownHTML(st.remain); } }, 1000);
 if (!PARITY) setInterval(() => { if (!mv || !showId || document.hidden || idle.idle()) return; api.getShow(showId).then(s => (mv && compareVersion(s.version, mv.version) > 0 ? refresh() : undefined)).catch(() => undefined); }, 5000);
 soundToggle($('#sound'));

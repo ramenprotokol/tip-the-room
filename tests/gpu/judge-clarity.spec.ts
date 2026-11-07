@@ -115,7 +115,7 @@ test.describe("the setup line", () => {
       return r;
     };
   }
-  const LINE = "Setting up your sample shows. The starting fans are real PayPal sandbox holds, seated a few at a time.";
+  const LINE = "Setting up your sample shows. The starting fans are real PayPal sandbox holds, seated four at a time (about 30 seconds).";
 
   test("shows while a fresh copy fills, then goes away once the starting fans are seated", async ({ page }) => {
     await open(page, fillingApi(), "");

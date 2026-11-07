@@ -18,7 +18,7 @@ describe("router", () => {
   it("answers health", async () => {
     const res = await workerHarness().call("GET", "/api/health");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, setup: { rateSalt: true, webhook: false, judgeCode: false, receivers: false, paypalClientId: "test-client-id" } });
+    expect(await res.json()).toEqual({ ok: true, setup: { rateSalt: true, webhook: false, judgeCode: false, judgeBuyer: false, receivers: false, paypalClientId: "test-client-id" } });
   });
 
   it("health reports judge code and webhook as booleans only, never the values", async () => {

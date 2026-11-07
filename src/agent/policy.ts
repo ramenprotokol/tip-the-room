@@ -23,6 +23,12 @@ export const TURN_CALL_BUDGET = SUBREQUEST_LIMIT - SUBREQUEST_RESERVE;
 export const MODEL_CALL_COST = 2;
 /** A hard cap on jobs per turn too (cheap jobs would otherwise starve other work such as AI notes). */
 export const MAX_JOBS_PER_TURN = 12;
+/**
+ * Simulated-fan holds (demo only) are placed this many at a time inside one turn, so a demo copy's starting fans are seated
+ * in well under a minute instead of over a minute. Each still costs jobCost("sim_hold") subrequests and counts against the same
+ * TURN_CALL_BUDGET and MAX_JOBS_PER_TURN; no money job (capture, void, refund, payout) is ever run in parallel.
+ */
+export const SIM_HOLDS_PARALLEL = 4;
 
 /**
  * Worst-case PayPal requests one run of a job can make.
@@ -99,10 +105,18 @@ export function demoGraceMs(graces: number): number {
 export const DEMO_GRACE_TOTAL_MAX_MS = 30 * DAY_MS;
 /** A sandbox card hold lasts this long; used when a retired hold's own expiry isn't on record. */
 export const SANDBOX_HOLD_LIFETIME_MS = 29 * DAY_MS;
-/** New demo copies allowed per day across all visitors. Each copy seats about 48 real sandbox holds. */
-export const DEMO_COPIES_PER_DAY = 50;
+/**
+ * Durable Object free plan: 100,000 rows written a day, reset 00:00 UTC. That is the limit demo copies run into first
+ * (requests, duration and Workers requests all allow several times more copies). A copy is two shows seating about 48 real
+ * sandbox holds. Measured with a counting SQLite harness (index entries counted, setAlarm rows added): about 1,750 rows from seating
+ * to the payout or the voids; if deleteAll() at the 24 h expiry is billed per row it is up to about 3,300. We plan on the worst case.
+ */
+export const DO_ROWS_FREE_PER_DAY = 100_000;
+export const DEMO_ROWS_PER_COPY_WORST = 3_300;
+/** New demo copies allowed per day across the public. */
+export const DEMO_COPIES_PER_DAY = 14;
 /** Demo copies a day reserved for judges with the judge code, so public traffic can't use up the copies judges need. */
-export const DEMO_JUDGE_COPIES_PER_DAY = 30;
+export const DEMO_JUDGE_COPIES_PER_DAY = 12;
 export const SIM_CAP_PER_SHOW = 60;
 export const SIM_ADD_MAX = 20;
 export const MAX_ORDERS_PER_SHOW = 500;

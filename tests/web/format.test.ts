@@ -15,7 +15,7 @@ describe("dates in the show's time zone", () => {
     expect(when(T(11, 12, 18, 30), "UTC", "short")).toBe("Thu 6:30pm");
     expect(when(T(11, 12, 12), "UTC", "long")).toBe("Thu Nov 12, 12:00pm");
     expect(when(T(11, 12, 0), "UTC", "long")).toBe("Thu Nov 12, 12:00am");
-    expect(when(T(11, 13, 2), "America/Vancouver", "long")).toBe("Thu Nov 12, 6:00pm");
+    expect(when(T(11, 13, 2), "America/Los_Angeles", "long")).toBe("Thu Nov 12, 6:00pm");
   });
   it("falls back to UTC for an unknown zone", () => {
     expect(when(T(11, 12, 18), "Not/AZone", "long")).toBe("Thu Nov 12, 6:00pm");

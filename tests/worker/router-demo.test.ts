@@ -8,7 +8,7 @@ const HOUR = 60 * 60 * 1000;
 async function useUpDay(w: ReturnType<typeof workerHarness>, headers: (i: number) => Record<string, string> = () => ({})) {
   for (let i = 0; i < LIMITS.demoDay.limit; i++) {
     expect((await w.call("POST", "/api/demo", undefined, headers(i))).status).toBe(201);
-    if (i % 10 === 9) w.clock.t += HOUR;
+    if (i % LIMITS.demo.limit === LIMITS.demo.limit - 1) w.clock.t += HOUR; // stay inside the hourly cap
   }
 }
 
@@ -84,10 +84,11 @@ describe("demo routes", () => {
 
   it("reset carries on when one or both old shows are already gone (404)", async () => {
     const w = workerHarness();
-    for (const gone of [["a"], ["a", "b"]]) {
-      const d = (await (await w.call("POST", "/api/demo")).json()) as DemoResponse;
+    for (const [n, gone] of [["a"], ["a", "b"]].entries()) {
+      const visitor = { "cf-connecting-ip": `10.4.4.${n}` }; // a copy and its reset are two of one visitor's three a day
+      const d = (await (await w.call("POST", "/api/demo", undefined, visitor)).json()) as DemoResponse;
       for (const k of gone) w.shows.delete(`${d.demoId}${k}`);
-      const res = await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": d.demoKey });
+      const res = await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": d.demoKey, ...visitor });
       expect(res.status).toBe(201);
       expect(((await res.json()) as DemoResponse).demoId).not.toBe(d.demoId);
     }
@@ -133,11 +134,11 @@ describe("demo routes", () => {
     expect((await w.call("POST", `/api/demo/${d.demoId}/reset`, undefined, { "x-manage-key": "k".repeat(43) })).status).toBe(403);
   });
 
-  it("a visitor gets 25 public copies a day, then 429; another visitor and the judge pool are unaffected", async () => {
+  it("a visitor gets LIMITS.demoDay public copies a day, then 429; another visitor and the judge pool are unaffected", async () => {
     const w = workerHarness({ judgeCode: "judge-code-123" });
     for (let i = 0; i < LIMITS.demoDay.limit; i++) {
       expect((await w.call("POST", "/api/demo")).status).toBe(201);
-      if (i % 5 === 4) w.clock.t += HOUR; // stay inside the hourly cap of 12
+      if (i % LIMITS.demo.limit === LIMITS.demo.limit - 1) w.clock.t += HOUR; // stay inside the hourly cap
     }
     expect((await w.call("POST", "/api/demo")).status).toBe(429);
     expect((await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": "10.1.1.1" })).status).toBe(201);
@@ -184,14 +185,14 @@ describe("demo routes", () => {
     expect(Number(a.store.getMeta("expires_at"))).toBeLessThanOrEqual(w.clock.now() + HOUR);
   });
 
-  it("caps new demo copies across all visitors (50 a day)", async () => {
+  it("caps new demo copies across all visitors (DEMO_COPIES_PER_DAY a day)", async () => {
     const w = workerHarness();
     let status = 201;
-    for (let i = 0; i < 51 && status === 201; i++) {
+    for (let i = 0; i <= LIMITS.demoGlobal.limit && status === 201; i++) {
       // A different visitor each time (the per-visitor limit is LIMITS.demo.limit an hour).
       const res = await w.call("POST", "/api/demo", undefined, { "cf-connecting-ip": `10.0.${Math.floor(i / 250)}.${i % 250}` });
       status = res.status;
-      if (i < 50) expect(status).toBe(201);
+      if (i < LIMITS.demoGlobal.limit) expect(status).toBe(201);
     }
     expect(status).toBe(429);
   });

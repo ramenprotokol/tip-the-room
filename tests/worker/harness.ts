@@ -21,6 +21,7 @@ export const SIGNED_BY_PAYPAL: Record<string, string> = {
 export interface WorkerHarnessOptions {
   webhookId?: string | null;
   judgeCode?: string | null;
+  judgeBuyer?: { email: string; password: string } | null;
   cache?: EdgeCache;
   verify?: (headers: Headers, rawBody: string, webhookId: string) => Promise<boolean>;
 }
@@ -49,7 +50,7 @@ export function workerHarness(opts: WorkerHarnessOptions = {}) {
     ai: { ai: null, budget: { tryReserve: async () => true } },
     random: seqRandom(),
     clock,
-    config: { allowedOrigins: ["http://localhost:5173"], webhookId: opts.webhookId ?? null, rateSalt: "test-salt", receivers: receiversFrom({}), judgeCode: opts.judgeCode ?? null, setup: { rateSalt: true, receivers: false, paypalClientId: "test-client-id" } },
+    config: { allowedOrigins: ["http://localhost:5173"], webhookId: opts.webhookId ?? null, rateSalt: "test-salt", receivers: receiversFrom({}), judgeCode: opts.judgeCode ?? null, judgeBuyer: opts.judgeBuyer ?? null, setup: { rateSalt: true, receivers: false, paypalClientId: "test-client-id" } },
     cache: opts.cache,
     verifyWebhook: opts.verify ?? (async () => false),
   };

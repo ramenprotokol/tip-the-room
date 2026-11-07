@@ -47,6 +47,7 @@ function routerDeps(env: Env, ctx?: { waitUntil(p: Promise<unknown>): void }): R
       rateSalt: env.RATE_SALT ?? "tip-the-room",
       receivers: receiversFrom(env),
       judgeCode: env.JUDGE_CODE?.trim() || null,
+      judgeBuyer: env.JUDGE_BUYER_EMAIL?.trim() && env.JUDGE_BUYER_PASSWORD?.trim() ? { email: env.JUDGE_BUYER_EMAIL.trim(), password: env.JUDGE_BUYER_PASSWORD.trim() } : null,
       setup: {
         rateSalt: Boolean(env.RATE_SALT?.trim()),
         receivers: Boolean(env.PAYPAL_RECEIVER_ROOM?.trim() && env.PAYPAL_RECEIVER_OPENER?.trim() && env.PAYPAL_RECEIVER_ARTIST?.trim()),

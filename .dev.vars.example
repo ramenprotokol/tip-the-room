@@ -9,3 +9,12 @@
 # PAYPAL_RECEIVER_ROOM=
 # PAYPAL_RECEIVER_OPENER=
 # PAYPAL_RECEIVER_ARTIST=
+
+# Judge pass (Dec 1-15). NEVER put a real value in this file or commit one. In production set these with `wrangler secret put`.
+# The code judges type into the "For judges" box (8 to 64 characters, letters, digits, - and _). Give it to judges only through
+# Devpost's private testing-instructions field. It unlocks the reserved demo copies and AI calls. Unset: nobody is a judge.
+# JUDGE_CODE=
+# A second sandbox BUYER login shown only after a valid judge code, so a changed public password can't lock judges out.
+# Both must be set. Unset: judges keep seeing the public login.
+# JUDGE_BUYER_EMAIL=
+# JUDGE_BUYER_PASSWORD=

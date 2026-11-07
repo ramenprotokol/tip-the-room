@@ -33,18 +33,40 @@ describe("api client", () => {
     expect(f.seen[3].init.body).toBe(JSON.stringify({ show: "b" }));
   });
 
-  it("sends the judge code on create show, demo create and demo reset only", async () => {
+  it("sends the judge code on create show, demo create/reset and the public show read only", async () => {
     const f = fake(201, JSON.stringify({ demoId: "d1" }));
     const api = apiClient("https://api.test", f.fetch, { judgeCode: () => "judge-code-123" });
     await api.createDemo();
     await api.demoReset("d1", "k123456");
     await api.createShow({ sentence: "Acoustic set at Lucky's Cafe, Nov 20, $15 tickets" }).catch(() => undefined);
     await api.getShow("s1");
+    await api.sign("s1", { signToken: "t", draft: {} as never });
     const h = (i: number) => f.seen[i].init.headers as Record<string, string>;
     expect(h(0)["x-judge-code"]).toBe("judge-code-123");
     expect(h(1)["x-judge-code"]).toBe("judge-code-123");
     expect(h(2)["x-judge-code"]).toBe("judge-code-123");
-    expect(h(3)["x-judge-code"]).toBeUndefined();
+    expect(h(3)["x-judge-code"]).toBe("judge-code-123"); // the public read: a judge's own, higher read allowance
+    expect(h(4)["x-judge-code"]).toBeUndefined(); // anything that touches a show's money or sign-off never carries it
+  });
+
+  it("checks a judge code with the code in the header (never the URL or the body), and carries it on ask-ledger", async () => {
+    const f = fake(200, JSON.stringify({ ok: true, buyer: null, demoCopiesPerDay: 12 }));
+    const api = apiClient("https://api.test", f.fetch, { judgeCode: () => "stored-code-123" });
+    await api.judgeCheck("typed-code-456");
+    await api.askLedger("s1", "key-1", "biggest payouts");
+    expect(f.seen[0].url).toBe("https://api.test/api/judge/check");
+    expect(f.seen[0].url).not.toContain("typed-code-456");
+    expect(f.seen[0].init.body).toBeUndefined();
+    expect((f.seen[0].init.headers as Record<string, string>)["x-judge-code"]).toBe("typed-code-456");
+    expect(f.seen[1].url).toBe("https://api.test/api/shows/s1/ask-ledger");
+    expect((f.seen[1].init.headers as Record<string, string>)["x-manage-key"]).toBe("key-1");
+    expect((f.seen[1].init.headers as Record<string, string>)["x-judge-code"]).toBe("stored-code-123");
+    expect(JSON.parse(String(f.seen[1].init.body))).toEqual({ question: "biggest payouts" });
+  });
+
+  it("turns a refused judge code into a readable failure", async () => {
+    const api = apiClient("https://api.test", fake(403, JSON.stringify({ error: { code: "forbidden", message: "That judge code doesn't match." } })).fetch);
+    await expect(api.judgeCheck("nope-nope-nope")).rejects.toMatchObject({ status: 403, message: "That judge code doesn't match." });
   });
 
   it("encodes ids so a path can't be smuggled", async () => {

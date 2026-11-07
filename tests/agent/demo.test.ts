@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DAY_MS } from "../../src/core/holds";
 import { splitPayout } from "../../src/core/split";
 import { demoSeeds, receiversFrom } from "../../src/agent/demo";
-import { DEMO_GRACE_TOTAL_MAX_MS } from "../../src/agent/policy";
+import { DEMO_GRACE_TOTAL_MAX_MS, MAX_JOBS_PER_TURN, SIM_HOLDS_PARALLEL } from "../../src/agent/policy";
 import { commit } from "../../src/agent/executor";
 import { sha256Hex } from "../../src/agent/ids";
 import { SIM_CARD } from "../../src/agent/paypal-port";
@@ -78,6 +78,45 @@ describe("simulated fans", () => {
     expect(h.svc.nextWakeAt()).toBe(h.clock.now());
     await run(h);
     expect(h.svc.project().campaign.pledges.held).toBe(29);
+  });
+
+  it("places the starting fans a few at a time inside one turn (first alone, then in parallel), never past the turn budget", async () => {
+    const h = await demoShow("a");
+    let inflight = 0, peak = 0;
+    const real = h.paypal.createCardHold.bind(h.paypal);
+    h.paypal.createCardHold = async (...args: Parameters<typeof real>) => {
+      inflight += 1;
+      peak = Math.max(peak, inflight);
+      await new Promise((r) => setTimeout(r, 2));
+      inflight -= 1;
+      return real(...args);
+    };
+    await h.svc.tick();
+    expect(peak).toBe(SIM_HOLDS_PARALLEL);
+    // One turn spends at most MAX_JOBS_PER_TURN holds, and every hold is a distinct pledge.
+    const seated = h.svc.project().campaign.pledges.held;
+    expect(seated).toBeLessThanOrEqual(MAX_JOBS_PER_TURN);
+    expect(seated).toBeGreaterThan(SIM_HOLDS_PARALLEL);
+    expect(new Set(h.paypal.calls.filter((c) => c.op === "createCardHold").map((c) => (c.args[0] as { pledgeId: string }).pledgeId)).size).toBe(h.paypal.count("createCardHold"));
+  });
+
+  it("logs the moment the last starting fan tips the show, with the rule that charges every hold", async () => {
+    const h = await demoShow("a");
+    h.svc.addSimFans(5);
+    await run(h);
+    const tips = h.store.logs().filter((e) => e.did.startsWith("The show reached its target"));
+    expect(tips.length).toBe(1);
+    expect(tips[0].rule).toBe("rule-2-capture-at-tip");
+  });
+
+  it("logs the tip exactly once wherever it falls inside a parallel batch of holds", async () => {
+    for (const extra of [5, 6, 7, 8, 9]) {
+      const h = await demoShow("a");
+      h.svc.addSimFans(extra);
+      await run(h);
+      const tips = h.store.logs().filter((e) => e.did.startsWith("The show reached its target"));
+      expect(tips.length, `with ${extra} extra fans`).toBe(1);
+    }
   });
 
   it("retries a declined fan once with a NEW pledge id, then gives up", async () => {

@@ -2,13 +2,14 @@ import type { AiDeps } from "../agent/ai";
 import { draftFromSentence } from "../agent/ai-jobs";
 import type { CampaignOp, CampaignReply } from "../agent/dispatch";
 import { draftFields, previewDraft } from "../agent/draft";
+import { answerLedgerQuestion, MAX_QUESTION } from "../agent/ledger-ask";
 import { ServiceError } from "../agent/errors";
 import { demoSeeds, type Receivers } from "../agent/demo";
 import { demoShowIds, isDemoId, isShowId, newId, newSecret, sameHex, sha256Hex, showIdFromRef, visitorNet, type Clock, type Random } from "../agent/ids";
 import { DEMO_COPIES_PER_DAY, DEMO_JUDGE_COPIES_PER_DAY, DEMO_TTL_MS } from "../agent/policy";
 import type { QuotaPort } from "../agent/quota";
 import { isKnownEventType, mapWebhookEvent, SIG_HEADERS, type PayPalLedgerEvent, type WebhookEvent } from "../paypal/webhooks";
-import { JUDGE_CODE_HEADER, MANAGE_KEY_HEADER, type ApiError, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoPaceResponse, type DemoResponse, type ErrorCode, type HealthResponse, type PublicShow, type SetupReport } from "./api-types";
+import { JUDGE_CODE_HEADER, MANAGE_KEY_HEADER, type ApiError, type AskLedgerRequest, type AskLedgerResponse, type JudgeCheckResponse, type CreateShowRequest, type CreateShowResponse, type DemoFansRequest, type DemoFastForwardResponse, type DemoPaceResponse, type DemoResponse, type ErrorCode, type HealthResponse, type PublicShow, type SetupReport } from "./api-types";
 
 export interface CampaignsPort {
   call(showId: string, op: CampaignOp): Promise<CampaignReply>;
@@ -23,8 +24,10 @@ export interface RouterConfig {
   receivers: Receivers;
   /** JUDGE_CODE secret, or null (then no request is a judge). */
   judgeCode: string | null;
+  /** A second sandbox buyer login (JUDGE_BUYER_EMAIL and JUDGE_BUYER_PASSWORD) that only a valid judge code reveals, so a changed public password can't lock judges out. Null when either is unset. */
+  judgeBuyer: { email: string; password: string } | null;
   /** Facts for /api/health that the router can't derive itself. */
-  setup: Omit<SetupReport, "webhook" | "judgeCode">;
+  setup: Omit<SetupReport, "webhook" | "judgeCode" | "judgeBuyer">;
 }
 
 export interface RouterDeps {
@@ -69,9 +72,9 @@ export const LIMITS = {
   /** New orders per visitor per show: filling a show's order slots then takes many addresses, not a few. */
   orderPerShow: { limit: 20, windowMs: 3 * HOUR },
   manage: { limit: 1500, windowMs: HOUR },
-  demo: { limit: 12, windowMs: HOUR },
-  /** Public pool only: one visitor can't take more than half of the day's copies (judges on one office network share an address, so 10 was too tight). */
-  demoDay: { limit: 25, windowMs: 24 * HOUR },
+  /** Public pool only. A copy is about 1,750 to 3,300 Durable Object rows (policy.ts), so one visitor gets 3 a day (under a quarter of the day's 14). */
+  demo: { limit: 3, windowMs: HOUR },
+  demoDay: { limit: 3, windowMs: 24 * HOUR },
   /** Reset attempts per visitor, right or wrong key: bounds the Durable Object work a wrong key costs, apart from the copy pools. */
   demoResetTry: { limit: 60, windowMs: HOUR },
   demoJudge: { limit: 12, windowMs: HOUR },
@@ -80,6 +83,13 @@ export const LIMITS = {
   demoFastForward: { limit: 30, windowMs: HOUR },
   demoPace: { limit: 30, windowMs: HOUR },
   demoGlobal: { limit: DEMO_COPIES_PER_DAY, windowMs: 24 * HOUR },
+  /** Checking a judge code: right answers are cheap, wrong ones are counted so the code can't be guessed. */
+  /** "Ask the ledger": questions per visitor, and the model's own daily pools (public and judge). Past a pool the keyword matcher answers. */
+  askLedger: { limit: 40, windowMs: HOUR },
+  askLedgerAi: { limit: 30, windowMs: 24 * HOUR },
+  askLedgerAiJudge: { limit: 30, windowMs: 24 * HOUR },
+  judgeCheck: { limit: 60, windowMs: HOUR },
+  judgeWrong: { limit: 10, windowMs: HOUR },
   /** Webhook signature checks cost a PayPal call each, so they are capped per visitor and overall. PayPal sends from a few IPs and retries a 429. */
   webhookVisitor: { limit: 1000, windowMs: HOUR },
   /** Per show, so one forger naming one show can't reach the shared bucket. */
@@ -169,10 +179,22 @@ async function hit(c: Ctx, name: LimitName, scope?: string) {
   return c.deps.quota.hit(`${name}:${scope ?? (await visitor(c))}`, l.limit, l.windowMs);
 }
 
-async function limit(c: Ctx, name: LimitName, scope?: string): Promise<void> {
+async function limit(c: Ctx, name: LimitName, scope?: string, say?: (retryAfterSec: number) => string): Promise<void> {
   const r = await hit(c, name, scope);
-  if (!r.ok) throw new HttpError(429, "rate_limited", "Too many tries. Please wait a moment and try again.", r.retryAfterSec);
+  if (!r.ok) throw new HttpError(429, "rate_limited", say ? say(r.retryAfterSec) : "Too many tries. Please wait a moment and try again.", r.retryAfterSec);
 }
+
+/** "in about 5 hours" for a wait in seconds: the words a visitor sees when a daily cap is reached. */
+export function waitWords(sec: number): string {
+  if (sec < 90) return "in a minute";
+  if (sec < 3300) return `in about ${Math.round(sec / 60)} minutes`;
+  const h = Math.round(sec / 3600);
+  return `in about ${h} ${h === 1 ? "hour" : "hours"}`;
+}
+const JUDGE_HINT = "Judges: enter your judge code in the For judges box on the home page for copies kept back for you.";
+const sayVisitorCap = (sec: number) => `You have opened as many demo copies as one visitor can today. The copy you have keeps running, and you can open another ${waitWords(sec)}. ${JUDGE_HINT}`;
+const sayPublicCap = (sec: number) => `Today's free demo copies are all taken: the sandbox runs on free plans, so each day has a fixed number. New ones open ${waitWords(sec)} (midnight UTC at the latest). ${JUDGE_HINT}`;
+const sayJudgeCap = (sec: number) => `Today's copies kept for judges are all taken. They refill ${waitWords(sec)} (midnight UTC at the latest). Copies you already have keep running.`;
 
 /** Like `limit`, but answers true/false instead of refusing: for a pool whose exhaustion has a fallback. */
 async function tryLimit(c: Ctx, name: LimitName, scope?: string): Promise<boolean> {
@@ -184,21 +206,25 @@ async function tryLimit(c: Ctx, name: LimitName, scope?: string): Promise<boolea
  * Object call and no storage write per request. Approximate by design, since each isolate counts alone.
  */
 export const READ_LIMIT = { limit: 3600, windowMs: HOUR };
+/** A valid judge code reads 4 times as often: judges on one office network share an address, and each open tab polls two shows every 4 s. */
+export const READ_LIMIT_JUDGE = { limit: 14_400, windowMs: HOUR };
 const reads = new Map<string, { start: number; count: number }>();
 export function resetReadLimits(): void {
   reads.clear();
 }
 async function readLimit(c: Ctx): Promise<void> {
-  const who = await visitor(c);
+  const judge = c.req.headers.has(JUDGE_CODE_HEADER) && (await isJudge(c));
+  const who = `${judge ? "j:" : ""}${await visitor(c)}`;
+  const cap = judge ? READ_LIMIT_JUDGE : READ_LIMIT;
   const now = c.deps.clock.now();
   const r = reads.get(who);
-  if (!r || now - r.start >= READ_LIMIT.windowMs) {
+  if (!r || now - r.start >= cap.windowMs) {
     if (reads.size >= 10_000) reads.clear();
     reads.set(who, { start: now, count: 1 });
     return;
   }
   r.count += 1;
-  if (r.count > READ_LIMIT.limit) throw new HttpError(429, "rate_limited", "Too many tries. Please wait a moment and try again.", Math.max(1, Math.ceil((r.start + READ_LIMIT.windowMs - now) / 1000)));
+  if (r.count > cap.limit) throw new HttpError(429, "rate_limited", "This page is checking for updates too often. It will carry on by itself in a moment.", Math.max(1, Math.ceil((r.start + cap.windowMs - now) / 1000)));
 }
 
 /** Constant-time check: both sides are hashed to equal length first, then compared without early exit. */
@@ -212,13 +238,13 @@ async function isJudge(c: Ctx): Promise<boolean> {
 /** A new demo copy: judges with the code use their own pool; everyone else the public one. Checked before anything changes. */
 async function demoCopyLimits(c: Ctx): Promise<void> {
   if (await isJudge(c)) {
-    await limit(c, "demoJudge");
-    await limit(c, "demoJudgeGlobal", "all");
+    await limit(c, "demoJudge", undefined, sayVisitorCap);
+    await limit(c, "demoJudgeGlobal", "all", sayJudgeCap);
     return;
   }
-  await limit(c, "demo");
-  await limit(c, "demoDay");
-  await limit(c, "demoGlobal", "all");
+  await limit(c, "demo", undefined, sayVisitorCap);
+  await limit(c, "demoDay", undefined, sayVisitorCap);
+  await limit(c, "demoGlobal", "all", sayPublicCap);
 }
 
 function showParam(c: Ctx): string {
@@ -414,6 +440,44 @@ async function newDemoCopy(c: Ctx): Promise<DemoResponse> {
   return { demoId, demoKey, shows: [shows[0], shows[1]], expiresAt: c.deps.clock.now() + DEMO_TTL_MS };
 }
 
+/**
+ * "Ask the ledger": the model turns a question into a filter spec, code checks it (validateLedgerSpec), and what comes back is
+ * either a checked spec or null. It reads no ledger rows and can't change anything: the page only filters and sorts with it.
+ * The manage key is checked first, so only the show's owner (or a demo copy's holder) spends the AI pool.
+ */
+const askLedger: Handler = async (c) => {
+  await limit(c, "askLedger");
+  const id = showParam(c);
+  const body = await readJson<AskLedgerRequest>(c.req);
+  if (!body || typeof body.question !== "string" || body.question.trim().length < 2 || body.question.length > MAX_QUESTION) {
+    throw new HttpError(422, "invalid", `Ask in a few words (2 to ${MAX_QUESTION} characters).`);
+  }
+  const owner = await c.deps.campaigns.call(id, { op: "manage", manageKey: manageKey(c) });
+  if (!owner.ok) return fromReply(owner);
+  const judge = await isJudge(c);
+  const poolOpen = await tryLimit(c, judge ? "askLedgerAiJudge" : "askLedgerAi", "all");
+  const base = judge ? (c.deps.aiJudge ?? c.deps.ai) : c.deps.ai;
+  const names = Array.isArray(body.names) ? body.names.filter((n): n is string => typeof n === "string" && n.length <= 40).slice(0, 200) : [];
+  const answer = await answerLedgerQuestion(poolOpen ? base : { ...base, ai: null }, body.question, names);
+  const res: AskLedgerResponse = { spec: answer.spec, source: answer.source };
+  return json(200, res);
+};
+
+/**
+ * The "For judges" box: is this judge code right? Answers with the judges-only sandbox buyer when one is set. A wrong code is a
+ * 403 and counts against a small per-visitor allowance, so it can't be guessed. The code is never logged or echoed.
+ */
+const judgeCheck: Handler = async (c) => {
+  if (await isJudge(c)) {
+    await limit(c, "judgeCheck");
+    const b = c.deps.config.judgeBuyer;
+    const res: JudgeCheckResponse = { ok: true, buyer: b ? { email: b.email, password: b.password } : null, demoCopiesPerDay: DEMO_JUDGE_COPIES_PER_DAY };
+    return json(200, res);
+  }
+  await limit(c, "judgeWrong", undefined, (sec) => `Too many wrong judge codes. Try again ${waitWords(sec)}.`);
+  throw new HttpError(403, "forbidden", "That judge code doesn't match. Check it against the testing instructions on Devpost.");
+};
+
 const createDemo: Handler = async (c) => {
   await demoCopyLimits(c);
   return json(201, await newDemoCopy(c));
@@ -471,7 +535,7 @@ const demoReset: Handler = async (c) => {
 
 const health: Handler = async (c) => {
   const s = c.deps.config;
-  const body: HealthResponse = { ok: true, setup: { ...s.setup, webhook: s.webhookId !== null, judgeCode: s.judgeCode !== null && JUDGE_CODE_FORMAT.test(s.judgeCode) } };
+  const body: HealthResponse = { ok: true, setup: { ...s.setup, webhook: s.webhookId !== null, judgeCode: s.judgeCode !== null && JUDGE_CODE_FORMAT.test(s.judgeCode), judgeBuyer: s.judgeBuyer !== null } };
   return json(200, body);
 };
 
@@ -486,7 +550,9 @@ const ROUTES: { method: string; pattern: RegExp; handler: Handler }[] = [
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/proposals\/([a-z0-9]+)\/approve$/, handler: approve },
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/proposals\/([a-z0-9]+)\/decline$/, handler: decline },
   { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/call-off$/, handler: callOff },
+  { method: "POST", pattern: /^\/api\/shows\/([a-z0-9]+)\/ask-ledger$/, handler: askLedger },
   { method: "POST", pattern: /^\/api\/webhooks\/paypal$/, handler: paypalWebhook },
+  { method: "POST", pattern: /^\/api\/judge\/check$/, handler: judgeCheck },
   { method: "POST", pattern: /^\/api\/demo$/, handler: createDemo },
   { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/fans$/, handler: demoFans },
   { method: "POST", pattern: /^\/api\/demo\/([a-z0-9]+)\/fast-forward$/, handler: demoFastForward },

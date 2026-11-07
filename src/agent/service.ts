@@ -25,7 +25,7 @@ import type { OrderView, PledgeView, Projection } from "./project";
 import { RUNNERS } from "./runners";
 import { SIM_INITIALS } from "./sim-runner";
 import type { Store } from "./store";
-import { attentionLines, ledgerRows, logRows, manageParties, payoutStateOf, payoutWaitingOnFunds, proposalRows, publicShow, reversalLines, UNCONFIRMED_PAYOUT_LINE, unconfirmedPayoutLines, unconfirmedPayouts } from "./views";
+import { attentionLines, ledgerRows, logRows, manageParties, payoutBatches, payoutStateOf, payoutWaitingOnFunds, proposalRows, publicShow, reversalLines, UNCONFIRMED_PAYOUT_LINE, unconfirmedPayoutLines, unconfirmedPayouts } from "./views";
 import { fanName, holdDescription, sawCounts, showTime } from "./words";
 
 export interface ServiceDeps {
@@ -385,6 +385,7 @@ export class CampaignService {
     return {
       show: this.publicView(p),
       ledger: ledgerRows(this.deps.store.events(), p, showId),
+      payouts: payoutBatches(p, showId),
       log: logRows(this.deps.store.logs()),
       proposals: proposalRows(p),
       parties: manageParties(p, showId, payoutWaitingOnFunds(this.deps.store.jobs())),

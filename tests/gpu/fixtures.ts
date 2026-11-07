@@ -100,7 +100,7 @@ export function mayaParties(status: ManageParty["payoutStatus"], paid = false): 
 const STAMPS: [number, number, number][] = [[3, 19, 12], [3, 21, 40], [4, 8, 5], [4, 18, 31], [5, 12, 17], [5, 22, 2], [6, 19, 48], [7, 11, 26], [7, 16, 53], [8, 14, 15], [8, 21, 37], [9, 8, 41]];
 const stampOf = (i: number): number => (STAMPS[i] ? T(11, STAMPS[i][0], STAMPS[i][1], STAMPS[i][2]) : T(11, 9, 9, 10 + i));
 export function holdRows(fans: number, status: LedgerStatus): LedgerRowDto[] {
-  return Array.from({ length: fans }, (_, i) => ({ seq: i + 1, at: stampOf(i), what: "Fan held a spot", who: `Fan ${String(i + 1).padStart(2, "0")} · ${INITIALS[i]}`, amountCents: 1500, ref: `SAMPLE-AUTH-${String(i + 1).padStart(3, "0")}`, status })).reverse();
+  return Array.from({ length: fans }, (_, i) => ({ seq: i + 1, at: stampOf(i), kind: "hold" as const, what: "Fan held a spot", who: `Fan ${String(i + 1).padStart(2, "0")} · ${INITIALS[i]}`, amountCents: 1500, ref: `SAMPLE-AUTH-${String(i + 1).padStart(3, "0")}`, status })).reverse();
 }
 
 const ML = {
@@ -127,7 +127,7 @@ const PACE: ProposalDto = {
 };
 
 function manageView(show: PublicShow, o: { log: AgentLogDto[]; proposals?: ProposalDto[]; parties?: ManageParty[]; ledger?: LedgerRowDto[]; attention?: string[] }): ManageView {
-  return { show, ledger: o.ledger ?? [], log: [...o.log].reverse(), proposals: o.proposals ?? [], parties: o.parties ?? mayaParties("planned"), notes: [], attention: o.attention ?? [], collectedNetCents: 0, now: show.now, version: show.version, sharePath: `/s/${show.showId}` };
+  return { show, ledger: o.ledger ?? [], payouts: [], log: [...o.log].reverse(), proposals: o.proposals ?? [], parties: o.parties ?? mayaParties("planned"), notes: [], attention: o.attention ?? [], collectedNetCents: 0, now: show.now, version: show.version, sharePath: `/s/${show.showId}` };
 }
 
 export const MANAGE_FRAMES = {
@@ -293,7 +293,7 @@ export function demoApi(payout: ManageParty["payoutStatus"] = "paid", opts: { ca
   };
   const side = (k: unknown) => (k === "b" ? b : a);
   const response = (): DemoResponse => ({ demoId: DEMO_ID, demoKey: DEMO_KEY, shows: [a.show, b.show], expiresAt: Date.now() + 86_400_000 });
-  const view = (s: DemoSide): ManageView => ({ show: s.show, ledger: [], log: [...s.log].reverse(), proposals: s.proposals, parties: s.parties, notes: [], attention: [], collectedNetCents: 0, now: s.show.now, version: s.show.version, sharePath: `/s/${s.show.showId}` });
+  const view = (s: DemoSide): ManageView => ({ show: s.show, ledger: [], payouts: [], log: [...s.log].reverse(), proposals: s.proposals, parties: s.parties, notes: [], attention: [], collectedNetCents: 0, now: s.show.now, version: s.show.version, sharePath: `/s/${s.show.showId}` });
 
   function addFans(s: DemoSide, n: number) {
     const fans = s.show.fans.committed;

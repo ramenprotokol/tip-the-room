@@ -1,7 +1,8 @@
 /* Until a page has its real data (body[data-booted="1"]), hide the reference's sample content and say it's loading.
+   A page that renders a real skeleton (body[data-skeleton], the home page: names, dates, rules and targets are in the markup) is never veiled.
    After 12 s the page shows anyway, so a script failure can never leave it blank. Not used by the 404 page. */
-body:not([data-booted="1"]) main { visibility: hidden; animation: ttr-reveal 0s linear 12s forwards; }
-body:not([data-booted="1"])::before {
+body:not([data-booted="1"]):not([data-skeleton]) main { visibility: hidden; animation: ttr-reveal 0s linear 12s forwards; }
+body:not([data-booted="1"]):not([data-skeleton])::before {
   content: "Loading…";
   position: fixed; inset: 40% 0 auto; text-align: center;
   font: 600 18px/1.4 "IBM Plex Sans", system-ui, sans-serif; color: #5b5048;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAILY_NEURON_BUDGET, nextUtcMidnight, PUBLIC_NEURON_BUDGET, Quota, quotaDispatch, utcDay } from "../../src/agent/quota";
+import { DAILY_NEURON_BUDGET, JUDGE_NEURON_RESERVE, nextUtcMidnight, PUBLIC_NEURON_BUDGET, Quota, quotaDispatch, utcDay } from "../../src/agent/quota";
 import { memoryDb } from "./sqlite";
 
 const T = Date.parse("2026-11-01T22:00:00Z");
@@ -14,13 +14,13 @@ describe("daily neuron budget", () => {
   it("reserves until the limit, then refuses", () => {
     const q = quota();
     expect(q.reserveNeurons(T, 5000)).toBe(true);
-    expect(q.reserveNeurons(T, 3000)).toBe(true);
+    expect(q.reserveNeurons(T, 4500)).toBe(true);
     expect(q.reserveNeurons(T, 1)).toBe(false);
     expect(q.neuronsUsed(T)).toBe(DAILY_NEURON_BUDGET);
   });
   it("resets at 00:00 UTC", () => {
     const q = quota();
-    q.reserveNeurons(T, 8000);
+    q.reserveNeurons(T, DAILY_NEURON_BUDGET);
     expect(q.reserveNeurons(nextUtcMidnight(T), 150)).toBe(true);
     expect(utcDay(nextUtcMidnight(T))).toBe("2026-11-02");
     expect(nextUtcMidnight(T)).toBe(Date.parse("2026-11-02T00:00:00Z"));
@@ -44,22 +44,25 @@ describe("rate limits", () => {
     expect(quotaDispatch(q, { op: "hit", key: "k", limit: 1, windowMs: 1000 }, T)).toEqual({ ok: true, retryAfterSec: 0 });
     expect(quotaDispatch(q, { op: "used" }, T)).toEqual({ used: 100, limit: PUBLIC_NEURON_BUDGET, restingUntil: null });
   });
-  it("lets the public use the whole 8,000 units a day, judge flag or not, and stops at 8,000", () => {
-    expect(PUBLIC_NEURON_BUDGET).toBe(DAILY_NEURON_BUDGET);
+  it("keeps 2,500 neurons back for judges: the public stops at 7,000, a judge at 9,500", () => {
+    expect([DAILY_NEURON_BUDGET, JUDGE_NEURON_RESERVE, PUBLIC_NEURON_BUDGET]).toEqual([9500, 2500, 7000]);
+    expect(DAILY_NEURON_BUDGET).toBeLessThanOrEqual(10_000); // Workers AI free allocation
     const q = quota();
     expect(quotaDispatch(q, { op: "reserve", neurons: 5000 }, T)).toEqual({ ok: true });
-    expect(quotaDispatch(q, { op: "reserve", neurons: 2900 }, T)).toEqual({ ok: true });
-    expect(quotaDispatch(q, { op: "reserve", neurons: 100 }, T)).toEqual({ ok: true });
-    expect(quotaDispatch(q, { op: "reserve", neurons: 1 }, T)).toEqual({ ok: false });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 2000 }, T)).toEqual({ ok: true });
+    expect(quotaDispatch(q, { op: "reserve", neurons: 1 }, T)).toEqual({ ok: false }); // public: 7,000 used
+    expect(quotaDispatch(q, { op: "reserve", neurons: 2500, judge: true }, T)).toEqual({ ok: true });
     expect(quotaDispatch(q, { op: "reserve", neurons: 1, judge: true }, T)).toEqual({ ok: false });
     expect(q.neuronsUsed(T)).toBe(DAILY_NEURON_BUDGET);
   });
-  it("reports resting for both kinds of caller only at 8,000", () => {
+  it("a spent public share rests the public but not a judge, until the judge share is spent too", () => {
     const q = quota();
     q.reserveNeurons(T, 5000);
-    expect(quotaDispatch(q, { op: "used" }, T)).toMatchObject({ used: 5000, limit: 8000, restingUntil: null });
-    q.reserveNeurons(T, 3000);
-    expect(quotaDispatch(q, { op: "used" }, T)).toMatchObject({ limit: 8000, restingUntil: "2026-11-02T00:00:00.000Z" });
-    expect(quotaDispatch(q, { op: "used", judge: true }, T)).toMatchObject({ limit: 8000, restingUntil: "2026-11-02T00:00:00.000Z" });
+    expect(quotaDispatch(q, { op: "used" }, T)).toMatchObject({ used: 5000, limit: 7000, restingUntil: null });
+    q.reserveNeurons(T, 2000);
+    expect(quotaDispatch(q, { op: "used" }, T)).toMatchObject({ limit: 7000, restingUntil: "2026-11-02T00:00:00.000Z" });
+    expect(quotaDispatch(q, { op: "used", judge: true }, T)).toMatchObject({ limit: 9500, restingUntil: null });
+    q.reserveNeurons(T, 2500);
+    expect(quotaDispatch(q, { op: "used", judge: true }, T)).toMatchObject({ limit: 9500, restingUntil: "2026-11-02T00:00:00.000Z" });
   });
 });

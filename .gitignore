@@ -40,3 +40,6 @@ playwright-report/
 # Spike scratch output
 docs/superpowers/spikes/.spike-results.json
 spikes/agent-toolkit/wrangler.log
+
+# Local QA evidence from builder runs (screenshots, simulation logs): kept out of the public repo
+qa/judge-pass-*/

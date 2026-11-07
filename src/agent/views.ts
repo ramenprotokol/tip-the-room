@@ -1,7 +1,7 @@
 import { fansCommitted, type CampaignState } from "../core/campaign";
 import type { Mandate } from "../core/mandate";
 import { payoutItemId } from "../paypal/payouts";
-import type { AgentLogDto, BulbStatus, LedgerRowDto, LedgerStatus, ManageParty, ProposalDto, PublicShow, StatusWords } from "../worker/api-types";
+import type { AgentLogDto, BulbStatus, LedgerRowDto, PayoutBatchDto, LedgerStatus, ManageParty, ProposalDto, PublicShow, StatusWords } from "../worker/api-types";
 import type { PayoutItemStatus } from "./events";
 import { FUNDS_WAIT_NOTE, PAYOUT_FAILED } from "./payout-runner";
 import { RECOVERED_BATCH_ATTENTION_MS } from "./policy";
@@ -87,64 +87,64 @@ export function ledgerRows(events: StoredEvent[], p: Projection, showId: string)
     switch (e.type) {
       case "pledge_held": {
         const pl = p.pledges.get(e.pledgeId);
-        if (pl) rows.push({ ...base, what: e.simulated ? "Simulated fan held a spot" : "Fan held a spot", who: fanName(pl), amountCents: e.amountCents, ref: e.authorizationId, status: HOLD_ROW[pl.status] });
+        if (pl) rows.push({ ...base, kind: "hold", what: e.simulated ? "Simulated fan held a spot" : "Fan held a spot", who: fanName(pl), amountCents: e.amountCents, ref: e.authorizationId, status: HOLD_ROW[pl.status] });
         break;
       }
       case "capture_ok": {
         const pl = byCapture(e.captureId);
-        rows.push({ ...base, what: "Charged", who: pl ? fanName(pl) : "A fan", amountCents: e.grossCents, ref: e.captureId, status: pl?.status === "refunded" ? "Refunded" : "Charged" });
+        rows.push({ ...base, kind: "charge", what: "Charged", who: pl ? fanName(pl) : "A fan", amountCents: e.grossCents, ref: e.captureId, status: pl?.status === "refunded" ? "Refunded" : "Charged" });
         break;
       }
       case "capture_failed": {
         const pl = byAuth(e.authorizationId);
-        rows.push({ ...base, what: "Charge didn't go through · PayPal shows no payment", who: pl ? fanName(pl) : "A fan", amountCents: null, ref: e.authorizationId, status: "Failed" });
+        rows.push({ ...base, kind: "info", what: "Charge didn't go through · PayPal shows no payment", who: pl ? fanName(pl) : "A fan", amountCents: null, ref: e.authorizationId, status: "Failed" });
         break;
       }
       case "void_ok": {
         const pl = byAuth(e.authorizationId);
-        rows.push({ ...base, what: pl ? "Hold cancelled · nobody charged" : "Extra hold cancelled · nobody charged", who: pl ? fanName(pl) : "Not counted", amountCents: null, ref: e.authorizationId, status: "Cancelled" });
+        rows.push({ ...base, kind: "release", what: pl ? "Hold cancelled · nobody charged" : "Extra hold cancelled · nobody charged", who: pl ? fanName(pl) : "Not counted", amountCents: null, ref: e.authorizationId, status: "Cancelled" });
         break;
       }
       case "refund_ok": {
         const pl = byCapture(e.captureId);
-        rows.push({ ...base, what: "Refunded", who: pl ? fanName(pl) : "A fan", amountCents: pl?.grossCents ?? null, ref: e.refundId, status: "Refunded" });
+        rows.push({ ...base, kind: "refund", what: "Refunded", who: pl ? fanName(pl) : "A fan", amountCents: pl?.grossCents ?? null, ref: e.refundId, status: "Refunded" });
         break;
       }
       case "late_hold":
-        rows.push({ ...base, what: "Hold arrived after pledging closed", who: "Not counted", amountCents: e.amountCents, ref: e.authorizationId, status: p.retired.get(e.authorizationId)?.voided ? "Cancelled" : "Pending" });
+        rows.push({ ...base, kind: "info", what: "Hold arrived after pledging closed", who: "Not counted", amountCents: e.amountCents, ref: e.authorizationId, status: p.retired.get(e.authorizationId)?.voided ? "Cancelled" : "Pending" });
         break;
       case "pledge_rejected":
-        rows.push({ ...base, what: "Hold refused", who: "Not counted", amountCents: null, ref: e.authorizationId, status: "Failed" });
+        rows.push({ ...base, kind: "info", what: "Hold refused", who: "Not counted", amountCents: null, ref: e.authorizationId, status: "Failed" });
         break;
       case "hold_replaced": {
         const pl = p.pledges.get(e.pledgeId);
-        rows.push({ ...base, what: "Hold renewed before it expired", who: pl ? fanName(pl) : "A fan", amountCents: null, ref: e.authorizationId, status: "Info" });
+        rows.push({ ...base, kind: "info", what: "Hold renewed before it expired", who: pl ? fanName(pl) : "A fan", amountCents: null, ref: e.authorizationId, status: "Info" });
         break;
       }
       case "payout_sent": {
         const payout = p.payouts.find((x) => x.senderBatchId === e.senderBatchId);
         if (e.lines.length === 0) {
-          rows.push({ ...base, what: "Nothing to pay out", who: "Everyone", amountCents: 0, ref: null, status: "Info" });
+          rows.push({ ...base, kind: "info", what: "Nothing to pay out", who: "Everyone", amountCents: 0, ref: null, status: "Info" });
           break;
         }
         for (const l of e.lines) {
           const status = itemStatus(payout?.items[payoutItemId(showId, l.role, e.retry)]);
           const what = `${status === "Sent" ? "Sent to" : "Paid"} ${l.label}`;
-          rows.push({ ...base, what: e.retry ? `${what} (second try)` : what, who: l.label, amountCents: l.amount, ref: payout?.batchId ?? e.senderBatchId, status });
+          rows.push({ ...base, kind: "payout", what: e.retry ? `${what} (second try)` : what, who: l.label, amountCents: l.amount, ref: payout?.batchId ?? e.senderBatchId, status });
         }
         break;
       }
       case "deadline_reached":
-        rows.push({ ...base, what: "Deadline reached", who: "Everyone", amountCents: null, ref: null, status: "Info" });
+        rows.push({ ...base, kind: "info", what: "Deadline reached", who: "Everyone", amountCents: null, ref: null, status: "Info" });
         break;
       case "show_cancelled":
-        rows.push({ ...base, what: "The artist called the show off", who: "Everyone", amountCents: null, ref: null, status: "Info" });
+        rows.push({ ...base, kind: "info", what: "The artist called the show off", who: "Everyone", amountCents: null, ref: null, status: "Info" });
         break;
       case "deadline_extended":
-        rows.push({ ...base, what: `Deadline moved to ${new Date(e.newDeadline).toUTCString()}`, who: "Everyone", amountCents: null, ref: null, status: "Info" });
+        rows.push({ ...base, kind: "info", what: `Deadline moved to ${new Date(e.newDeadline).toUTCString()}`, who: "Everyone", amountCents: null, ref: null, status: "Info" });
         break;
       case "threshold_lowered":
-        rows.push({ ...base, what: `Target lowered to ${e.newThreshold} fans`, who: "Everyone", amountCents: null, ref: null, status: "Info" });
+        rows.push({ ...base, kind: "info", what: `Target lowered to ${e.newThreshold} fans`, who: "Everyone", amountCents: null, ref: null, status: "Info" });
         break;
       default:
         break;
@@ -194,6 +194,23 @@ export function unconfirmedPayoutLines(p: Projection, now: number): string[] {
 /** A payout (or its second try) is waiting for the PayPal account to have enough funds. */
 export function payoutWaitingOnFunds(jobs: Job[]): boolean {
   return jobs.some((j) => (j.kind === "payout" || j.kind === "payout_retry") && j.status === "pending" && j.note.startsWith(FUNDS_WAIT_NOTE));
+}
+
+/**
+ * The payout batches for the second grid: one line per payee per batch (the first batch, then the second try if there was one).
+ * Read-only: it shows what PayPal said, and the amounts are the ones the guard approved when the batch was sent.
+ */
+export function payoutBatches(p: Projection, showId: string): PayoutBatchDto[] {
+  return p.payouts.map((x) => ({
+    batchId: x.batchId,
+    senderBatchId: x.senderBatchId,
+    status: x.status,
+    retry: x.retry,
+    items: x.lines.map((l) => {
+      const item = x.items[payoutItemId(showId, l.role, x.retry)];
+      return { role: l.role, label: l.label, amountCents: l.amount, payoutItemId: item?.payoutItemId ?? null, transactionId: item?.transactionId ?? null, status: itemStatus(item) };
+    }),
+  }));
 }
 
 export function manageParties(p: Projection, showId: string, waitingOnFunds = false): ManageParty[] {

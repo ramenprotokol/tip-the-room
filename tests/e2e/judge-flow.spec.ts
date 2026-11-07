@@ -20,6 +20,9 @@ test("judge flow on the real Worker: seeded holds, check pace, add fans, skip to
   // Check pace now: B (19 of 28 at three quarters of its window) is behind, so the agent asks the artist first.
   await page.click("#pace");
   await expect(page.locator("#log")).toContainText("Proposed:", { timeout: 60_000 });
+  // The Decisions strip carries it too, with the money rule that let the agent ask.
+  await expect(page.locator("#decisions")).toContainText("Proposed");
+  await expect(page.locator("#decisions")).toContainText("Money rule 5");
   const showB = await context.newPage();
   await showB.goto((await page.locator("#manage-b").getAttribute("href"))!);
   await ready(showB);
@@ -35,6 +38,10 @@ test("judge flow on the real Worker: seeded holds, check pace, add fans, skip to
   await page.locator("#show-a [data-act=ff]").click();
   await expect(word(page, "b")).toHaveText("Called off", { timeout: 300_000 });
   await expect(word(page, "a")).toHaveText(/Everyone’s paid|Payouts sent/, { timeout: 600_000 });
+  // ...and the strip names what the agent did: the tip, the charges, the payout batch (with its PayPal id) and the cancelled holds.
+  await expect(page.locator("#decisions")).toContainText(/Charged \d+ holds, \$/, { timeout: 60_000 });
+  await expect(page.locator("#decisions")).toContainText("Cancelled");
+  await expect(page.locator("#decisions")).toContainText("PayPal batch");
 
   // A's show page: the AG Grid ledger has real sandbox ids.
   const showA = await context.newPage();

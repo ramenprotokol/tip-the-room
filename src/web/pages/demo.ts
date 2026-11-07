@@ -8,10 +8,13 @@ import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
+import { mountJudgePass, type JudgeBuyer } from '../shared/judge-pass';
 import { API_BASE, HOOKS, PARITY, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
 import { aiResting, andList, dayLabel, fansShown, dollars, emphasis, endOf, fineLine, payoutsConfirmed, PAYOUT_TAG, PLATE_WORD, payState, payoutSignsWords, planSplit, remainSec, ROLE_WORD, restingLine, rulesLine, ShowClock, when } from "../shared/format";
 import { loadDemo, saveDemo, type SavedDemo } from "../shared/keys";
+import { paceReady, ruleLabel } from "../shared/agent-story";
+import { StoryLog } from "../shared/agent-story-dom";
 
 removeRefOnly();
 const idle = watchIdle();
@@ -23,15 +26,34 @@ interface Look { crest: string; yaw: number; seed: number; label: string }
 // The two demo shows are fixed fictional seeds (src/agent/demo.ts). Their sign styling and the bill lines in index.html
 // aren't in the API; everything else on the page comes from it.
 const LOOK: Record<Key, Look> = { a: { crest: 'SPINDLE RECORDS', yaw: .2, seed: 7, label: 'Show A' }, b: { crest: 'ELM ST HOUSE SHOW', yaw: -.2, seed: 19, label: 'Show B' } };
+/** What the two sample shows are called and how many fans each needs (src/agent/demo.ts), for the sign drawn before the API answers. */
+const FIRST_PAINT: Record<Key, { name: string; target: number }> = { a: { name: 'Juniper Vale', target: 34 }, b: { name: 'Marlow Finch', target: 28 } };
 type CtlPhase = 'open' | 'tipping' | 'tipped' | 'ff' | 'paying' | 'paid' | 'missing' | 'released';
 type StatusKey = 'held' | 'tipped' | 'paying' | 'funds' | 'paid' | 'sent' | 'failed' | 'missing' | 'released' | 'refunding';
 const T = { TIP: { flare: .62, pop: 1.0, itson: 2.38, done: 4.3 }, PAYOUT: { paid: 1.6, done: 2.6 }, MISS: { release: .12, msg: 2.05, done: 3.1, wave: .9 }, R: { tip: .7, payout: .7, miss: 1.3 } };
 const log = new AgentLog($('#log'));
+/** The log folds the per-fan lines into one row each and pins the agent's real decisions above it. */
+const story = new StoryLog(log, $('#decisions'), {
+  name: tag => (tag === 'a' ? A : B).name || LOOK[tag as Key].label,
+  multi: true,
+  fold: !PARITY,
+  starting: tag => START_FANS[tag as Key],
+  time: (at, tag) => when(at, (tag === 'a' ? A : B).show?.timeZone ?? 'UTC', 'log'),
+  // The newest decision is also said beside the judge's buttons, so it is seen without scrolling to the log.
+  onLatest: d => { const box = $('[data-latest]'); box.hidden = PARITY || !d; if (d) $('[data-latest-text]').textContent = `${(d.tag === 'a' ? A : B).name || ''}: ${d.text}${d.ruleId ? ` (${ruleLabel(d.ruleId)})` : ''}`; },
+});
 let payout: PayoutStrip | null = null;
 let demo: SavedDemo | null = null;
 let inflight = false;
 const judgeMsg = (text: string) => { $('[data-judge-msg]').textContent = text; };
-const failed = (e: unknown) => judgeMsg(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.');
+const failed = (e: unknown) => {
+  judgeMsg(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.');
+  // A cap (429) or an outage while making the copy: say so at the top, where the empty signs are, not only in the judges box.
+  if (e instanceof ApiFailure && !demo) {
+    const n = $('[data-cap-notice]'); n.hidden = false;
+    n.textContent = e.status === 429 ? `${e.message} Nothing is broken: the rest of the site still works, and you can start your own show.` : `The sample shows could not start (${e.message}) You can still start your own show.`;
+  }
+};
 
 class ShowCtl {
   key: Key; look: Look; el: HTMLElement; stage: HTMLElement; tipEl: HTMLElement; status: HTMLElement; clockEl: HTMLElement; fansSub: HTMLElement; of: HTMLElement; moneySub: HTMLElement;
@@ -48,6 +70,9 @@ class ShowCtl {
     this.bAdd.addEventListener('click', () => { void this.addClicked(); });
     this.bFF.addEventListener('click', () => { void this.ffClicked(); });
     this.bReset = $<HTMLButtonElement>('[data-act=reset]', el); this.bReset.addEventListener('click', () => { void resetDemo(this.bReset); });
+    // First paint: the flat sign with the real name and target (the two sample shows are fixed), before any answer from the API. load() swaps in the real numbers.
+    this.ph = new Placeholder($('[data-ph]', el), FIRST_PAINT[key]); this.ph.update('held', 0);
+    this.odoFans.set(0, true); this.odoHeld.set(0, true); this.odoCharged.set(0, true);
   }
   get name() { return this.show?.showName ?? ''; }
   get target() { return this.show?.threshold ?? 1; }
@@ -71,6 +96,13 @@ class ShowCtl {
     const amts = this.paidAmounts(), split = this.show.split;
     const tags = this.confirmed ? amts.map(() => 'Paid') : this.parties.length ? this.parties.map(p => PAYOUT_TAG[p.payoutStatus]) : amts.map(() => PAYOUT_TAG.pending);
     payout.set(amts, tags, amts.map(() => 'paid'), `One PayPal payout, in money-rule order: ${split.map((p, i) => `${p.label} ${usd(amts[i])}`).join(' · ')}.`);
+  }
+  /** Once the show is on, the payout box shows the planned split at once (not "$0 Waiting" while the charges settle). The real amounts replace it when the payout goes out. */
+  planStrip() {
+    if (this.key !== 'a' || !payout || !this.show || PARITY || !this.tipped || (this.phase !== 'tipped' && this.phase !== 'tipping')) return;
+    const amts = this.splitOf(Math.max(this.fans, this.target));
+    payout.plan(amts, amts.map(() => 'Planned'));
+    if (payout.note) payout.note.textContent = `Planned from the ${usd(this.fans * this.cents / 100)} charged, before PayPal’s fee: ${this.show.split.map((p, i) => `${p.label} ${usd(amts[i])}`).join(' · ')}. Paid in one PayPal payout at the deadline.`;
   }
   paidAmounts(): number[] { const ps = this.parties; return ps.length && ps.every(p => p.payoutCents !== null) ? ps.map(p => (p.payoutCents ?? 0) / 100) : this.splitOf(this.fans); }
   model(): SignModel { return { name: this.name, crest: this.look.crest, target: this.target, seed: this.look.seed, yaw: this.look.yaw, payees: this.payees() }; }
@@ -110,7 +142,7 @@ class ShowCtl {
     this.moneySub.textContent = this.phase === 'paid' ? this.payMoneySub() : this.phase === 'released' ? (this.refunded ? this.refundSub() : `${usd(this.fans * this.cents / 100)} released back to ${this.fans} fans · nobody paid`) : this.tipped ? `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}` : 'Nobody pays unless it happens.';
     this.setStatus(this.phase === 'open' ? 'held' : this.phase === 'tipped' ? 'tipped' : this.phase === 'paid' ? this.payKey : this.refunded ? 'refunding' : 'released', true);
     this.renderClock(); this.renderFans(); this.buttons(); this.ph?.update(this.visual().phase, this.fans); this.label();
-    if (this.key === 'a' && payout) { if (this.phase === 'paid' && !PARITY) this.fillStrip(); else payout.reset(); }
+    if (this.key === 'a' && payout) { if (this.phase === 'paid' && !PARITY) this.fillStrip(); else { payout.reset(); this.planStrip(); } }
   }
   setStatus(k: StatusKey, instant?: boolean) {
     const roles = andList((this.show?.split ?? []).map(p => ROLE_WORD[p.role].toLowerCase()));
@@ -169,7 +201,7 @@ class ShowCtl {
   flush(rule: RuleId | null, instant = false) {
     let upto = -1; this.queue.forEach((e, i) => { if (rule === null || e.rule === rule) upto = i; });
     const tz = this.show?.timeZone ?? 'UTC';
-    for (const e of this.queue.splice(0, upto + 1)) log.addSegs({ time: when(e.at, tz, 'log'), segs: emphasis(e.did), fine: fineLine(e), tag: this.key, instant });
+    for (const e of this.queue.splice(0, upto + 1)) story.add({ ...e, tag: this.key }, (into, x) => into.addSegs({ time: when(x.at, tz, 'log'), segs: emphasis(x.did), fine: fineLine(x), tag: this.key, instant }));
   }
   /** One step toward the latest data, with the reference's beats; each beat calls step() again when it ends. */
   step() {
@@ -210,7 +242,7 @@ class ShowCtl {
     for (let k = 0; k < n; k++) this.cues.at(k * step + .1, () => { this.fans++; this.odoFans.set(this.fans); this.renderMoney(); this.renderFans(); Snd.screw(k); });
     this.cues.at((n - 1) * step + .7, () => {
       this.flush('rule-2-capture-at-tip');
-      this.busy = false; this.buttons(); this.label(); if (this.view) this.view.setPayouts(this.payees());
+      this.busy = false; this.buttons(); this.label(); if (this.view) this.view.setPayouts(this.payees()); this.planStrip();
       this.step();
     });
   }
@@ -220,7 +252,7 @@ class ShowCtl {
     if (this.view) this.view.play(REDUCED ? 'reduced' : 'tip', REDUCED ? { to: 'tipped' } : {});
     if (!REDUCED) { Snd.chase(this.target, T.TIP.flare); this.cues.at(T.TIP.pop, () => Snd.sparks()); this.cues.at(T.TIP.itson, () => Snd.chord()); }
     this.cues.at(C.flare, () => {
-      Snd.flare(); this.tipped = true; this.setStatus('tipped'); this.renderFans(); this.renderMoney();
+      Snd.flare(); this.tipped = true; this.setStatus('tipped'); this.renderFans(); this.renderMoney(); this.planStrip();
       this.moneySub.textContent = `Charged the moment it tipped · ${this.fans} × ${dollars(this.cents)}`;
       this.ph?.update('tipped', this.fans); this.label();
       this.flush('rule-2-capture-at-tip');
@@ -251,6 +283,8 @@ class ShowCtl {
       this.moneySub.textContent = this.payMoneySub();
       if (this.key === 'a' && payout) payout.fill(amts, this.cues, `One PayPal payout, in money-rule order: ${split.map((p, i) => `${p.label} ${usd(amts[i])}`).join(' · ')}.`, this.confirmed ? undefined : this.parties.map(p => PAYOUT_TAG[p.payoutStatus]));
       this.flush('rule-4-pay-the-split');
+      // A view that arrived while the plates were filling can carry newer payout states than the ones the fill was given: settle the box on the latest.
+      if (!PARITY) this.cues.at(1.2, () => { if (this.phase === 'paid') this.fillStrip(); });
       this.buttons(); this.step();
     });
   }
@@ -311,9 +345,11 @@ async function solo(btn: HTMLButtonElement | null, fn: () => Promise<void>): Pro
 function lock() { ctls.forEach(c => c.buttons()); paceLock(); }
 /** The one place that decides whether Check pace now is usable: not while another action runs, and not while the starting fans are still being seated. */
 function paceLock() {
-  const waiting = filling && !PARITY;
+  // Unlocks as soon as each show has the fans its pace check needs (agent-story.ts paceNeeds), not when the last starting fan lands.
+  const wait = filling && !PARITY ? paceReady(ctls.map(c => ({ key: c.key, name: c.name || c.look.label, state: c.show?.state ?? 'live', committed: c.show?.fans.committed ?? 0, target: c.target, starting: START_FANS[c.key] }))) : null;
+  const waiting = wait !== null && !wait.ready;
   $<HTMLButtonElement>('#pace').disabled = inflight || waiting;
-  $('#pace-hint').hidden = !waiting;
+  const hint = $('#pace-hint'); hint.hidden = !waiting; hint.textContent = wait && waiting ? wait.waiting : '';
 }
 
 function showResting() { const p = $('#resting'); p.hidden = PARITY || !ctls.some(c => c.resting); p.textContent = p.hidden ? '' : restingLine(Date.now(), ctls.find(c => c.resting)?.show?.timeZone); }
@@ -380,10 +416,10 @@ function renderAsks() {
 function start(r: DemoResponse) {
   lastChangeAt = Date.now();
   demo = { demoId: r.demoId, demoKey: r.demoKey, expiresAt: r.expiresAt }; saveDemo(store, demo);
-  log.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links(); renderAsks();
+  story.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links(); renderAsks();
 }
 /** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
-async function begin(r: DemoResponse) { start(r); filling = true; fillingSince = Date.now(); setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them a few at a time, so filling the signs can take a few minutes.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
+async function begin(r: DemoResponse) { $('[data-cap-notice]').hidden = true; start(r); filling = true; fillingSince = Date.now(); setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them four at a time, so the signs fill in about 30 seconds.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
 async function freshCopy(msg: string) { await begin(await api.createDemo()); judgeMsg(msg); }
 async function resetDemo(btn: HTMLButtonElement | null = null) {
   const d = demo; if (!d) return;
@@ -411,7 +447,7 @@ async function boot() {
       if (saved && saved.expiresAt - Date.now() > 10 * 60_000) {
         try {
           const a = await api.getShow(`${saved.demoId}a`), b = await api.getShow(`${saved.demoId}b`);
-          demo = saved; log.clear(); A.load(a); B.load(b); summary(); links(); reused = true;
+          demo = saved; story.clear(); A.load(a); B.load(b); summary(); links(); reused = true;
           await Promise.all([pullView(A, true), pullView(B, true)]);
         } catch (e) { if (!(e instanceof ApiFailure && e.status === 404)) throw e; }
       }
@@ -419,19 +455,23 @@ async function boot() {
     } catch (e) { failed(e); }
   });
   credsBox();
+  if (!PARITY) mountJudgePass($('[data-judge-pass]'), api, { onAccepted: (r) => { judgeBuyer = r.buyer; credsBox(); }, onCleared: () => { judgeBuyer = null; credsBox(); } });
   $('#judge').hidden = false;
 }
+/** The judges-only sandbox buyer, shown once a judge pass is accepted, so a changed public password can't lock judges out. */
+let judgeBuyer: JudgeBuyer | null = null;
 function credsBox() {
   const box = $('[data-judge-creds]'); box.textContent = '';
-  if (!SANDBOX_BUYER.email) { box.textContent = 'Sandbox buyer login coming soon'; return; }
+  const buyer = judgeBuyer ?? SANDBOX_BUYER;
+  if (!buyer.email) { box.textContent = 'Sandbox buyer login coming soon'; return; }
   const node = (tag: string, cls: string, text: string) => { const n = document.createElement(tag); if (cls) n.className = cls; n.textContent = text; return n; };
   const row = (label: string, value: string) => {
     const copy = node('button', 'btn btn-ghost', 'Copy') as HTMLButtonElement; copy.type = 'button'; copy.setAttribute('aria-label', `Copy the ${label.toLowerCase()}`);
     copy.addEventListener('click', () => { void copyText(value).then(ok => { copy.textContent = ok ? 'Copied' : 'Select it and copy'; setTimeout(() => { copy.textContent = 'Copy'; }, 1800); }); });
     const r = node('div', 'cred', ''); r.append(node('span', 'cred-l', label), node('code', '', value), copy); return r;
   };
-  box.append(node('p', '', 'To try the real PayPal checkout, log in with this sandbox buyer:'), row('Email', SANDBOX_BUYER.email));
-  if (SANDBOX_BUYER.password) box.append(row('Password', SANDBOX_BUYER.password));
+  box.append(node('p', '', judgeBuyer ? 'To try the real PayPal checkout, log in with the judges-only sandbox buyer:' : 'To try the real PayPal checkout, log in with this sandbox buyer:'), row('Email', buyer.email));
+  if (buyer.password) box.append(row('Password', buyer.password));
   box.append(node('p', '', 'It’s play money: nothing real is charged.'));
 }
 let retryAt = 0, lastChangeAt = Date.now();
@@ -465,11 +505,13 @@ async function poll() {
 interface DemoHooks extends MarqueeHooks { ctls: ShowCtl[]; host: SignHost | null }
 const A = new ShowCtl('a'), B = new ShowCtl('b'), ctls = [A, B];
 setInterval(() => ctls.forEach(c => { if ((c.phase === 'open' || c.phase === 'tipped' || c.phase === 'tipping') && c.show) { c.remain = remainSec(c.show.deadline, c.clock); c.renderClock(); } }), 1000);
-if (!QUIET) setInterval(() => { void poll(); }, 4000);
+/** Every 4 s; every 3 s (the server's own cache time for a show) while a show is on but not yet paid, so the payout panel follows the charges. */
+function pollSoon() { setTimeout(() => { void poll().catch(() => undefined).then(pollSoon); }, ctls.some(c => c.show && (c.show.state === 'tipped' || c.show.state === 'paying_out' || c.phase === 'ff')) ? 3000 : 4000); }
+if (!QUIET) pollSoon();
 setInterval(() => { if (filling) setupLine(); }, 1000); // the 3-minute limit needs no new data to take effect
 soundToggle($('#sound'));
 // New real-site pointers (app-only: the pixel-comparison page never shows them). The T/P/M/R key hints only work in test builds.
-if (!PARITY) document.querySelectorAll<HTMLElement>('#hdr-links, [data-both-note], #agent-note').forEach(n => { n.hidden = false; });
+if (!PARITY) document.querySelectorAll<HTMLElement>('#hdr-links, [data-both-note], #agent-note, #decisions, .log-title').forEach(n => { n.hidden = false; });
 if (!HOOKS) $('.keys').hidden = true;
 if (!PARITY) legendPayouts(); // the plates say PAYING, SENT or PAID per payee, so the legend can't say everyone's paid
 $('#pace').addEventListener('click', () => { void checkPace(); });

@@ -91,6 +91,8 @@ const runSimHold: Runner = async (d, job, attempt) => {
     return declined(d, job, pledgeId, idsLookRight(hold) ? hold.orderId : null, live ? hold.authorizationId : null, `answered ${hold.status} for ${hold.amountCents} cents`, live);
   }
   const now = d.clock.now();
+  // Read the state again here, after the await: holds run a few at a time, so `p` may be stale. No await between this and the commit.
+  const wasLive = d.store.projection().campaign.state === "live";
   try {
     commit(d.store, now, { type: "pledge_held", pledgeId, orderId: hold.orderId, authorizationId: hold.authorizationId, amountCents: hold.amountCents, authorizedAt: hold.createdAt, expiresAt: hold.expiresAt, initials: job.note || "SF", simulated: true });
   } catch (e) {
@@ -103,6 +105,10 @@ const runSimHold: Runner = async (d, job, attempt) => {
   const after = d.store.projection();
   const pledge = after.pledges.get(pledgeId);
   logStep(d, { saw: sawCounts(after), did: `Simulated ${pledge ? fanName(pledge) : "fan"} held a spot with a real sandbox card hold. Nobody is charged yet.`, rule: "rule-1-hold-only", requestId: requestIds.hold(d.showId, pledgeId), resultId: hold.authorizationId });
+  // The last starting fan can be the one that tips the show: say so (as a real fan's hold does), so the decision is on the record.
+  if (wasLive && after.campaign.state === "tipped") {
+    logStep(d, { saw: sawCounts(after), did: "The show reached its target. Charging every hold now.", rule: "rule-2-capture-at-tip" });
+  }
   done(d, job, "Held.");
 };
 

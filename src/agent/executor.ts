@@ -5,7 +5,7 @@ import type { TestCard } from "../paypal/payments";
 import { eventKey, type AiSource, type LedgerEvent } from "./events";
 import type { Clock } from "./ids";
 import type { PayPalPort } from "./paypal-port";
-import { backoffMs, jobCost, LEASE_MS, MAX_JOB_ATTEMPTS, MAX_JOBS_PER_TURN, TURN_CALL_BUDGET } from "./policy";
+import { backoffMs, jobCost, LEASE_MS, MAX_JOB_ATTEMPTS, MAX_JOBS_PER_TURN, SIM_HOLDS_PARALLEL, TURN_CALL_BUDGET } from "./policy";
 import { campaignEventFor, chargedPledges, heldPledges, type Projection } from "./project";
 import type { Job, JobKind, Store } from "./store";
 import { errText, sawCounts } from "./words";
@@ -81,14 +81,31 @@ export interface DrainResult {
  */
 export async function drain(d: ExecDeps, runners: Runners, maxJobs = MAX_JOBS_PER_TURN, resetMeter = true): Promise<DrainResult> {
   let ran = 0;
+  let simCost: number | null = null;
   // A caller that already spent subrequests this turn (AI and quota calls) passes resetMeter = false to keep them counted.
   if (resetMeter) d.paypal.meter.reset();
   while (ran < maxJobs) {
     const [job] = d.store.dueJobs(d.clock.now(), 1);
     if (!job) break;
     if (TURN_CALL_BUDGET - d.paypal.meter.used < jobCost(job.kind, job.attempts + 1)) break;
+    if (job.kind === "sim_hold" && simCost !== null) {
+      // Simulated fans only (no real fan's money): a few holds at once, sized by what the first hold this turn really cost. Each job is leased before any awaits.
+      const room = Math.min(SIM_HOLDS_PARALLEL, maxJobs - ran, Math.floor((TURN_CALL_BUDGET - d.paypal.meter.used) / simCost));
+      const batch: Job[] = [];
+      for (const j of room > 0 ? d.store.dueJobs(d.clock.now(), room) : []) {
+        if (j.kind !== "sim_hold") break;
+        batch.push(j);
+      }
+      if (batch.length > 0) {
+        ran += batch.length;
+        await Promise.all(batch.map((j) => runJob(d, runners, j)));
+        continue;
+      }
+    }
+    const usedBefore = d.paypal.meter.used;
     ran += 1;
     await runJob(d, runners, job);
+    if (job.kind === "sim_hold" && simCost === null) simCost = Math.max(d.paypal.meter.used - usedBefore, jobCost("sim_hold", 1));
   }
   return { ran, more: d.store.dueJobs(d.clock.now(), 1).length > 0 };
 }

@@ -73,6 +73,12 @@
         <p class="hold-hint" id="approve-hint">Press and hold for 1.5 seconds, or hold Space or Enter.</p>
         <div class="actions" id="ask-alt" data-app-only hidden></div><p class="pledge-msg" data-ask-msg data-app-only hidden aria-live="polite"></p>
       </div>
+      <section class="decisions" id="decisions" data-app-only hidden aria-labelledby="h-decisions">
+        <h3 class="decisions-title" id="h-decisions">Decisions <span>what the agent decided, and the money rule that allowed it</span></h3>
+        <p class="decisions-empty" data-decisions-empty>Nothing decided yet. When the agent acts, it shows here with the money rule that allowed it.</p>
+        <ol class="decisions-list" data-decisions-list aria-live="polite"></ol>
+      </section>
+      <h3 class="log-title" data-app-only hidden>Every step</h3>
       <ol class="log" id="log" aria-live="polite"></ol>
       <p class="hint" id="resting" data-app-only hidden></p>
       <div class="calloff" id="calloff" data-app-only hidden>
@@ -102,6 +108,13 @@
     <h2 class="section-title" id="h-ledger">Every money move</h2>
     <div class="ledger-grid" id="ledger"></div>
     <p class="grid-note"><span data-note>Newest first. Sample refs: the live app shows real PayPal sandbox IDs. Sort, filter and export to CSV there.</span> <button class="linkish" type="button" id="csv" data-app-only hidden>Download as CSV</button></p>
+  </section>
+
+  <section class="block" id="payout-block" data-app-only hidden aria-labelledby="h-payout-grid">
+    <h2 class="section-title" id="h-payout-grid">The payout batch</h2>
+    <p class="batch-head" data-batch-head aria-live="polite"></p>
+    <div class="ledger-grid payout-grid" id="payout-grid"></div>
+    <p class="grid-note">One line for each person PayPal was told to pay. <button class="linkish" type="button" id="payout-csv">Download the payouts as CSV</button></p>
   </section>
 
   <section class="card notes" id="notes" data-app-only hidden aria-labelledby="h-notes">

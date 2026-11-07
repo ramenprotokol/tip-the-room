@@ -194,7 +194,7 @@ test.describe("the home feed shows the artist's approval", () => {
 });
 
 test.describe("Check pace now waits for the starting fans", () => {
-  const HINT = "Ready once the starting fans are seated (about a minute).";
+  const HINT = /^Unlocks in about 30 seconds, once the starting fans are seated \(.+ 10 of 26, .+ 4 of 19\)\.$/;
   /** A fresh copy that starts with few fans seated. `seated.now` is the server finishing the job: later answers carry the full starting fans. */
   function fillingApi(seated = { now: false }): FakeApi {
     const base = demoApi();

@@ -102,7 +102,7 @@ export class FakePayPal implements PayPalPort {
       this.batchCount += 1;
       const batchId = `B-${this.batchCount}`;
       const sentLines = lines.filter((l) => l.amount > 0);
-      this.batches.set(batchId, sentLines.map((l) => ({ senderItemId: payoutItemId(showId, l.role, retry), status: "SUCCESS", amountCents: l.amount })));
+      this.batches.set(batchId, sentLines.map((l) => ({ senderItemId: payoutItemId(showId, l.role, retry), status: "SUCCESS", payoutItemId: `PI-${batchId}-${l.role}`, amountCents: l.amount })));
       return { batchId, senderBatchId: payoutBatchId(showId, retry), status: "PENDING", sentLines };
     });
   }

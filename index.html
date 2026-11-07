@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 </head>
-<body>
+<body data-skeleton>
 <header class="bar">
   <a class="brand" href="/">
     <span class="wordmark"><span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>Tip the Room</span>
@@ -34,7 +34,8 @@
 </ol>
 
 <main>
-  <p class="note setup" id="setup" data-app-only hidden aria-live="polite">Setting up your sample shows. The starting fans are real PayPal sandbox holds, seated a few at a time.</p>
+  <p class="note cap-notice" data-cap-notice data-app-only hidden role="status"></p>
+  <p class="note setup" id="setup" data-app-only hidden aria-live="polite">Setting up your sample shows. The starting fans are real PayPal sandbox holds, seated four at a time (about 30 seconds).</p>
   <div class="front">
     <section class="show" id="show-a" aria-labelledby="a-title">
       <div class="stage" data-stage role="img" aria-label="Marquee sign for Juniper Vale">
@@ -50,8 +51,8 @@
         <p class="bill">Acoustic set with The Low Tides · Back room, Spindle Records</p>
         <dl class="stats">
           <div class="stat clock"><dt>Deadline · Wed Nov 18, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
-          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>29</span><span data-of>of 34 fans</span></span><span class="sub" data-fans-sub>5 more to make it happen</span></dd></div>
-          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>435</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
+          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>0</span><span data-of>of 34 fans</span></span><span class="sub" data-fans-sub>Seating the starting fans…</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>0</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
         </dl>
         <p class="rules-line"><span><b>$15</b> a spot</span><span>Money rules: Room $80 → Opener $100 → Artist gets the rest</span></p>
         <div class="actions">
@@ -79,8 +80,8 @@
         <p class="bill">Songs from the kitchen · Living room, Elm St house show</p>
         <dl class="stats">
           <div class="stat clock"><dt>Deadline · Fri Nov 20, 6:00pm</dt><dd><span class="dotnum" data-clock></span></dd></div>
-          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>19</span><span data-of>of 28 fans</span></span><span class="sub" data-fans-sub>9 more to make it happen</span></dd></div>
-          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>228</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
+          <div class="stat fans"><dt>Fans</dt><dd><span class="count"><span class="dotnum" data-fans>0</span><span data-of>of 28 fans</span></span><span class="sub" data-fans-sub>Seating the starting fans…</span></dd></div>
+          <div class="stat money"><dt>Money</dt><dd><span class="hold-l">$<span data-held>0</span> on hold</span><span class="charged-l"><span class="dotnum">$<span data-charged>0</span></span>charged</span><span class="sub" data-money-sub>Nobody pays unless it happens.</span></dd></div>
         </dl>
         <p class="rules-line"><span><b>$12</b> a spot</span><span>Money rules: Room $60 → Opener $40 → Artist gets the rest</span></p>
         <div class="actions">
@@ -99,22 +100,30 @@
     <h2 class="section-title" id="h-judge">For judges: try it in this order</h2>
     <ol class="try">
       <li><span><b>Hold a spot on Juniper Vale</b> with the sandbox login below.</span><a class="btn btn-ghost" id="pledge-a" href="/">Hold a spot on show A</a></li>
-      <li><span><b>Check pace now</b> jumps both shows forward in time so the agent checks whether fans are joining fast enough. If a show is behind, it asks the artist first.<span class="ask-here" data-judge-ask data-app-only hidden></span><span class="ask-here" data-judge-done data-app-only hidden></span></span><button class="btn" type="button" id="pace">Check pace now</button><small class="pace-hint" id="pace-hint" data-app-only hidden>Ready once the starting fans are seated (about a minute).</small></li>
+      <li><span><b>Check pace now</b> jumps both shows forward in time so the agent checks whether fans are joining fast enough. If a show is behind, it asks the artist first.<span class="ask-here" data-judge-ask data-app-only hidden></span><span class="ask-here" data-judge-done data-app-only hidden></span></span><button class="btn" type="button" id="pace">Check pace now</button><small class="pace-hint" id="pace-hint" data-app-only hidden>Unlocks in about 30 seconds, once the starting fans are seated.</small></li>
       <li><span><b>Skip to the deadline</b> (on either card) ends both shows: Juniper Vale fills up, is charged and paid out; Marlow Finch ends as it stands, and short of its target every hold is cancelled.</span></li>
       <li><span><b>Start your own show</b> and sign its money rules.</span><a class="btn btn-ghost" id="start-own" href="/start">Start your own show</a></li>
     </ol>
+    <div class="judge-pass-box" data-judge-pass data-app-only></div>
     <div data-judge-creds></div>
     <div class="actions">
       <a class="btn btn-ghost" id="manage-a" href="/">Show A’s page</a>
       <a class="btn btn-ghost" id="manage-b" href="/">Show B’s page</a>
     </div>
     <p class="hint" data-judge-msg aria-live="polite"></p>
+    <p class="latest" data-latest data-app-only hidden><b>The agent’s latest decision:</b> <span data-latest-text></span> <a href="#decisions">All decisions ↓</a></p>
   </section>
 
   <section class="ledger" aria-label="What the agent did">
     <div>
       <h2 class="section-title">What the agent did</h2>
       <p class="note" id="agent-note" data-app-only hidden>Each show has its own AI agent. It can only act inside the five money rules below. Times follow the demo’s clock, which jumps when you skip ahead.</p>
+      <section class="decisions" id="decisions" data-app-only hidden aria-labelledby="h-decisions">
+        <h3 class="decisions-title" id="h-decisions">Decisions <span>what the agent decided, and the money rule that allowed it</span></h3>
+        <p class="decisions-empty" data-decisions-empty>Nothing decided yet. Press <b>Check pace now</b> below and the agent will check both shows and say what it would do.</p>
+        <ol class="decisions-list" data-decisions-list aria-live="polite"></ol>
+      </section>
+      <h3 class="log-title" data-app-only hidden>Every step</h3>
       <ol class="log" id="log" aria-live="polite"></ol>
       <p class="hint" id="resting" data-app-only hidden></p>
       <p class="hint" id="paused" data-app-only hidden aria-live="polite"></p>

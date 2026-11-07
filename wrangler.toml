@@ -18,7 +18,7 @@ new_sqlite_classes = ["CampaignAgent", "QuotaAgent"]
 [ai]
 binding = "AI"
 
-# Production. Non-secret values only: every key and id (PayPal, RATE_SALT, JUDGE_CODE, webhook id) is a Worker secret.
+# Production. Non-secret values only: every key and id (PayPal, RATE_SALT, JUDGE_CODE, JUDGE_BUYER_EMAIL, JUDGE_BUYER_PASSWORD, webhook id) is a Worker secret.
 # The Pages site (production origin). Local runs use [env.check] below.
 [vars]
 ALLOWED_ORIGINS = "https://tip-the-room.pages.dev"

@@ -29,6 +29,8 @@ export interface SettlementNote {
 export interface PayoutItemStatus {
   senderItemId: string;
   status: string;
+  /** PayPal's payout_item_id, for display only. */
+  payoutItemId?: string;
   transactionId?: string;
   amountCents: Cents;
 }

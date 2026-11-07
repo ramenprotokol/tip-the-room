@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledger extras harness</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+</head>
+<body>
+<main>
+  <section class="block" aria-labelledby="h-ledger">
+    <h2 class="section-title" id="h-ledger">Every money move</h2>
+    <div class="ledger-grid" id="ledger"></div>
+    <p class="grid-note"><span data-note>Newest first. Sort or filter any column.</span> <button class="linkish" type="button" id="csv">Download as CSV</button></p>
+  </section>
+  <section class="block" id="payout-block" aria-labelledby="h-payout-grid">
+    <h2 class="section-title" id="h-payout-grid">The payout batch</h2>
+    <p class="batch-head" data-batch-head aria-live="polite"></p>
+    <div class="ledger-grid payout-grid" id="payout-grid"></div>
+    <p class="grid-note">One line for each person PayPal was told to pay. <button class="linkish" type="button" id="payout-csv">Download the payouts as CSV</button></p>
+  </section>
+</main>
+<script type="module" src="/tests/ledger-ui/harness.ts"></script>
+</body>
+</html>

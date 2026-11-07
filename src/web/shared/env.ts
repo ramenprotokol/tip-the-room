@@ -50,14 +50,42 @@ export function safeStorage(): Storage | null {
   }
 }
 
-/** The judge code from a judge's link (?judge=...), kept for this tab, so judges draw from their own pool of demo copies. */
+/** The shape a judge code must have to be sent at all (the Worker checks the real value). */
+export const JUDGE_CODE_SHAPE = /^[A-Za-z0-9_-]{8,64}$/;
+const JUDGE_KEY = "ttr:judge";
+
+/**
+ * The judge code the visitor typed into the For judges box. It lives in this browser only (not the address bar, so it never
+ * reaches a history list, a server log or a shared link), and is sent in a header on the few calls that use it.
+ */
 export function judgeCode(): string | null {
-  const ok = (v: string | null) => (v && /^[A-Za-z0-9_-]{8,64}$/.test(v) ? v : null);
-  const fromUrl = ok(query.get("judge"));
+  for (const area of [safeStorage(), sessionOnly()]) {
+    try {
+      const v = area?.getItem(JUDGE_KEY) ?? null;
+      if (v && JUDGE_CODE_SHAPE.test(v)) return v;
+    } catch {
+      /* storage can throw (private mode): try the next one */
+    }
+  }
+  return null;
+}
+
+function sessionOnly(): Storage | null {
   try {
-    if (fromUrl) window.sessionStorage.setItem("ttr:judge", fromUrl);
-    return fromUrl ?? ok(window.sessionStorage.getItem("ttr:judge"));
+    return window.sessionStorage;
   } catch {
-    return fromUrl;
+    return null;
+  }
+}
+
+/** Remembers a code the Worker accepted (null forgets it). */
+export function saveJudgeCode(code: string | null): void {
+  for (const area of [safeStorage(), sessionOnly()]) {
+    try {
+      if (code) area?.setItem(JUDGE_KEY, code);
+      else area?.removeItem(JUDGE_KEY);
+    } catch {
+      /* nothing to do: the code then lasts until this page closes */
+    }
   }
 }

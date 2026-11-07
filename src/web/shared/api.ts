@@ -1,6 +1,6 @@
 // The one typed fetch client for every page. Errors become ApiFailure with a plain-English message that is safe to show as text.
 import { JUDGE_CODE_HEADER, MANAGE_KEY_HEADER } from "../../worker/api-types";
-import type { ApiError, ApproveRequest, ApproveResponse, AuthorizeResponse, CallOffResponse, CreateOrderRequest, CreateOrderResponse, CreateShowRequest, CreateShowResponse, DeclineResponse, DemoFansRequest, DemoFansResponse, DemoFastForwardResponse, DemoPaceResponse, DemoResponse, ErrorCode, ManageView, PublicShow, SignRequest, SignResponse } from "../../worker/api-types";
+import type { ApiError, ApproveRequest, AskLedgerResponse, JudgeCheckResponse, ApproveResponse, AuthorizeResponse, CallOffResponse, CreateOrderRequest, CreateOrderResponse, CreateShowRequest, CreateShowResponse, DeclineResponse, DemoFansRequest, DemoFansResponse, DemoFastForwardResponse, DemoPaceResponse, DemoResponse, ErrorCode, ManageView, PublicShow, SignRequest, SignResponse } from "../../worker/api-types";
 
 export class ApiFailure extends Error {
   constructor(
@@ -33,7 +33,7 @@ export async function act<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export interface ClientOptions {
-  /** The judge code from the visitor's link, sent on create show and demo create/reset only. */
+  /** The judge code the visitor typed into the For judges box, sent on create show, demo create/reset and ask-ledger only. */
   judgeCode?: () => string | null;
   timeoutMs?: number;
 }
@@ -56,6 +56,9 @@ export interface ApiClient {
   demoFastForward(demoId: string, key: string, show: "a" | "b"): Promise<DemoFastForwardResponse>;
   demoPace(demoId: string, key: string): Promise<DemoPaceResponse>;
   demoReset(demoId: string, key: string): Promise<DemoResponse>;
+  /** Checks a judge code typed into the For judges box. Sends the code in the header, never in the URL. */
+  judgeCheck(code: string): Promise<JudgeCheckResponse>;
+  askLedger(showId: string, key: string, question: string, names?: string[]): Promise<AskLedgerResponse>;
 }
 
 const seg = (s: string) => encodeURIComponent(s);
@@ -103,7 +106,7 @@ export function apiClient(base: string, fetchFn: FetchLike = (input, init) => fe
   return {
     createShow: (b) => run("POST", "/api/shows", b, undefined, judge()),
     sign: (id, b) => run("POST", `${show(id)}/sign`, b),
-    getShow: (id) => run("GET", show(id)),
+    getShow: (id) => run("GET", show(id), undefined, undefined, judge()),
     createOrder: (id, b) => run("POST", `${show(id)}/orders`, b),
     authorize: (id, orderId) => run("POST", `${show(id)}/orders/${seg(orderId)}/authorize`),
     manage: (id, key) => run("GET", `${show(id)}/manage`, undefined, key),
@@ -115,5 +118,7 @@ export function apiClient(base: string, fetchFn: FetchLike = (input, init) => fe
     demoFastForward: (id, key, which) => run("POST", `${demo(id)}/fast-forward`, { show: which }, key),
     demoPace: (id, key) => run("POST", `${demo(id)}/pace`, undefined, key),
     demoReset: (id, key) => run("POST", `${demo(id)}/reset`, undefined, key, judge()),
+    judgeCheck: (code) => run("POST", "/api/judge/check", undefined, undefined, { [JUDGE_CODE_HEADER]: code }),
+    askLedger: (id, key, question, names) => run("POST", `${show(id)}/ask-ledger`, { question, names }, key, judge()),
   };
 }

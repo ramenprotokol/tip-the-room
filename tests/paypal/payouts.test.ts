@@ -108,7 +108,7 @@ describe("getPayoutBatch", () => {
     expect(batch.batchId).toBe(body.batch_header.payout_batch_id);
     expect(batch.senderBatchId).toBe(body.batch_header.sender_batch_header.sender_batch_id);
     expect(batch.status).toBe(body.batch_header.batch_status);
-    expect(batch.items).toEqual([{ senderItemId: "spike-1791256675621-room", status: "PENDING", transactionId: undefined, amountCents: 100 }]);
+    expect(batch.items).toEqual([{ senderItemId: "spike-1791256675621-room", status: "PENDING", payoutItemId: "5M4D8LP3F33X6", transactionId: undefined, amountCents: 100 }]);
   });
   it("throws BAD_RESPONSE_BODY when payout_batch_id is missing or a different batch", async () => {
     const body = fixture("payout-get");

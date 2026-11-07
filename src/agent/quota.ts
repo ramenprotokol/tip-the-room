@@ -1,12 +1,15 @@
 import type { SqlDb } from "./sql";
 
-/** Workers AI free tier is 10,000 neurons/day; we stop at 8,000 to stay clear of it. */
-export const DAILY_NEURON_BUDGET = 8000;
 /**
- * The public's share of that. It is the whole budget for now: the judge-link mechanism (the `judge` flag on a reserve)
- * stays in place, but holds nothing back. Set it below DAILY_NEURON_BUDGET to keep the rest for judge links again.
+ * Workers AI free tier is 10,000 neurons/day (resets 00:00 UTC). The counter charges a fixed estimate per call that is above
+ * a real call (NEURON_ESTIMATE in ai.ts), so counting to 9,500 keeps real use under 10,000; if it ever went over, the model
+ * call would fail and the app would use its templates, which is the same fallback as a spent budget.
  */
-export const PUBLIC_NEURON_BUDGET = DAILY_NEURON_BUDGET;
+export const DAILY_NEURON_BUDGET = 9500;
+/** Kept back for visitors with a valid judge code: the public stops 2,500 neurons earlier (about 33 big-model calls). */
+export const JUDGE_NEURON_RESERVE = 2500;
+/** The public's share of the daily budget. A judge call may use the whole of it. */
+export const PUBLIC_NEURON_BUDGET = DAILY_NEURON_BUDGET - JUDGE_NEURON_RESERVE;
 
 export function utcDay(now: number): string {
   return new Date(now).toISOString().slice(0, 10);

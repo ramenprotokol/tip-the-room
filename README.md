@@ -2,6 +2,8 @@
 
 **Nobody's charged unless the show happens.**
 
+**The model proposes, the mandate decides.** An AI agent runs the money for a small show, but every capture, cancel, payout and refund must pass a plain-code check against five rules the artist signed and froze. When pledging falls behind, the AI proposes lowering the target or extending the deadline; nothing changes until the artist presses and holds to approve. If the AI is down, the show still settles.
+
 Tip the Room is a settlement agent for small DIY shows: house concerts, record-store and café gigs for 25 to 80 people. Fans hold a spot with a **PayPal hold, not a charge**. The artist signs the money rules once: how many fans are needed by when, and who gets paid what. From then on an agent watches the show. If enough fans join by the deadline, it charges every hold and pays the room, the opener and the artist the split they signed. If not, it cancels every hold and nobody pays. Anything outside the signed rules waits for the artist's approval.
 
 Built for the PayPal AI Hackathon (2026) by Ramen Protocol. **PayPal sandbox only: no real money moves.**
@@ -67,7 +69,7 @@ Real artists would be onboarded through PayPal's multiparty platform, so money g
 ## Known limits
 
 - **Sandbox only.** Fictional shows; play money.
-- **Demo capacity.** Each visitor gets a private demo copy that lasts 24 hours. Copies are capped at 12 an hour and 25 a day per visitor, and 50 a day for everyone together. Heavy public traffic can use up the day's copies.
+- **Demo capacity.** Each visitor gets a private demo copy that lasts 24 hours. To stay inside Cloudflare's free tier (100,000 Durable Object rows written a day), public copies are capped at 3 per visitor a day and 14 a day for everyone together, and part of the daily AI budget is kept back. Judges get a separate pass (in Devpost's private testing instructions) with its own reserved copies and AI share, so public traffic can't use up theirs. When a cap is reached, the page says so and when it refills.
 - **Read limit.** Show reads are limited per visitor, using a counter held in memory in each Worker isolate, so the cap is per isolate and resets when the isolate restarts. An edge cache (3 seconds) is configured on public show reads; we have not measured whether it takes effect on the hosting domain. Heavy traffic can use up the free daily quota, and the site stops answering until the daily reset.
 - **Agent toolkit: NO-GO on Workers.** The PayPal Agent Toolkit does not run its OAuth step on Cloudflare Workers, so this project calls PayPal's REST API directly (see Tools used).
 - **Reauthorizing holds is unverified.** On the sandbox account used, card holds offer no reauthorize link, and a reauthorize on day 0 is refused. We did not verify the day 4 to day 29 reauthorize path. Real fans' holds are not renewed: a show is charged when it tips, within the 21-day campaign cap. Only the demo's simulated fans get a fresh hold in place of one near expiry.

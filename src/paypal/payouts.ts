@@ -14,6 +14,8 @@ export interface SentBatch {
 export interface PayoutItem {
   senderItemId: string;
   status: string;
+  /** PayPal's payout_item_id (display only: nothing keys off it). */
+  payoutItemId?: string;
   transactionId?: string;
   amountCents: Cents;
 }
@@ -87,7 +89,7 @@ export async function sendPayouts(http: PayPalHttp, showId: string, lines: Payou
 
 interface BatchBody {
   batch_header: { payout_batch_id: string; batch_status: string; sender_batch_header?: { sender_batch_id?: string } };
-  items?: { transaction_id?: string; transaction_status?: string; payout_item?: { sender_item_id?: string; amount?: { value: string; currency: string } } }[];
+  items?: { payout_item_id?: string; transaction_id?: string; transaction_status?: string; payout_item?: { sender_item_id?: string; amount?: { value: string; currency: string } } }[];
 }
 
 /** Payout amounts use `currency` (not `currency_code`). Never trust a bare number. */
@@ -111,7 +113,7 @@ export async function getPayoutBatch(http: PayPalHttp, batchId: string): Promise
     items: (b.items ?? []).map((i) => {
       const senderItemId = i.payout_item?.sender_item_id;
       if (!senderItemId) throw new PayPalError(502, "BAD_RESPONSE_BODY", "a payout item came back without its sender_item_id");
-      return { senderItemId, status: i.transaction_status ?? "UNKNOWN", transactionId: i.transaction_id, amountCents: usdCents(i.payout_item?.amount, "payout item amount") };
+      return { senderItemId, status: i.transaction_status ?? "UNKNOWN", payoutItemId: i.payout_item_id, transactionId: i.transaction_id, amountCents: usdCents(i.payout_item?.amount, "payout item amount") };
     }),
   };
 }
