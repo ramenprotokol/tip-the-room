@@ -8,6 +8,7 @@ import type { SignHost, SignView, Phase, Payee, SignModel } from "../shared/sign
 import type { MarqueeHooks } from "../shared/hooks";
 import type { AgentLogDto, DemoResponse, ManageParty, ManageView, PublicShow } from "../../worker/api-types";
 import type { RuleId } from "../../core/rules";
+import { noCopyLine, NO_COPY_HINT } from '../shared/no-copy';
 import { mountJudgePass, type JudgeBuyer } from '../shared/judge-pass';
 import { API_BASE, HOOKS, PARITY, QUIET, SANDBOX_BUYER, judgeCode, markBooted, markReady, removeRefOnly, safeStorage } from "../shared/env";
 import { act, apiClient, ApiFailure, pendingCount } from "../shared/api";
@@ -45,11 +46,16 @@ const story = new StoryLog(log, $('#decisions'), {
 let payout: PayoutStrip | null = null;
 let demo: SavedDemo | null = null;
 let inflight = false;
+/** Set while the page has no demo copy (a cap or an outage on the first load): the cards say so and the judge buttons stay off. Cleared when a copy is made. */
+let noCopy: string | null = null;
+/** Set at the bottom of the file: starts the 3D layer if the first copy only arrived after boot. */
+let lateHost: () => void = () => undefined;
 const judgeMsg = (text: string) => { $('[data-judge-msg]').textContent = text; };
 const failed = (e: unknown) => {
   judgeMsg(e instanceof ApiFailure ? e.message : 'Something went wrong. Please try again.');
   // A cap (429) or an outage while making the copy: say so at the top, where the empty signs are, not only in the judges box.
   if (e instanceof ApiFailure && !demo) {
+    noCopy = noCopyLine(e.status); ctls.forEach(c => c.showNoCopy()); lock();
     const n = $('[data-cap-notice]'); n.hidden = false;
     n.textContent = e.status === 429 ? `${e.message} Nothing is broken: the rest of the site still works, and you can start your own show.` : `The sample shows could not start (${e.message}) You can still start your own show.`;
   }
@@ -74,6 +80,8 @@ class ShowCtl {
     this.ph = new Placeholder($('[data-ph]', el), FIRST_PAINT[key]); this.ph.update('held', 0);
     this.odoFans.set(0, true); this.odoHeld.set(0, true); this.odoCharged.set(0, true);
   }
+  /** No copy to show: replace the "Seating…" line with the plain reason. */
+  showNoCopy() { if (!this.show && noCopy) { this.fansSub.textContent = noCopy; this.buttons(); } }
   get name() { return this.show?.showName ?? ''; }
   get target() { return this.show?.threshold ?? 1; }
   get cents() { return this.show?.ticketPriceCents ?? 0; }
@@ -165,6 +173,8 @@ class ShowCtl {
     this.bAdd.disabled = !canAdd || inflight; this.bAdd.textContent = working === this.bAdd ? 'Working…' : !open || this.tipped || left >= 5 || left <= 0 ? 'Add 5 fans' : `Add ${left} fan${left === 1 ? '' : 's'}`;
     this.bFF.disabled = !open || this.busy || inflight;
     this.bReset.disabled = inflight;
+    if (noCopy && !this.show) { this.bAdd.disabled = this.bFF.disabled = this.bReset.disabled = true; }
+    for (const b of [this.bAdd, this.bFF, this.bReset]) { if (noCopy && !this.show) b.title = NO_COPY_HINT; else b.removeAttribute('title'); }
   }
   label() {
     const v = this.visual(), t = this.target;
@@ -348,8 +358,9 @@ function paceLock() {
   // Unlocks as soon as each show has the fans its pace check needs (agent-story.ts paceNeeds), not when the last starting fan lands.
   const wait = filling && !PARITY ? paceReady(ctls.map(c => ({ key: c.key, name: c.name || c.look.label, state: c.show?.state ?? 'live', committed: c.show?.fans.committed ?? 0, target: c.target, starting: START_FANS[c.key] }))) : null;
   const waiting = wait !== null && !wait.ready;
-  $<HTMLButtonElement>('#pace').disabled = inflight || waiting;
-  const hint = $('#pace-hint'); hint.hidden = !waiting; hint.textContent = wait && waiting ? wait.waiting : '';
+  const none = noCopy !== null && !demo;
+  $<HTMLButtonElement>('#pace').disabled = inflight || waiting || none;
+  const hint = $('#pace-hint'); hint.hidden = !waiting && !none; hint.textContent = none ? NO_COPY_HINT : wait && waiting ? wait.waiting : '';
 }
 
 function showResting() { const p = $('#resting'); p.hidden = PARITY || !ctls.some(c => c.resting); p.textContent = p.hidden ? '' : restingLine(Date.now(), ctls.find(c => c.resting)?.show?.timeZone); }
@@ -419,7 +430,7 @@ function start(r: DemoResponse) {
   story.clear(); A.load(r.shows[0]); B.load(r.shows[1]); summary(); links(); renderAsks();
 }
 /** Throws away the saved copy and starts a new one (first load, Start over, or when the server no longer knows the old one). */
-async function begin(r: DemoResponse) { $('[data-cap-notice]').hidden = true; start(r); filling = true; fillingSince = Date.now(); setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them four at a time, so the signs fill in about 30 seconds.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
+async function begin(r: DemoResponse) { $('[data-cap-notice]').hidden = true; noCopy = null; start(r); filling = true; fillingSince = Date.now(); setupLine(); judgeMsg('The starting fans are real PayPal sandbox holds. The agent seats them four at a time, so the signs fill in about 30 seconds.'); await Promise.all([pullView(A, true), pullView(B, true)]); }
 async function freshCopy(msg: string) { await begin(await api.createDemo()); judgeMsg(msg); }
 async function resetDemo(btn: HTMLButtonElement | null = null) {
   const d = demo; if (!d) return;
@@ -455,7 +466,7 @@ async function boot() {
     } catch (e) { failed(e); }
   });
   credsBox();
-  if (!PARITY) mountJudgePass($('[data-judge-pass]'), api, { onAccepted: (r) => { judgeBuyer = r.buyer; credsBox(); }, onCleared: () => { judgeBuyer = null; credsBox(); } });
+  if (!PARITY) mountJudgePass($('[data-judge-pass]'), api, { onAccepted: (r) => { judgeBuyer = r.buyer; credsBox(); if (!demo && !inflight) void solo(null, () => freshCopy('Judge pass accepted, so here is a fresh pair of sample shows.')).then(() => lateHost()); }, onCleared: () => { judgeBuyer = null; credsBox(); } });
   $('#judge').hidden = false;
 }
 /** The judges-only sandbox buyer, shown once a judge pass is accepted, so a changed public password can't lock judges out. */
@@ -530,8 +541,15 @@ if (HOOKS) window.__marquee = hooks;
 
 try { await boot(); } finally { markBooted(); }
 // 3D layer (optional): one shared WebGL renderer for both signs
-let host: SignHost | null = null;
-if (A.show && B.show) { try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { /* 3D is optional: host stays null, the flat SVG signs remain */ } }
-if (host) { const h = host; ctls.forEach(c => c.attach(h)); Ticker.add(now => h.tick(now)); hooks.views = host.views; hooks.host = host; }
+let host: SignHost | null = null, hosting = false;
+/** Starts the shared 3D layer once both shows exist (at boot, or later when a judge pass makes the first copy). */
+async function attachHost() {
+  if (host || hosting || !A.show || !B.show) return;
+  hosting = true;
+  try { const { SignHost } = await import("../shared/sign"); host = await SignHost.create(); } catch { /* 3D is optional: host stays null, the flat SVG signs remain */ }
+  if (host) { const h = host; ctls.forEach(c => c.attach(h)); Ticker.add(now => h.tick(now)); hooks.views = host.views; hooks.host = host; }
+}
+lateHost = () => { if (hooks.ready) void attachHost(); };
+await attachHost();
 hooks.ready = true;
 markReady();

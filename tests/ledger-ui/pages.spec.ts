@@ -2,7 +2,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import type { LedgerRowDto, ManageView, PayoutBatchDto } from "../../src/worker/api-types";
-import { MANAGE_FRAMES, MAYA_ID, MAYA_KEY } from "../gpu/fixtures";
+import { MANAGE_FRAMES, MAYA_ID, MAYA_KEY, demoApi } from "../gpu/fixtures";
 
 const SHOTS = "qa/judge-pass-grid";
 mkdirSync(SHOTS, { recursive: true });
@@ -35,6 +35,40 @@ test("home page at the daily cap: a clear message at the top, the page still wor
   await expect(page.locator("[data-judge-msg]")).toContainText("judge code");
   await expect(page.getByRole("link", { name: "Start your own show" }).first()).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/11-home-cap-reached.png`, fullPage: false });
+});
+
+test("home page at the cap: the cards say there is no copy, the judge buttons stay off, and a judge pass brings a copy back with no reload", async ({ page }) => {
+  const demo = demoApi();
+  await page.route("**/api/**", async (route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    const code = req.headers()["x-judge-code"];
+    if (path === "/api/judge/check") return code === CODE ? fulfil(route, 200, { ok: true, buyer: BUYER, demoCopiesPerDay: 12 }) : fulfil(route, 403, { error: { code: "forbidden", message: "nope" } });
+    if (path === "/api/demo" && code !== CODE) return fulfil(route, 429, { error: { code: "rate_limited", message: "Today's free demo copies are all taken: the sandbox runs on free plans, so each day has a fixed number.", retryAfterSec: 18000 } });
+    const raw = req.postData();
+    const reply = demo({ method: req.method(), path, body: raw ? JSON.parse(raw) : null, key: req.headers()["x-manage-key"] ?? null });
+    return reply ? fulfil(route, reply.status ?? 200, reply.body) : fulfil(route, 404, { error: { code: "not_found", message: "There's nothing here." } });
+  });
+  await page.goto("/");
+  await expect(page.locator("[data-cap-notice]")).toBeVisible();
+  for (const card of ["#show-a", "#show-b"]) {
+    await expect(page.locator(`${card} [data-fans-sub]`)).toContainText("No demo copy right now");
+    await expect(page.locator(`${card} [data-fans-sub]`)).not.toContainText("Seating");
+    for (const act of ["add", "ff", "reset"]) await expect(page.locator(`${card} [data-act=${act}]`)).toBeDisabled();
+  }
+  await expect(page.locator("#pace")).toBeDisabled();
+  await expect(page.locator("#pace-hint")).toBeVisible();
+  await expect(page.locator("#pace-hint")).toContainText("Needs a demo copy");
+  await page.screenshot({ path: `${SHOTS}/13-home-no-copy.png`, fullPage: false });
+
+  const box = page.locator("[data-judge-pass]");
+  await box.getByLabel("Judge code").fill(CODE);
+  await box.getByRole("button", { name: "Use judge pass" }).click();
+  await expect(page.locator("[data-cap-notice]")).toBeHidden();
+  await expect(page.locator("#show-a [data-fans-sub]")).not.toContainText("No demo copy right now");
+  await expect(page.locator("#show-a .title")).toHaveText("Juniper Vale");
+  await expect(page.locator("#show-a [data-act=ff]")).toBeEnabled();
+  await expect(page.locator("#show-a [data-act=reset]")).toBeEnabled();
 });
 
 test("judge pass: a wrong code is refused with a message; the right code shows the judges-only login and is kept out of the URL", async ({ page }) => {
