@@ -26,7 +26,7 @@
 **What judges see in the demo:**
 - **When pledging falls behind** (Marlow Finch in the demo), the AI proposes a fix: lower the target, or extend the deadline. Plain code has already checked each option against rule 5 and the show's cost floor, and nothing happens until the artist presses and holds to approve.
 - **The agent can't step outside the rules.** It cannot charge, cancel or pay outside rules 1–4, and if the AI is down or its budget is spent, the show still settles.
-- **Every decision is visible.** It shows in a pinned **Decisions** strip and an agent log that names the rule that allowed it. A settlement ledger built on AG Grid shows real PayPal sandbox ids. The Decisions strip sits above the full log, so you can see the agent act without scrolling, and the per-fan lines fold into one row.
+- **Every decision is visible.** A pinned **Decisions** strip above the agent log names the money rule behind each decision, and the per-fan lines fold into one row. A settlement ledger built on AG Grid shows real PayPal sandbox ids.
 
 ## Inspiration
 Small shows die on risk: someone fronts the room fee, and nobody knows if 15 or 50 people will come.

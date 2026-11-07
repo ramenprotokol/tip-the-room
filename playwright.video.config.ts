@@ -15,7 +15,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"]],
   outputDir: "test-results/video-run",
-  use: { baseURL: live ?? "http://127.0.0.1:5173", launchOptions: { args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] } },
+  use: { baseURL: live ?? "http://127.0.0.1:5173", launchOptions: { args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist", "--disable-blink-features=AutomationControlled"], ignoreDefaultArgs: ["--enable-automation"] } },
   webServer: live ? undefined : [
     {
       command: "rm -rf .wrangler/video && npx wrangler dev --local --env check --ip 127.0.0.1 --port 8788 --persist-to .wrangler/video",
