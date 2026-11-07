@@ -25,7 +25,11 @@ if (api) {
     const h = (await (await fetch(`${api}/api/health`)).json()) as HealthResponse;
     check(h.ok === true, "the Worker answers /api/health");
     check(h.setup.paypalClientId === env.VITE_PAYPAL_CLIENT_ID?.trim(), "the site and the Worker use the same PayPal sandbox app");
-    for (const [k, v] of Object.entries(h.setup)) if (typeof v === "boolean") check(v, `Worker setup: ${k}`);
+    // judgeBuyer is optional: without it, judges use the public sandbox login.
+    for (const [k, v] of Object.entries(h.setup)) if (typeof v === "boolean") {
+      if (k === "judgeBuyer" && !v) console.log("NOTE  Worker setup: judgeBuyer not set (optional; judges use the public sandbox login)");
+      else check(v, `Worker setup: ${k}`);
+    }
   } catch (e) {
     check(false, "the Worker answers /api/health", e instanceof Error ? e.message : String(e));
   }
