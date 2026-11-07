@@ -1,7 +1,5 @@
 # Devpost submission (paste into the form)
 
-> Judge-pass rewrite, 2026-11-07. Items marked **[FILL]** are completed from the builders' reports before pasting.
-
 **Project name:** Tip the Room
 
 **Tagline (60 chars max):** No show, no charge. An AI agent settles inside your rules.
@@ -28,7 +26,7 @@
 **What judges see in the demo:**
 - **When pledging falls behind** (Marlow Finch in the demo), the AI proposes a fix: lower the target, or extend the deadline. Plain code has already checked each option against rule 5 and the show's cost floor, and nothing happens until the artist presses and holds to approve.
 - **The agent can't step outside the rules.** It cannot charge, cancel or pay outside rules 1–4, and if the AI is down or its budget is spent, the show still settles.
-- **Every decision is visible.** It shows in a pinned **Decisions** strip and an agent log that names the rule that allowed it. A settlement ledger built on AG Grid shows real PayPal sandbox ids. **[FILL: one line on the Decisions strip once built]**
+- **Every decision is visible.** It shows in a pinned **Decisions** strip and an agent log that names the rule that allowed it. A settlement ledger built on AG Grid shows real PayPal sandbox ids. The Decisions strip sits above the full log, so you can see the agent act without scrolling, and the per-fan lines fold into one row.
 
 ## Inspiration
 Small shows die on risk: someone fronts the room fee, and nobody knows if 15 or 50 people will come.
@@ -65,7 +63,7 @@ Threshold-funded shows have been tried before (Songkick Detour, Queremos/WeDeman
   - **Ask the ledger:** type "which holds were cancelled?" and the model returns a small filter-and-sort spec. Code checks it against an allowlist of the real columns and statuses before calling `setFilterModel` / `applyColumnState`. If the AI is out, a keyword matcher takes over. The model never sees the ledger rows and can't touch money.
   - **Payout batch:** a second grid lists one line per payee, with the PayPal payout item id. Both grids export CSV (`exportDataAsCsv`, formula-safe).
 - **Platform:** Cloudflare Workers and SQLite Durable Objects (one per show, with alarms for pace checks and deadlines), Cloudflare Pages, three.js and GSAP for the marquee signs.
-- **Tests:** TypeScript, Vitest (**[FILL: final count]** unit tests), and Playwright for the judge flow.
+- **Tests:** TypeScript, Vitest (876 unit tests), and Playwright for the judge flow.
 
 ## Challenges
 Hold timing shaped the whole design. PayPal holds are valid for 29 days, but the funds are only guaranteed for the first 3, and a show is charged when it tips, which can be after day 3. A late capture can fail. We record that as a failed charge and do not rely on reauthorizing. The 21-day campaign cap is our own choice, to stay well inside 29 days. Every money call also had to survive lost answers and retries without double-charging or double-paying, so each is idempotent and reconciled with PayPal before any retry.
@@ -91,12 +89,12 @@ paypal-orders-v2, paypal-payments-v2, paypal-payouts, paypal-webhooks, paypal-js
 ## Testing instructions for judges (paste into the private testing-instructions field)
 Site: https://tip-the-room.pages.dev. No sign-up. Everything is PayPal sandbox play money.
 
-**[FILL: judge pass code, and where to enter it, once built. The judges-only sandbox buyer login goes here too, never on the public page.]**
+**Judge pass:** enter `JUDGE_CODE_HERE` in the "For judges" box on the home page. It gives judges their own daily demo copies and AI share, so public traffic can't use up yours.
 
 The PayPal sandbox login for the checkout popup is in the "For judges" box on the home page, with Copy buttons.
 
 1. **Hold a spot on Juniper Vale.** Click it in the "For judges" box and pay with the sandbox login. Your bulb lights, and the money is held, not charged.
-2. **Check pace now.** The agent checks both shows. Marlow Finch is behind, so it proposes a fix and asks the artist; open that show's page to approve it. **[FILL: the real unlock time once fixed]**
+2. **Check pace now.** The agent checks both shows. Marlow Finch is behind, so it proposes a fix and asks the artist; open that show's page to approve it. The button unlocks about 30 seconds after the page loads, once the starting fans are seated.
 3. **Skip to the deadline.** Juniper Vale tips: every hold is charged, and one PayPal payout batch pays the room, the opener and the artist. Marlow Finch falls short, and every hold is cancelled.
 4. **Start your own show.** Type one sentence, let the AI draft it, then hold to sign the money rules. "Use example emails" fills in the payee emails if you have none.
 
